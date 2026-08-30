@@ -39,7 +39,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           NetworkMode: network.id,
           PortBindings: { '7070/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
           Privileged: false,
-          PidMode: 'private',
+          PidMode: '',
           IpcMode: 'private',
           SecurityOpt: ['no-new-privileges:true'],
           NanoCpus: this.config.cpuLimit,

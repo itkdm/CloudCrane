@@ -66,7 +66,7 @@ jobs:
       - name: Run Docker integration test
         run: |
           set +e
-          output=$(pnpm --filter @cloudcrane/runner test --run src/docker.integration.test.ts 2>&1)
+          output=$(pnpm --filter @cloudcrane/runner exec vitest run --exclude dist/** --exclude .next/** src/docker.integration.test.ts 2>&1)
           status=$?
           printf '%s\n' "$output"
           if [ "$status" -ne 0 ]; then
