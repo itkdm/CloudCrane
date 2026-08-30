@@ -6,6 +6,20 @@ import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-
 
 const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
 
+async function waitForHealth(client: WorkspaceDaemonClient): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      expect((await client.health()).status).toBe('ok');
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw lastError ?? new Error('Workspace daemon did not become ready');
+}
+
 describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
   it('runs the daemon and preserves Workspace state across runtime recreation', async () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
@@ -19,7 +33,7 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       const endpoint = await provider.getEndpoint(workspaceId);
       expect(new URL(endpoint).hostname).toBe('127.0.0.1');
       const client = new WorkspaceDaemonClient(endpoint, 5_000);
-      expect((await client.health()).status).toBe('ok');
+      await waitForHealth(client);
       const info = await client.runtimeInfo();
       expect(info.uid).not.toBe(0);
       await client.write({
