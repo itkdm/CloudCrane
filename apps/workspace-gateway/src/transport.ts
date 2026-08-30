@@ -11,7 +11,7 @@ export function attachRunnerTransport(
   registry: RunnerRegistry,
   store: ControlPlaneStore,
 ) {
-  const server = new WebSocketServer({ noServer: true });
+  const server = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
   app.server.on('upgrade', (request, socket, head) => {
     if (new URL(request.url ?? '/', 'http://gateway').pathname !== '/v1/runners/connect') return;
     if (request.headers.authorization !== `Bearer ${config.runnerToken}`) {
@@ -52,8 +52,8 @@ export function attachRunnerTransport(
     });
     socket.on('close', () => {
       if (runnerId) {
-        registry.unregister(runnerId, socket);
-        void store.setRunnerStatus(runnerId, 'offline');
+        const wasCurrent = registry.unregister(runnerId, socket);
+        if (wasCurrent) void store.setRunnerStatus(runnerId, 'offline');
       }
     });
   });

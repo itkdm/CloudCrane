@@ -18,6 +18,7 @@ export const remoteErrorCodeSchema = z.enum([
   'PROCESS_TIMEOUT',
   'PROCESS_ABORTED',
   'OUTPUT_TRUNCATED',
+  'ABORTED',
 ]);
 
 export const remoteErrorSchema = z.object({

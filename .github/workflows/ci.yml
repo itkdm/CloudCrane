@@ -82,6 +82,7 @@ jobs:
       - run: pnpm --filter @cloudcrane/db db:migrate
       - run: pnpm --filter @cloudcrane/runner... build
       - run: pnpm --filter @cloudcrane/workspace-gateway... build
+      - run: pnpm --filter @cloudcrane/pi-adapter... build
       - name: Run Docker integration test
         run: |
           set +e
@@ -95,3 +96,5 @@ jobs:
           fi
       - name: Run remote execution integration test
         run: pnpm --filter @cloudcrane/workspace-gateway exec vitest run --exclude dist/** --exclude .next/** src/remote-execution.integration.test.ts
+      - name: Run Pi remote tools integration test
+        run: pnpm --filter @cloudcrane/pi-adapter exec vitest run --exclude dist/** --exclude .next/** src/remote-tools.integration.test.ts

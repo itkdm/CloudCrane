@@ -2,11 +2,16 @@ import { z } from 'zod';
 import {
   fsListResponseSchema,
   fsMkdirRequestSchema,
+  fsMkdirResponseSchema,
   fsReadRequestSchema,
+  fsReadResponseSchema,
   fsStatResponseSchema,
   fsWriteRequestSchema,
+  fsWriteResponseSchema,
   processCancelRequestSchema,
+  processCancelResponseSchema,
   processExecRequestSchema,
+  processExecResponseSchema,
   runtimeInfoSchema,
 } from '../daemon.js';
 
@@ -51,6 +56,39 @@ export const workspaceOperationSchema = z.discriminatedUnion(
 export type WorkspaceOperation = z.infer<typeof workspaceOperationSchema>;
 export type WorkspaceOperationName = WorkspaceOperation['operation'];
 
+export const runtimeOperationResponseSchema = z.object({
+  workspaceId: z.string().uuid(),
+  status: z.enum(['created', 'running', 'stopped', 'missing', 'error']),
+  containerRef: z.string().optional(),
+  endpoint: z.string().optional(),
+});
+
+export const operationResultSchemas = {
+  'runtime.create': runtimeOperationResponseSchema,
+  'runtime.start': runtimeOperationResponseSchema,
+  'runtime.stop': runtimeOperationResponseSchema,
+  'runtime.status': runtimeOperationResponseSchema,
+  'runtime.destroy': z.null(),
+  'runtime.info': runtimeInfoSchema,
+  'fs.read': fsReadResponseSchema,
+  'fs.write': fsWriteResponseSchema,
+  'fs.stat': fsStatResponseSchema,
+  'fs.list': fsListResponseSchema,
+  'fs.mkdir': fsMkdirResponseSchema,
+  'process.exec': processExecResponseSchema,
+  'process.cancel': processCancelResponseSchema,
+} as const satisfies Record<WorkspaceOperationName, z.ZodTypeAny>;
+
+export type OperationResult<K extends WorkspaceOperationName> = z.infer<
+  (typeof operationResultSchemas)[K]
+>;
+
+export function operationResultSchemaFor<K extends WorkspaceOperationName>(
+  operation: K,
+): (typeof operationResultSchemas)[K] {
+  return operationResultSchemas[operation];
+}
+
 const mutationOperations = new Set<WorkspaceOperationName>([
   'runtime.create',
   'runtime.start',
@@ -67,10 +105,14 @@ export function isMutationOperation(operation: WorkspaceOperationName): boolean 
 }
 
 export const operationResultSchema = z.union([
-  z.record(z.string(), z.unknown()),
+  runtimeOperationResponseSchema,
+  z.null(),
   runtimeInfoSchema,
+  fsReadResponseSchema,
+  fsWriteResponseSchema,
   fsStatResponseSchema,
   fsListResponseSchema,
-  z.string(),
-  z.null(),
+  fsMkdirResponseSchema,
+  processExecResponseSchema,
+  processCancelResponseSchema,
 ]);

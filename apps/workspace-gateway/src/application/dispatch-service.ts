@@ -6,7 +6,7 @@ import {
 } from '@cloudcrane/workspace-protocol';
 import { GatewayRemoteError, remoteError } from '../errors.js';
 import type { ControlPlaneStore } from '../ports/control-plane-store.js';
-import { RunnerRegistry } from '../infrastructure/runner-registry.js';
+import { RunnerDispatchError, RunnerRegistry } from '../infrastructure/runner-registry.js';
 
 export class WorkspaceDispatchService {
   constructor(
@@ -41,6 +41,8 @@ export class WorkspaceDispatchService {
       return this.publicResult(operation, result.result);
     } catch (error) {
       if (error instanceof GatewayRemoteError) throw error;
+      if (error instanceof RunnerDispatchError)
+        throw remoteError(error.code, error.message, { accepted: error.accepted });
       const unknown = isMutationOperation(operation.operation);
       throw remoteError(
         unknown ? 'UNKNOWN_RESULT' : 'REQUEST_TIMEOUT',

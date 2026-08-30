@@ -1,12 +1,15 @@
 import WebSocket from 'ws';
 import { createLogger } from '@cloudcrane/shared';
 import {
+  remoteErrorCodeSchema,
   runnerOperationSchema,
   runnerRegisteredSchema,
+  type RemoteError,
   type RunnerOperation,
 } from '@cloudcrane/workspace-protocol';
 import type { RunnerConfig } from '../../config.js';
 import { WorkspaceOperationHandler } from './workspace-operation-handler.js';
+import { WorkspaceDaemonClientError } from '../daemon/workspace-daemon-client.js';
 
 const logger = createLogger('runner-gateway-connection');
 const capabilities = [
@@ -31,6 +34,7 @@ export class RunnerGatewayConnection {
   private reconnectTimer?: NodeJS.Timeout;
   private attempt = 0;
   private readonly completed = new Map<string, { result: unknown; at: number }>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly config: RunnerConfig,
@@ -101,9 +105,10 @@ export class RunnerGatewayConnection {
   }
 
   private async handleOperation(socket: WebSocket, operation: RunnerOperation) {
-    const cached = operation.idempotencyKey
-      ? this.completed.get(operation.idempotencyKey)
+    const idempotencyKey = operation.idempotencyKey
+      ? `${operation.workspaceId}:${operation.operation}:${operation.idempotencyKey}`
       : undefined;
+    const cached = idempotencyKey ? this.completed.get(idempotencyKey) : undefined;
     if (cached) return this.sendCompleted(socket, operation, cached.result, 0);
     const started = Date.now();
     socket.send(
@@ -115,9 +120,14 @@ export class RunnerGatewayConnection {
     );
     try {
       if (Date.now() - started > operation.deadlineMs) throw new Error('deadline exceeded');
-      const result = await this.handler.execute(operation);
-      if (operation.idempotencyKey) {
-        this.completed.set(operation.idempotencyKey, { result, at: Date.now() });
+      let execution = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
+      if (!execution) {
+        execution = this.handler.execute(operation);
+        if (idempotencyKey) this.inFlight.set(idempotencyKey, execution);
+      }
+      const result = await execution;
+      if (idempotencyKey) {
+        this.completed.set(idempotencyKey, { result, at: Date.now() });
         for (const [key, value] of this.completed)
           if (Date.now() - value.at > 300_000) this.completed.delete(key);
         while (this.completed.size > 1_000)
@@ -125,19 +135,19 @@ export class RunnerGatewayConnection {
       }
       this.sendCompleted(socket, operation, result, Date.now() - started);
     } catch (error) {
+      const remote = toRemoteError(error);
       socket.send(
         JSON.stringify({
           type: 'runner.error',
           requestId: operation.requestId,
           traceId: operation.traceId,
-          error: {
-            code: 'INTERNAL_ERROR',
-            message: error instanceof Error ? error.message : 'operation failed',
-          },
+          error: remote,
           durationMs: Date.now() - started,
           outcome: 'FAILED',
         }),
       );
+    } finally {
+      if (idempotencyKey) this.inFlight.delete(idempotencyKey);
     }
   }
   private sendCompleted(
@@ -160,4 +170,24 @@ export class RunnerGatewayConnection {
     const delay = Math.min(30_000, 500 * 2 ** this.attempt++) + Math.floor(Math.random() * 250);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
+}
+
+function toRemoteError(error: unknown): RemoteError {
+  const code = error instanceof WorkspaceDaemonClientError ? error.code : undefined;
+  const parsedCode = code ? remoteErrorCodeSchema.safeParse(code) : undefined;
+  if (parsedCode?.success) {
+    return {
+      code: parsedCode.data,
+      message: error instanceof Error ? error.message : 'operation failed',
+      ...(error instanceof WorkspaceDaemonClientError && error.details
+        ? { details: error.details }
+        : {}),
+    };
+  }
+  if (error instanceof Error && error.message === 'deadline exceeded')
+    return { code: 'REQUEST_TIMEOUT', message: 'runner operation deadline exceeded' };
+  return {
+    code: 'INTERNAL_ERROR',
+    message: error instanceof Error ? error.message : 'operation failed',
+  };
 }

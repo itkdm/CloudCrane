@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import {
   clientOperationSchema,
-  operationResultSchema,
-  type ClientOperation,
-  type RuntimeInfo,
+  operationResultSchemaFor,
+  type OperationResult,
+  type WorkspaceOperationName,
+  remoteErrorSchema,
 } from '@cloudcrane/workspace-protocol';
 
 export type WorkspaceClientContext = {
@@ -23,7 +24,11 @@ export class WorkspaceClientError extends Error {
     this.name = 'WorkspaceClientError';
   }
 }
-type RequestOptions = { deadlineMs?: number; idempotencyKey?: string };
+export type RequestOptions = {
+  deadlineMs?: number;
+  idempotencyKey?: string;
+  signal?: AbortSignal;
+};
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export class WorkspaceClient {
@@ -33,8 +38,7 @@ export class WorkspaceClient {
     stop: (options?: RequestOptions) => this.call('runtime.stop', {}, options),
     status: (options?: RequestOptions) => this.call('runtime.status', {}, options),
     destroy: (options?: RequestOptions) => this.call('runtime.destroy', {}, options),
-    info: (options?: RequestOptions) =>
-      this.call('runtime.info', {}, options) as Promise<RuntimeInfo>,
+    info: (options?: RequestOptions) => this.call('runtime.info', {}, options),
   };
   readonly fs = {
     read: (payload: { path: string; maxBytes?: number }, options?: RequestOptions) =>
@@ -77,11 +81,11 @@ export class WorkspaceClient {
     this.fetcher = fetcher ?? fetch;
   }
 
-  private async call(
-    operation: ClientOperation['operation'],
+  private async call<K extends WorkspaceOperationName>(
+    operation: K,
     payload: Record<string, unknown>,
     options: RequestOptions = {},
-  ): Promise<unknown> {
+  ): Promise<OperationResult<K>> {
     const body = clientOperationSchema.parse({
       operation,
       payload,
@@ -93,43 +97,84 @@ export class WorkspaceClient {
       deadlineMs: options.deadlineMs ?? 120_000,
       idempotencyKey: options.idempotencyKey,
     });
-    let response: Response;
+    const controller = new AbortController();
+    const deadlineMs = options.deadlineMs ?? 120_000;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort('deadline exceeded');
+    }, deadlineMs);
+    const forwardAbort = () => controller.abort(options.signal?.reason ?? 'aborted');
+    if (options.signal?.aborted) forwardAbort();
+    else options.signal?.addEventListener('abort', forwardAbort, { once: true });
     try {
-      response = await this.fetcher(
-        `${this.endpoint}/v1/workspaces/${this.context.workspaceId}/operations`,
-        {
-          method: 'POST',
-          headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-      );
-    } catch (error) {
-      throw new WorkspaceClientError(
-        'REQUEST_TIMEOUT',
-        error instanceof Error ? error.message : 'workspace gateway request failed',
-      );
+      let response: Response;
+      try {
+        response = await this.fetcher(
+          `${this.endpoint}/v1/workspaces/${this.context.workspaceId}/operations`,
+          {
+            method: 'POST',
+            headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          },
+        );
+      } catch (error) {
+        if (timedOut)
+          throw new WorkspaceClientError('REQUEST_TIMEOUT', 'workspace gateway request timed out');
+        if (options.signal?.aborted)
+          throw new WorkspaceClientError('ABORTED', 'workspace gateway request was aborted');
+        throw new WorkspaceClientError('INTERNAL_ERROR', 'workspace gateway connection failed', {
+          cause: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+      let json: unknown;
+      try {
+        json = await response.json();
+      } catch {
+        if (timedOut)
+          throw new WorkspaceClientError('REQUEST_TIMEOUT', 'workspace gateway request timed out');
+        if (options.signal?.aborted)
+          throw new WorkspaceClientError('ABORTED', 'workspace gateway request was aborted');
+        throw new WorkspaceClientError('PROTOCOL_ERROR', 'workspace gateway returned invalid JSON');
+      }
+      if (!response.ok) {
+        const error =
+          json && typeof json === 'object' && 'error' in json
+            ? remoteErrorSchema.safeParse((json as { error?: unknown }).error)
+            : undefined;
+        if (!error || !error.success)
+          throw new WorkspaceClientError(
+            'PROTOCOL_ERROR',
+            `workspace gateway returned invalid error response (${response.status})`,
+            undefined,
+            response.status,
+          );
+        throw new WorkspaceClientError(
+          error.data.code,
+          error.data.message,
+          error.data.details,
+          response.status,
+        );
+      }
+      if (!json || typeof json !== 'object' || !('result' in json))
+        throw new WorkspaceClientError(
+          'PROTOCOL_ERROR',
+          'workspace gateway response has no result',
+        );
+      try {
+        return operationResultSchemaFor(operation).parse(
+          (json as { result: unknown }).result,
+        ) as OperationResult<K>;
+      } catch {
+        throw new WorkspaceClientError(
+          'PROTOCOL_ERROR',
+          `workspace gateway returned an invalid ${operation} result`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort', forwardAbort);
     }
-    const json: unknown = await response.json();
-    if (!response.ok) {
-      const error =
-        json && typeof json === 'object' && 'error' in json
-          ? (
-              json as {
-                error?: { code?: string; message?: string; details?: Record<string, unknown> };
-              }
-            ).error
-          : undefined;
-      throw new WorkspaceClientError(
-        error?.code ?? 'INTERNAL_ERROR',
-        error?.message ?? `workspace gateway HTTP ${response.status}`,
-        error?.details,
-        response.status,
-      );
-    }
-    const result =
-      json && typeof json === 'object' && 'result' in json
-        ? (json as { result: unknown }).result
-        : undefined;
-    return operationResultSchema.parse(result);
   }
 }

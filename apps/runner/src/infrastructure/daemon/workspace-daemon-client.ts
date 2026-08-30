@@ -30,6 +30,7 @@ export class WorkspaceDaemonClientError extends Error {
     public readonly details?: Record<string, unknown>,
   ) {
     super(message);
+    this.name = 'WorkspaceDaemonClientError';
   }
 }
 
@@ -60,8 +61,13 @@ export class WorkspaceDaemonClient {
   mkdir(request: { path: string; recursive?: boolean }) {
     return this.post('/v1/fs/mkdir', request, fsMkdirResponseSchema);
   }
-  exec(request: ProcessExecRequest) {
-    return this.post('/v1/process/exec', request, processExecResponseSchema);
+  exec(request: ProcessExecRequest, timeoutMs?: number) {
+    return this.post(
+      '/v1/process/exec',
+      request,
+      processExecResponseSchema,
+      timeoutMs ?? Math.max(this.timeoutMs, request.timeoutMs + 2_000),
+    );
   }
   cancel(executionId: string) {
     return this.post('/v1/process/cancel', { executionId }, processCancelResponseSchema);
@@ -71,8 +77,13 @@ export class WorkspaceDaemonClient {
     return this.request('GET', path, undefined, schema);
   }
 
-  private async post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
-    return this.request('POST', path, body, schema);
+  private async post<T>(
+    path: string,
+    body: unknown,
+    schema: z.ZodType<T>,
+    timeoutMs = this.timeoutMs,
+  ): Promise<T> {
+    return this.request('POST', path, body, schema, timeoutMs);
   }
 
   private async request<T>(
@@ -80,18 +91,45 @@ export class WorkspaceDaemonClient {
     path: string,
     body?: unknown,
     schema?: z.ZodType<T>,
+    timeoutMs = this.timeoutMs,
   ): Promise<T> {
     const requestId = randomUUID();
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort('deadline exceeded');
+    }, timeoutMs);
     try {
-      const response = await fetch(`${this.endpoint}${path}`, {
-        method,
-        headers: { 'content-type': 'application/json', 'x-request-id': requestId },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: controller.signal,
-      });
-      const payload: unknown = await response.json();
+      let response: Response;
+      try {
+        response = await fetch(`${this.endpoint}${path}`, {
+          method,
+          headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (timedOut)
+          throw new WorkspaceDaemonClientError(
+            'REQUEST_TIMEOUT',
+            'workspace daemon request timed out',
+          );
+        throw new WorkspaceDaemonClientError(
+          'INTERNAL_ERROR',
+          'workspace daemon connection failed',
+          { cause: error instanceof Error ? error.name : 'unknown' },
+        );
+      }
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new WorkspaceDaemonClientError(
+          'PROTOCOL_ERROR',
+          'workspace daemon returned invalid JSON',
+        );
+      }
       if (!response.ok) {
         const parsed = daemonErrorSchema.safeParse(payload);
         if (parsed.success) {
@@ -102,12 +140,19 @@ export class WorkspaceDaemonClient {
           );
         }
         throw new WorkspaceDaemonClientError(
-          'INTERNAL_ERROR',
-          `Workspace daemon HTTP ${response.status}`,
+          'PROTOCOL_ERROR',
+          'workspace daemon returned an invalid error response',
         );
       }
       if (!schema) return payload as T;
-      return schema.parse(payload);
+      try {
+        return schema.parse(payload);
+      } catch {
+        throw new WorkspaceDaemonClientError(
+          'PROTOCOL_ERROR',
+          'workspace daemon returned an invalid response',
+        );
+      }
     } finally {
       clearTimeout(timeout);
     }
