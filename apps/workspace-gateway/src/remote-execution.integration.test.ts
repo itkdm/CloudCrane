@@ -26,6 +26,20 @@ async function waitFor(url: string) {
   throw new Error(`timed out waiting for ${url}`);
 }
 
+async function waitForRunnerOnline() {
+  const probe = new WorkspaceClient('http://127.0.0.1:4102', token, { websiteId, workspaceId });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      await probe.runtime.status();
+      return;
+    } catch (error) {
+      if (error instanceof Error && !error.message.includes('no online runner')) return;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  }
+  throw new Error('timed out waiting for runner registration');
+}
+
 describe.skipIf(!enabled)('remote execution over real Gateway and Runner processes', () => {
   beforeAll(async () => {
     if (!platform) throw new Error('DATABASE_URL is required');
@@ -55,6 +69,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       env,
       stdio: 'ignore',
     });
+    await waitForRunnerOnline();
   }, 45_000);
 
   afterAll(async () => {
@@ -123,6 +138,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       },
       stdio: 'ignore',
     });
+    await waitForRunnerOnline();
     await expect(api.fs.read({ path: 'hello.txt' })).resolves.toMatchObject({
       content: 'hello cloudcrane',
     });
