@@ -63,4 +63,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: docker build -f docker/workspace-pboot/Dockerfile -t website-workspace-pboot:v1 .
       - run: pnpm --filter @cloudcrane/runner... build
-      - run: pnpm --filter @cloudcrane/runner test --run src/docker.integration.test.ts
+      - run: pnpm --filter @cloudcrane/runner test --run src/docker.integration.test.ts --reporter=github-actions
