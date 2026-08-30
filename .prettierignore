@@ -2,4 +2,6 @@
 dist
 node_modules
 pnpm-lock.yaml
-drizzle/meta
+**/drizzle/meta/**
+**/*.d.ts
+docs/**/*.md

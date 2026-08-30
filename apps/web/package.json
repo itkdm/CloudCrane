@@ -5,7 +5,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ../../eslint.config.mjs",
+    "lint": "eslint --config ../../eslint.config.mjs .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },

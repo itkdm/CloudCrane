@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "eslint ../../eslint.config.mjs",
+    "lint": "eslint --config ../../eslint.config.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
