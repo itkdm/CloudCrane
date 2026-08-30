@@ -63,4 +63,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: docker build -f docker/workspace-pboot/Dockerfile -t website-workspace-pboot:v1 .
       - run: pnpm --filter @cloudcrane/runner... build
-      - run: pnpm --filter @cloudcrane/runner test --run src/docker.integration.test.ts --reporter=github-actions
+      - name: Run Docker integration test
+        run: |
+          set +e
+          output=$(pnpm --filter @cloudcrane/runner test --run src/docker.integration.test.ts 2>&1)
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            detail=$(printf '%s' "$output" | tail -n 40 | tr '\n' ' ' | cut -c1-6000)
+            echo "::error title=Docker integration failure::$detail"
+            exit "$status"
+          fi
