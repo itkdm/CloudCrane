@@ -9,7 +9,8 @@ const enabled = process.env.CLOUDCRANE_REMOTE_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000101';
 const workspaceId = '00000000-0000-4000-8000-000000000102';
 const runnerId = '00000000-0000-4000-8000-000000000103';
-const token = 'integration-token';
+const clientToken = 'integration-client-token';
+const runnerToken = 'integration-runner-token';
 let gateway: ChildProcess | undefined;
 let runner: ChildProcess | undefined;
 const platform = process.env.DATABASE_URL ? createPlatformDb() : undefined;
@@ -27,7 +28,10 @@ async function waitFor(url: string) {
 }
 
 async function waitForRunnerOnline() {
-  const probe = new WorkspaceClient('http://127.0.0.1:4102', token, { websiteId, workspaceId });
+  const probe = new WorkspaceClient('http://127.0.0.1:4102', clientToken, {
+    websiteId,
+    workspaceId,
+  });
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
       await probe.runtime.status();
@@ -53,8 +57,8 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       .onConflictDoNothing();
     const env = {
       ...process.env,
-      WORKSPACE_GATEWAY_CLIENT_TOKEN: token,
-      RUNNER_AUTH_TOKEN: token,
+      WORKSPACE_GATEWAY_CLIENT_TOKEN: clientToken,
+      RUNNER_AUTH_TOKEN: runnerToken,
       WORKSPACE_GATEWAY_PORT: '4102',
       WORKSPACE_GATEWAY_HEARTBEAT_INTERVAL_MS: '500',
       WORKSPACE_GATEWAY_OFFLINE_TIMEOUT_MS: '1500',
@@ -84,7 +88,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
   }, 30_000);
 
   const client = () =>
-    new WorkspaceClient('http://127.0.0.1:4102', token, { websiteId, workspaceId });
+    new WorkspaceClient('http://127.0.0.1:4102', clientToken, { websiteId, workspaceId });
 
   it('executes runtime, filesystem, process, relationship guard, and reconnect flow', async () => {
     const api = client();
@@ -118,7 +122,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
     await expect(api.runtime.start({ idempotencyKey: 'integration-start' })).resolves.toMatchObject(
       { status: 'running' },
     );
-    const mismatch = new WorkspaceClient('http://127.0.0.1:4102', token, {
+    const mismatch = new WorkspaceClient('http://127.0.0.1:4102', clientToken, {
       websiteId: '00000000-0000-4000-8000-000000000105',
       workspaceId,
     });
@@ -131,7 +135,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       env: {
         ...process.env,
         WORKSPACE_GATEWAY_RUNNER_URL: 'ws://127.0.0.1:4102/v1/runners/connect',
-        RUNNER_AUTH_TOKEN: token,
+        RUNNER_AUTH_TOKEN: runnerToken,
         RUNNER_ID: runnerId,
         WORKSPACE_ROOT: '/tmp/cloudcrane-workspaces',
         WORKSPACE_IMAGE: 'website-workspace-pboot:v1',

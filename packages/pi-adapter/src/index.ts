@@ -144,11 +144,18 @@ class RemoteToolOperations {
   private async writeFile(absolutePath: string, content: string, checkSha: boolean) {
     const remotePath = this.map(absolutePath);
     const expectedSha256 = checkSha ? this.shaByPath.get(remotePath) : undefined;
-    const result = await this.workspaceClient.fs.write({
-      path: remotePath,
-      content,
-      ...(expectedSha256 ? { expectedSha256 } : {}),
-    });
+    let result;
+    try {
+      result = await this.workspaceClient.fs.write({
+        path: remotePath,
+        content,
+        ...(expectedSha256 ? { expectedSha256 } : {}),
+      });
+    } catch (error) {
+      if (error instanceof WorkspaceClientError && error.code === 'FILE_CHANGED')
+        this.shaByPath.delete(remotePath);
+      throw error;
+    }
     this.shaByPath.set(remotePath, result.sha256);
   }
 

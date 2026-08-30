@@ -44,9 +44,27 @@ importers:
 
   apps/agent-service:
     dependencies:
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@cloudcrane/website-agent':
+        specifier: workspace:*
+        version: link:../../packages/website-agent
+      '@cloudcrane/workspace-client':
+        specifier: workspace:*
+        version: link:../../packages/workspace-client
+      '@earendil-works/pi-ai':
+        specifier: 0.84.4
+        version: 0.84.4(ws@8.18.3)(zod@4.5.4)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.4
+        version: 0.84.4(ws@8.18.3)(zod@4.5.4)
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(pg@8.23.0)
       fastify:
         specifier: 5.12.1
         version: 5.12.1
@@ -194,7 +212,20 @@ importers:
         specifier: 10.3.1
         version: 10.3.1
 
-  packages/website-agent: {}
+  packages/website-agent:
+    dependencies:
+      '@cloudcrane/pi-adapter':
+        specifier: workspace:*
+        version: link:../pi-adapter
+      '@cloudcrane/workspace-client':
+        specifier: workspace:*
+        version: link:../workspace-client
+      '@earendil-works/pi-ai':
+        specifier: 0.84.4
+        version: 0.84.4(ws@8.18.3)(zod@4.5.4)
+      '@earendil-works/pi-coding-agent':
+        specifier: 0.84.4
+        version: 0.84.4(ws@8.18.3)(zod@4.5.4)
 
   packages/workspace-client:
     dependencies:

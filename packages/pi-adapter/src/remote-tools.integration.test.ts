@@ -10,7 +10,8 @@ const enabled = process.env.CLOUDCRANE_REMOTE_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000401';
 const workspaceId = '00000000-0000-4000-8000-000000000402';
 const runnerId = '00000000-0000-4000-8000-000000000403';
-const token = 'integration-token';
+const clientToken = 'integration-client-token';
+const runnerToken = 'integration-runner-token';
 let gateway: ChildProcess | undefined;
 let runner: ChildProcess | undefined;
 const platform = process.env.DATABASE_URL ? createPlatformDb() : undefined;
@@ -28,7 +29,7 @@ async function waitFor(url: string) {
 }
 
 const client = () =>
-  new WorkspaceClient('http://127.0.0.1:4103', token, { websiteId, workspaceId });
+  new WorkspaceClient('http://127.0.0.1:4103', clientToken, { websiteId, workspaceId });
 
 async function waitForRunnerOnline() {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -56,8 +57,8 @@ describe.skipIf(!enabled)('Pi coding tools over real Gateway, Runner, Docker, an
       .onConflictDoNothing();
     const env = {
       ...process.env,
-      WORKSPACE_GATEWAY_CLIENT_TOKEN: token,
-      RUNNER_AUTH_TOKEN: token,
+      WORKSPACE_GATEWAY_CLIENT_TOKEN: clientToken,
+      RUNNER_AUTH_TOKEN: runnerToken,
       WORKSPACE_GATEWAY_PORT: '4103',
       WORKSPACE_GATEWAY_HEARTBEAT_INTERVAL_MS: '500',
       WORKSPACE_GATEWAY_OFFLINE_TIMEOUT_MS: '1500',

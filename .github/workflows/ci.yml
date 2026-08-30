@@ -64,8 +64,8 @@ jobs:
       CLOUDCRANE_DOCKER_INTEGRATION: '1'
       CLOUDCRANE_REMOTE_INTEGRATION: '1'
       DATABASE_URL: postgresql://cloudcrane:cloudcrane@localhost:5432/cloudcrane
-      WORKSPACE_GATEWAY_CLIENT_TOKEN: integration-token
-      RUNNER_AUTH_TOKEN: integration-token
+      WORKSPACE_GATEWAY_CLIENT_TOKEN: integration-client-token
+      RUNNER_AUTH_TOKEN: integration-runner-token
       WORKSPACE_ROOT: /tmp/cloudcrane-workspaces
       WORKSPACE_IMAGE: website-workspace-pboot:v1
     steps:
@@ -83,6 +83,7 @@ jobs:
       - run: pnpm --filter @cloudcrane/runner... build
       - run: pnpm --filter @cloudcrane/workspace-gateway... build
       - run: pnpm --filter @cloudcrane/pi-adapter... build
+      - run: pnpm --filter @cloudcrane/agent-service... build
       - name: Run Docker integration test
         run: |
           set +e
@@ -98,3 +99,7 @@ jobs:
         run: pnpm --filter @cloudcrane/workspace-gateway exec vitest run --exclude dist/** --exclude .next/** src/remote-execution.integration.test.ts
       - name: Run Pi remote tools integration test
         run: pnpm --filter @cloudcrane/pi-adapter exec vitest run --exclude dist/** --exclude .next/** src/remote-tools.integration.test.ts
+      - name: Run Agent Runtime integration test
+        env:
+          CLOUDCRANE_AGENT_RUNTIME_INTEGRATION: '1'
+        run: pnpm --filter @cloudcrane/agent-service exec vitest run --exclude dist/** --exclude .next/** src/website-agent.integration.test.ts

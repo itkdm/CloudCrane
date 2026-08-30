@@ -44,4 +44,84 @@ describe('WorkspaceClient', () => {
       status: 504,
     } satisfies Partial<WorkspaceClientError>);
   });
+
+  it('reports UNKNOWN_RESULT when a mutation loses its transport outcome', async () => {
+    const client = new WorkspaceClient(
+      'http://gateway',
+      'client-secret',
+      context,
+      vi.fn(async () => {
+        throw new TypeError('socket closed');
+      }),
+    );
+    await expect(client.fs.write({ path: 'index.php', content: 'ok' })).rejects.toMatchObject({
+      code: 'UNKNOWN_RESULT',
+    });
+  });
+
+  it('keeps read-only connection failures distinguishable', async () => {
+    const client = new WorkspaceClient(
+      'http://gateway',
+      'client-secret',
+      context,
+      vi.fn(async () => {
+        throw new TypeError('socket closed');
+      }),
+    );
+    await expect(client.fs.read({ path: 'index.php' })).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    });
+  });
+
+  it('reports a mutation timeout as UNKNOWN_RESULT', async () => {
+    const client = new WorkspaceClient(
+      'http://gateway',
+      'client-secret',
+      context,
+      vi.fn(
+        (_input: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          }),
+      ),
+    );
+    await expect(
+      client.fs.write({ path: 'index.php', content: 'ok' }, { deadlineMs: 5 }),
+    ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
+  });
+
+  it('retains REQUEST_TIMEOUT for a read-only timeout', async () => {
+    const client = new WorkspaceClient(
+      'http://gateway',
+      'client-secret',
+      context,
+      vi.fn(
+        (_input: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          }),
+      ),
+    );
+    await expect(client.fs.read({ path: 'index.php' }, { deadlineMs: 5 })).rejects.toMatchObject({
+      code: 'REQUEST_TIMEOUT',
+    });
+  });
+
+  it('reports UNKNOWN_RESULT for an invalid mutation response', async () => {
+    const client = new WorkspaceClient(
+      'http://gateway',
+      'client-secret',
+      context,
+      vi.fn(async () => new Response('{not-json', { status: 200 })),
+    );
+    await expect(
+      client.process.exec({ command: 'echo', executionId: '00000000-0000-4000-8000-000000000003' }),
+    ).rejects.toMatchObject({
+      code: 'UNKNOWN_RESULT',
+    });
+  });
 });

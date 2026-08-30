@@ -86,4 +86,94 @@ describe('CloudCrane Pi ToolDefinitions', () => {
     expect(content).toBe('hello CloudCrane');
     expect(calls.at(-1)?.expectedSha256).toBe(sha('hello cloudcrane'));
   });
+
+  it('invalidates the edit SHA after FILE_CHANGED and rereads before retrying', async () => {
+    let content = 'before';
+    let changed = false;
+    const writes: Array<{ expectedSha256?: string }> = [];
+    const client = {
+      fs: {
+        stat: vi.fn(async () => ({
+          path: '/workspace/index.php',
+          type: 'file' as const,
+          size: content.length,
+          mode: 0o644,
+          modifiedAt: new Date().toISOString(),
+        })),
+        read: vi.fn(async () => ({
+          content,
+          sha256: sha(content),
+          size: content.length,
+          truncated: false,
+        })),
+        write: vi.fn(async (request: { expectedSha256?: string; content: string }) => {
+          writes.push(request);
+          if (!changed) {
+            changed = true;
+            throw new WorkspaceClientError('FILE_CHANGED', 'changed');
+          }
+          content = request.content;
+          return { sha256: sha(content), size: content.length };
+        }),
+        mkdir: vi.fn(async () => ({ path: '/workspace' })),
+        list: vi.fn(async () => ({ path: '/workspace', entries: [] })),
+      },
+      process: { exec: vi.fn(), cancel: vi.fn() },
+    };
+    const tools = createCloudCraneCodingTools({ workspaceClient: client as never });
+    await expect(
+      tools.edit.execute(
+        'edit-1',
+        { path: 'index.php', edits: [{ oldText: 'before', newText: 'first' }] },
+        undefined,
+        undefined,
+        undefined as never,
+      ),
+    ).rejects.toMatchObject({ code: 'FILE_CHANGED' });
+    await tools.edit.execute(
+      'edit-2',
+      { path: 'index.php', edits: [{ oldText: 'before', newText: 'second' }] },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+    expect(writes.map((write) => write.expectedSha256)).toEqual([sha('before'), sha('before')]);
+    expect(content).toBe('second');
+  });
+
+  it('does not cache the SHA of a truncated read', async () => {
+    const write = vi.fn(async () => ({ sha256: sha('new'), size: 3 }));
+    const client = {
+      fs: {
+        stat: vi.fn(async () => ({
+          path: '/workspace/index.php',
+          type: 'file' as const,
+          size: 100,
+          mode: 0o644,
+          modifiedAt: new Date().toISOString(),
+        })),
+        read: vi.fn(async () => ({
+          content: 'cut',
+          sha256: sha('full'),
+          size: 100,
+          truncated: true,
+        })),
+        write,
+        mkdir: vi.fn(async () => ({ path: '/workspace' })),
+        list: vi.fn(async () => ({ path: '/workspace', entries: [] })),
+      },
+      process: { exec: vi.fn(), cancel: vi.fn() },
+    };
+    const tools = createCloudCraneCodingTools({ workspaceClient: client as never });
+    await expect(
+      tools.edit.execute(
+        'edit-1',
+        { path: 'index.php', edits: [{ oldText: 'cut', newText: 'new' }] },
+        undefined,
+        undefined,
+        undefined as never,
+      ),
+    ).rejects.toMatchObject({ code: 'OUTPUT_TRUNCATED' });
+    expect(write).not.toHaveBeenCalled();
+  });
 });

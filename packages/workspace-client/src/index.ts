@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   clientOperationSchema,
   operationResultSchemaFor,
+  isMutationOperation,
   type OperationResult,
   type WorkspaceOperationName,
   remoteErrorSchema,
@@ -30,6 +31,7 @@ export type RequestOptions = {
   signal?: AbortSignal;
 };
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type WorkspaceClientContextProvider = () => WorkspaceClientContext;
 
 export class WorkspaceClient {
   readonly runtime = {
@@ -77,8 +79,13 @@ export class WorkspaceClient {
     private readonly token: string,
     private readonly context: WorkspaceClientContext,
     fetcher?: FetchLike,
+    private readonly contextProvider?: WorkspaceClientContextProvider,
   ) {
     this.fetcher = fetcher ?? fetch;
+  }
+
+  private getContext(): WorkspaceClientContext {
+    return this.contextProvider?.() ?? this.context;
   }
 
   private async call<K extends WorkspaceOperationName>(
@@ -86,14 +93,15 @@ export class WorkspaceClient {
     payload: Record<string, unknown>,
     options: RequestOptions = {},
   ): Promise<OperationResult<K>> {
+    const context = this.getContext();
     const body = clientOperationSchema.parse({
       operation,
       payload,
       requestId: randomUUID(),
-      traceId: this.context.traceId ?? randomUUID(),
-      websiteId: this.context.websiteId,
-      workspaceId: this.context.workspaceId,
-      agentRunId: this.context.agentRunId,
+      traceId: context.traceId ?? randomUUID(),
+      websiteId: context.websiteId,
+      workspaceId: context.workspaceId,
+      agentRunId: context.agentRunId,
       deadlineMs: options.deadlineMs ?? 120_000,
       idempotencyKey: options.idempotencyKey,
     });
@@ -107,11 +115,13 @@ export class WorkspaceClient {
     const forwardAbort = () => controller.abort(options.signal?.reason ?? 'aborted');
     if (options.signal?.aborted) forwardAbort();
     else options.signal?.addEventListener('abort', forwardAbort, { once: true });
+    let transportAttempted = false;
     try {
       let response: Response;
       try {
+        transportAttempted = true;
         response = await this.fetcher(
-          `${this.endpoint}/v1/workspaces/${this.context.workspaceId}/operations`,
+          `${this.endpoint}/v1/workspaces/${context.workspaceId}/operations`,
           {
             method: 'POST',
             headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
@@ -120,10 +130,23 @@ export class WorkspaceClient {
           },
         );
       } catch (error) {
+        if (timedOut && isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+          );
         if (timedOut)
           throw new WorkspaceClientError('REQUEST_TIMEOUT', 'workspace gateway request timed out');
         if (options.signal?.aborted)
           throw new WorkspaceClientError('ABORTED', 'workspace gateway request was aborted');
+        if (transportAttempted && isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+            {
+              cause: error instanceof Error ? error.name : 'unknown',
+            },
+          );
         throw new WorkspaceClientError('INTERNAL_ERROR', 'workspace gateway connection failed', {
           cause: error instanceof Error ? error.name : 'unknown',
         });
@@ -132,10 +155,20 @@ export class WorkspaceClient {
       try {
         json = await response.json();
       } catch {
+        if (timedOut && isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+          );
         if (timedOut)
           throw new WorkspaceClientError('REQUEST_TIMEOUT', 'workspace gateway request timed out');
         if (options.signal?.aborted)
           throw new WorkspaceClientError('ABORTED', 'workspace gateway request was aborted');
+        if (transportAttempted && isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+          );
         throw new WorkspaceClientError('PROTOCOL_ERROR', 'workspace gateway returned invalid JSON');
       }
       if (!response.ok) {
@@ -143,13 +176,21 @@ export class WorkspaceClient {
           json && typeof json === 'object' && 'error' in json
             ? remoteErrorSchema.safeParse((json as { error?: unknown }).error)
             : undefined;
-        if (!error || !error.success)
+        if (!error || !error.success) {
+          if (isMutationOperation(operation))
+            throw new WorkspaceClientError(
+              'UNKNOWN_RESULT',
+              'workspace gateway mutation outcome is unknown',
+              undefined,
+              response.status,
+            );
           throw new WorkspaceClientError(
             'PROTOCOL_ERROR',
             `workspace gateway returned invalid error response (${response.status})`,
             undefined,
             response.status,
           );
+        }
         throw new WorkspaceClientError(
           error.data.code,
           error.data.message,
@@ -157,16 +198,27 @@ export class WorkspaceClient {
           response.status,
         );
       }
-      if (!json || typeof json !== 'object' || !('result' in json))
+      if (!json || typeof json !== 'object' || !('result' in json)) {
+        if (isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+          );
         throw new WorkspaceClientError(
           'PROTOCOL_ERROR',
           'workspace gateway response has no result',
         );
+      }
       try {
         return operationResultSchemaFor(operation).parse(
           (json as { result: unknown }).result,
         ) as OperationResult<K>;
       } catch {
+        if (isMutationOperation(operation))
+          throw new WorkspaceClientError(
+            'UNKNOWN_RESULT',
+            'workspace gateway mutation outcome is unknown',
+          );
         throw new WorkspaceClientError(
           'PROTOCOL_ERROR',
           `workspace gateway returned an invalid ${operation} result`,
