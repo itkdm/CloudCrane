@@ -1,25 +1,27 @@
-import Fastify from 'fastify';
+import { createPlatformDb } from '@cloudcrane/db';
 import { createLogger } from '@cloudcrane/shared';
+import { buildGatewayApp } from './app.js';
+import { loadGatewayConfig } from './config.js';
+import { DrizzleControlPlaneStore } from './infrastructure/db-store.js';
 
-const port = Number(process.env.WORKSPACE_GATEWAY_PORT ?? 4102);
+const config = loadGatewayConfig();
+const platform = createPlatformDb();
+const app = buildGatewayApp(config, new DrizzleControlPlaneStore(platform));
 const logger = createLogger('workspace-gateway');
-const app = Fastify({ loggerInstance: logger });
 
-app.get('/health', async () => ({ service: 'workspace-gateway', status: 'ok' }));
+try {
+  await app.listen({ host: '0.0.0.0', port: config.port });
+  logger.info({ port: config.port }, 'workspace gateway listening');
+} catch (error) {
+  logger.error({ error }, 'workspace gateway failed to start');
+  await platform.pool.end();
+  process.exitCode = 1;
+}
 
 const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');
   await app.close();
-  process.exit(0);
+  await platform.pool.end();
 };
-
 process.once('SIGINT', () => void close('SIGINT'));
 process.once('SIGTERM', () => void close('SIGTERM'));
-
-try {
-  await app.listen({ host: '0.0.0.0', port });
-  logger.info({ port }, 'workspace gateway listening');
-} catch (error) {
-  logger.error({ error }, 'workspace gateway failed to start');
-  process.exit(1);
-}

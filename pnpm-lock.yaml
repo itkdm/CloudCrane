@@ -68,6 +68,9 @@ importers:
       pino:
         specifier: 10.3.1
         version: 10.3.1
+      ws:
+        specifier: 8.18.3
+        version: 8.18.3
       zod:
         specifier: 4.5.4
         version: 4.5.4
@@ -75,6 +78,9 @@ importers:
       '@types/dockerode':
         specifier: 4.0.1
         version: 4.0.1
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   apps/web:
     dependencies:
@@ -118,15 +124,31 @@ importers:
 
   apps/workspace-gateway:
     dependencies:
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@cloudcrane/workspace-client':
+        specifier: workspace:*
+        version: link:../../packages/workspace-client
+      '@cloudcrane/workspace-protocol':
+        specifier: workspace:*
+        version: link:../../packages/workspace-protocol
       fastify:
         specifier: 5.12.1
         version: 5.12.1
       pino:
         specifier: 10.3.1
         version: 10.3.1
+      ws:
+        specifier: 8.18.3
+        version: 8.18.3
+    devDependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   packages/db:
     dependencies:
@@ -154,7 +176,14 @@ importers:
 
   packages/website-agent: {}
 
-  packages/workspace-client: {}
+  packages/workspace-client:
+    dependencies:
+      '@cloudcrane/workspace-protocol':
+        specifier: workspace:*
+        version: link:../workspace-protocol
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   packages/workspace-protocol:
     dependencies:
@@ -1347,6 +1376,9 @@ packages:
 
   '@types/ssh2@1.15.5':
     resolution: {integrity: sha512-N1ASjp/nXH3ovBHddRJpli4ozpk6UdDYIX4RJWFa9L1YKnzdhTlVmiGHm4DZnj/jLbqZpes4aeR30EFGQtvhQQ==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.68.0':
     resolution: {integrity: sha512-WASHDpCm6qO5jj9g1a+8NiW5+GCkAyLReR56/4VruYmNgfUmqpxOfZ2Yfb8xGfJPWv5Qi6LSD8sXdces3vbp/Q==}
@@ -2700,6 +2732,18 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  ws@8.18.3:
+    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   xtend@4.0.2:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
@@ -3564,6 +3608,10 @@ snapshots:
   '@types/ssh2@1.15.5':
     dependencies:
       '@types/node': 18.19.130
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.20.1
 
   '@typescript-eslint/eslint-plugin@8.68.0(@typescript-eslint/parser@8.68.0(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3))(eslint@10.9.1(jiti@2.7.0))(typescript@6.0.3)':
     dependencies:
@@ -4862,6 +4910,8 @@ snapshots:
       strip-ansi: 6.0.1
 
   wrappy@1.0.2: {}
+
+  ws@8.18.3: {}
 
   xtend@4.0.2: {}
 
