@@ -152,8 +152,15 @@ class RemoteToolOperations {
         ...(expectedSha256 ? { expectedSha256 } : {}),
       });
     } catch (error) {
-      if (error instanceof WorkspaceClientError && error.code === 'FILE_CHANGED')
+      if (error instanceof WorkspaceClientError && error.code === 'FILE_CHANGED') {
         this.shaByPath.delete(remotePath);
+        throw new WorkspaceClientError(
+          error.code,
+          `[FILE_CHANGED] ${error.message}`,
+          error.details,
+          error.status,
+        );
+      }
       throw error;
     }
     this.shaByPath.set(remotePath, result.sha256);
