@@ -98,11 +98,11 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
     expect(bound[0]?.runnerId).toBe(runnerId);
     await expect(
       api.fs.write(
-        { path: 'hello.txt', content: 'hello cloudcrane' },
+        { path: '/workspace/hello.txt', content: 'hello cloudcrane' },
         { idempotencyKey: 'integration-write' },
       ),
     ).resolves.toMatchObject({ size: 15 });
-    await expect(api.fs.read({ path: 'hello.txt' })).resolves.toMatchObject({
+    await expect(api.fs.read({ path: '/workspace/hello.txt' })).resolves.toMatchObject({
       content: 'hello cloudcrane',
     });
     await expect(
@@ -122,7 +122,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       websiteId: '00000000-0000-4000-8000-000000000105',
       workspaceId,
     });
-    await expect(mismatch.fs.read({ path: 'hello.txt' })).rejects.toMatchObject({
+    await expect(mismatch.fs.read({ path: '/workspace/hello.txt' })).rejects.toMatchObject({
       code: 'WEBSITE_WORKSPACE_MISMATCH',
     });
     runner?.kill();
@@ -139,7 +139,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
       stdio: 'ignore',
     });
     await waitForRunnerOnline();
-    await expect(api.fs.read({ path: 'hello.txt' })).resolves.toMatchObject({
+    await expect(api.fs.read({ path: '/workspace/hello.txt' })).resolves.toMatchObject({
       content: 'hello cloudcrane',
     });
   }, 120_000);
