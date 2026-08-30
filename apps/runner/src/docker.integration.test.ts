@@ -29,6 +29,56 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       expect((await client.read({ path: '/workspace/persistence.txt' })).content).toBe(
         'survives runtime recreation',
       );
+      const firstSha = (await client.read({ path: '/workspace/persistence.txt' })).sha256;
+      await client.write({
+        path: '/workspace/persistence.txt',
+        content: 'updated',
+        expectedSha256: firstSha,
+      });
+      await expect(
+        client.write({
+          path: '/workspace/persistence.txt',
+          content: 'conflict',
+          expectedSha256: firstSha,
+        }),
+      ).rejects.toMatchObject({ code: 'FILE_CHANGED' });
+      await expect(client.read({ path: '/workspace/../etc/passwd' })).rejects.toMatchObject({
+        code: 'PATH_OUT_OF_SCOPE',
+      });
+      await expect(
+        client.exec({
+          command: 'sh',
+          args: ['-c', 'sleep 2'],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 50,
+          maxOutputBytes: 1_000,
+          executionId: '00000000-0000-4000-8000-000000000003',
+        }),
+      ).rejects.toMatchObject({ code: 'PROCESS_TIMEOUT' });
+      const cancelId = '00000000-0000-4000-8000-000000000004';
+      const cancellable = client.exec({
+        command: 'sh',
+        args: ['-c', 'sleep 10'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 20_000,
+        maxOutputBytes: 1_000,
+        executionId: cancelId,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect((await client.cancel(cancelId)).cancelled).toBe(true);
+      await expect(cancellable).rejects.toMatchObject({ code: 'PROCESS_ABORTED' });
+      const outbound = await client.exec({
+        command: 'curl',
+        args: ['-fsSI', '--max-time', '10', 'https://deb.debian.org'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 20_000,
+        maxOutputBytes: 100_000,
+        executionId: '00000000-0000-4000-8000-000000000005',
+      });
+      expect(outbound.exitCode).toBe(0);
       const result = await client.exec({
         command: 'sh',
         args: ['-c', 'printf runtime-ok'],
@@ -56,6 +106,12 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       ).toBe(false);
       expect(inspected.HostConfig?.Memory).toBeGreaterThan(0);
       expect(inspected.HostConfig?.PidsLimit).toBeGreaterThan(0);
+      expect(inspected.HostConfig?.SecurityOpt).toContain('no-new-privileges:true');
+      const networkInfo = await docker
+        .getNetwork(inspected.HostConfig?.NetworkMode ?? '')
+        .inspect();
+      expect(networkInfo.Internal).toBe(false);
+      expect(Object.keys(inspected.NetworkSettings?.Networks ?? {})).toHaveLength(1);
       await provider.destroyRuntime(workspaceId);
       created = false;
       const recreated = await provider.create(workspaceId);

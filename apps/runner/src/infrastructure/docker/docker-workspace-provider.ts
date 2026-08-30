@@ -1,9 +1,9 @@
 import { mkdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import Docker from 'dockerode';
+import { z } from 'zod';
 import type { RunnerConfig } from '../../config.js';
 import type { WorkspaceProvider, WorkspaceRuntime } from '../../ports/workspace-provider.js';
-
-const WORKSPACE_ID = /^[0-9a-fA-F-]{8,64}$/;
 
 export class DockerWorkspaceProvider implements WorkspaceProvider {
   constructor(
@@ -15,13 +15,15 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     this.assertWorkspaceId(workspaceId);
     const persistentPath = this.persistentPath(workspaceId);
     await mkdir(persistentPath, { recursive: true });
+    await this.provisionWorkspaceOwnership(persistentPath, workspaceId);
     const network = await this.docker.createNetwork({
       Name: `cloudcrane-workspace-${workspaceId}`,
       Driver: 'bridge',
-      Internal: true,
+      Internal: false,
     });
+    let container: Docker.Container | undefined;
     try {
-      const container = await this.docker.createContainer({
+      container = await this.docker.createContainer({
         Image: this.config.workspaceImage,
         name: `cloudcrane-workspace-${workspaceId}`,
         User: '1000:1000',
@@ -49,6 +51,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       await container.start();
       return this.runtime(workspaceId, container.id, 'running');
     } catch (error) {
+      await container?.remove({ force: true }).catch(() => undefined);
       await network.remove().catch(() => undefined);
       throw error;
     }
@@ -107,7 +110,34 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   private persistentPath(workspaceId: string): string {
     return `${this.config.workspaceRoot}/${workspaceId}/workspace`;
   }
+  private async provisionWorkspaceOwnership(
+    persistentPath: string,
+    workspaceId: string,
+  ): Promise<void> {
+    const ownerContainer = await this.docker.createContainer({
+      Image: this.config.workspaceImage,
+      name: `cloudcrane-workspace-owner-${workspaceId}-${randomUUID()}`,
+      User: '0:0',
+      Entrypoint: ['/usr/bin/chown'],
+      Cmd: ['-R', '1000:1000', '/workspace'],
+      HostConfig: {
+        Binds: [`${persistentPath}:/workspace`],
+        NetworkMode: 'none',
+        AutoRemove: false,
+      },
+    });
+    try {
+      await ownerContainer.start();
+      const result = await ownerContainer.wait();
+      if (result.StatusCode !== 0) {
+        throw new Error(`Workspace ownership provisioning failed (${result.StatusCode})`);
+      }
+    } finally {
+      await ownerContainer.remove({ force: true }).catch(() => undefined);
+    }
+  }
   private assertWorkspaceId(workspaceId: string): void {
-    if (!WORKSPACE_ID.test(workspaceId)) throw new Error('Invalid internal workspace id');
+    if (!z.string().uuid().safeParse(workspaceId).success)
+      throw new Error('Invalid internal workspace id');
   }
 }

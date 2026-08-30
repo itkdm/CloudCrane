@@ -43,4 +43,21 @@ describe('ProcessService', () => {
     expect(service.cancel(executionId).cancelled).toBe(true);
     await expect(pending).rejects.toMatchObject({ code: 'PROCESS_ABORTED' });
   });
+
+  it('limits output by UTF-8 bytes without splitting output characters', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-process-'));
+    const service = new ProcessService(new WorkspacePathResolver(root));
+    const result = await service.exec({
+      command: node,
+      args: ['-e', 'process.stdout.write("😀😀")'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5_000,
+      maxOutputBytes: 5,
+      executionId: randomUUID(),
+    });
+    expect(result.truncated).toBe(true);
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(5);
+    expect(result.stdout).toBe('😀');
+  });
 });

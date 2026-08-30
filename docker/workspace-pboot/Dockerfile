@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y php-cli git sqlite3 ripgrep ca-certificates \
+  && apt-get install --no-install-recommends -y php-cli git sqlite3 ripgrep curl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --gid 1000 workspace \
   && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash workspace

@@ -23,6 +23,16 @@ const daemonErrorSchema = z.object({
 });
 const healthSchema = z.object({ service: z.string(), status: z.literal('ok') });
 
+export class WorkspaceDaemonClientError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+  }
+}
+
 export class WorkspaceDaemonClient {
   constructor(
     private readonly endpoint: string,
@@ -84,10 +94,16 @@ export class WorkspaceDaemonClient {
       const payload: unknown = await response.json();
       if (!response.ok) {
         const parsed = daemonErrorSchema.safeParse(payload);
-        throw new Error(
-          parsed.success
-            ? `${parsed.data.error.code}: ${parsed.data.error.message}`
-            : `Workspace daemon HTTP ${response.status}`,
+        if (parsed.success) {
+          throw new WorkspaceDaemonClientError(
+            parsed.data.error.code,
+            parsed.data.error.message,
+            parsed.data.error.details,
+          );
+        }
+        throw new WorkspaceDaemonClientError(
+          'INTERNAL_ERROR',
+          `Workspace daemon HTTP ${response.status}`,
         );
       }
       if (!schema) return payload as T;

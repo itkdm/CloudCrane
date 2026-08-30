@@ -42,9 +42,7 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm --filter @cloudcrane/db db:migrate
-      - name: Verify PostgreSQL connection
-        run: >-
-          pnpm --filter @cloudcrane/db exec tsx -e "import pg from 'pg'; const client = new pg.Client({ connectionString: process.env.DATABASE_URL }); await client.connect(); const result = await client.query('select 1 as connected'); if (result.rows[0].connected !== 1) process.exit(1); await client.end();"
+      - run: pnpm --filter @cloudcrane/db db:verify
 
   docker-integration:
     runs-on: ubuntu-latest

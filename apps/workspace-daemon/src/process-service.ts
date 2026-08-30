@@ -25,19 +25,23 @@ export class ProcessService {
     });
     const execution: ActiveExecution = { child, cancelled: false };
     this.active.set(executionId, execution);
-    let stdout = '';
-    let stderr = '';
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let capturedBytes = 0;
     let truncated = false;
     const append = (target: 'stdout' | 'stderr', chunk: Buffer) => {
-      const remaining = request.maxOutputBytes - (stdout.length + stderr.length);
+      const remaining = request.maxOutputBytes - capturedBytes;
       if (remaining <= 0) {
         truncated = true;
         return;
       }
-      const value = chunk.subarray(0, remaining).toString('utf8');
-      if (target === 'stdout') stdout += value;
-      else stderr += value;
-      if (value.length < chunk.byteLength) truncated = true;
+      let value = chunk.subarray(0, remaining).toString('utf8');
+      while (Buffer.byteLength(value) > remaining) value = value.slice(0, -1);
+      const encoded = Buffer.from(value, 'utf8');
+      if (target === 'stdout') stdoutChunks.push(encoded);
+      else stderrChunks.push(encoded);
+      capturedBytes += encoded.byteLength;
+      if (encoded.byteLength < chunk.byteLength) truncated = true;
     };
     child.stdout?.on('data', (chunk: Buffer) => append('stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => append('stderr', chunk));
@@ -47,33 +51,37 @@ export class ProcessService {
       timedOut = true;
       this.kill(execution);
     }, request.timeoutMs);
-    const result = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>(
-      (resolve, reject) => {
-        child.once('error', reject);
-        child.once('close', (exitCode, signal) => resolve({ exitCode, signal }));
-      },
-    ).finally(() => clearTimeout(timeout));
-    this.active.delete(executionId);
-    const durationMs = Math.round(performance.now() - started);
-    if (timedOut)
-      throw new WorkspaceDaemonError('PROCESS_TIMEOUT', 'Process exceeded its timeout', {
+    try {
+      const result = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>(
+        (resolve, reject) => {
+          child.once('error', reject);
+          child.once('close', (exitCode, signal) => resolve({ exitCode, signal }));
+        },
+      ).finally(() => clearTimeout(timeout));
+      const durationMs = Math.round(performance.now() - started);
+      if (timedOut)
+        throw new WorkspaceDaemonError('PROCESS_TIMEOUT', 'Process exceeded its timeout', {
+          executionId,
+          durationMs,
+        });
+      if (execution.cancelled)
+        throw new WorkspaceDaemonError('PROCESS_ABORTED', 'Process was cancelled', {
+          executionId,
+          durationMs,
+        });
+      return {
         executionId,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        exitCode: result.exitCode,
         durationMs,
-      });
-    if (execution.cancelled)
-      throw new WorkspaceDaemonError('PROCESS_ABORTED', 'Process was cancelled', {
-        executionId,
-        durationMs,
-      });
-    return {
-      executionId,
-      stdout,
-      stderr,
-      exitCode: result.exitCode,
-      durationMs,
-      truncated,
-      status: 'completed',
-    };
+        truncated,
+        status: 'completed',
+      };
+    } finally {
+      clearTimeout(timeout);
+      this.active.delete(executionId);
+    }
   }
 
   cancel(executionId: string): { executionId: string; cancelled: boolean; status: 'aborted' } {
