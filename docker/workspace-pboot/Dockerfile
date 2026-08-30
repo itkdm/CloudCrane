@@ -10,7 +10,7 @@ WORKDIR /app
 COPY . .
 RUN npm install --global pnpm@10.11.0 \
   && pnpm install --frozen-lockfile --filter @cloudcrane/workspace-daemon...
-RUN pnpm --filter @cloudcrane/workspace-daemon build
+RUN pnpm --filter @cloudcrane/workspace-daemon... build
 
 RUN mkdir -p /workspace && chown -R workspace:workspace /workspace
 WORKDIR /workspace
