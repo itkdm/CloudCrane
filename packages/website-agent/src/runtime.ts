@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
+import { access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AgentSession,
@@ -13,6 +13,7 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  type InlineExtension,
   type ToolDefinition,
   type CreateAgentSessionRuntimeFactory,
 } from '@earendil-works/pi-coding-agent';
@@ -44,7 +45,7 @@ export const AGENT_RUN_STATUSES = [
   'INTERRUPTED',
 ] as const;
 export type AgentRunStatus = (typeof AGENT_RUN_STATUSES)[number];
-export type WebsiteSessionStatus = 'OPEN' | 'CLOSED';
+export type WebsiteSessionStatus = 'NEW' | 'ACTIVE' | 'CLOSED';
 
 export type WebsiteSessionIndex = {
   id: string;
@@ -62,6 +63,7 @@ export type AgentRunIndex = {
   id: string;
   websiteId: string;
   sessionId: string;
+  traceId: string;
   status: AgentRunStatus;
   model: string | null;
   error: string | null;
@@ -116,6 +118,57 @@ export type WebsiteAgentEvent = {
 type RunContext = { runId: string; traceId: string };
 type ActiveRun = RunContext & { aborted: boolean };
 
+export class WebsiteAgentRuntimeError extends Error {
+  constructor(
+    public readonly code: 'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WebsiteAgentRuntimeError';
+  }
+}
+
+class ProcessMutationLeaseRegistry {
+  private readonly owners = new Map<string, string>();
+
+  tryAcquire(websiteId: string, runId: string): boolean {
+    const owner = this.owners.get(websiteId);
+    if (owner && owner !== runId) return false;
+    this.owners.set(websiteId, runId);
+    return true;
+  }
+
+  release(websiteId: string, runId: string): void {
+    if (this.owners.get(websiteId) === runId) this.owners.delete(websiteId);
+  }
+}
+
+const processMutationLeases = new ProcessMutationLeaseRegistry();
+
+function wrapMutationTool(
+  tool: ToolDefinition,
+  websiteId: string,
+  getRunContext: () => RunContext | undefined,
+): ToolDefinition {
+  return {
+    ...tool,
+    execute: async (toolCallId, params, signal, onUpdate, context) => {
+      const run = getRunContext();
+      if (!run)
+        throw new WebsiteAgentRuntimeError(
+          'WEBSITE_MUTATION_BUSY',
+          '[WEBSITE_MUTATION_BUSY] mutating workspace tools require an active AgentRun',
+        );
+      if (!processMutationLeases.tryAcquire(websiteId, run.runId))
+        throw new WebsiteAgentRuntimeError(
+          'WEBSITE_MUTATION_BUSY',
+          '[WEBSITE_MUTATION_BUSY] another AgentRun is currently mutating this Website workspace',
+        );
+      return tool.execute(toolCallId, params, signal, onUpdate, context);
+    },
+  };
+}
+
 class ManagedSession implements DisposableSession {
   private unsubscribe?: () => void;
   activeRun?: ActiveRun;
@@ -154,7 +207,6 @@ export class WebsiteAgentRuntime {
   private readonly baseContext: WorkspaceClientContext;
   private readonly workspaceClient: WorkspaceClient;
   private readonly modelRuntimePromise: Promise<ModelRuntime>;
-  private remoteAgentsPromise?: Promise<Array<{ path: string; content: string }>>;
 
   constructor(private readonly options: WebsiteAgentRuntimeOptions) {
     assertUuid(options.websiteId, 'websiteId');
@@ -200,7 +252,7 @@ export class WebsiteAgentRuntime {
       piSessionId: sessionManager.getSessionId(),
       sessionFile: this.layout.relativeSessionFile(this.options.websiteId, sessionFile),
       title: null,
-      status: 'OPEN',
+      status: 'NEW',
       lastActiveAt: null,
     });
     try {
@@ -224,22 +276,45 @@ export class WebsiteAgentRuntime {
 
   async prompt(websiteSessionId: string, text: string): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
+    if (managed.activeRun)
+      throw new WebsiteAgentRuntimeError(
+        'SESSION_BUSY',
+        'this WebsiteSession already has an active AgentRun; use steer or followUp',
+      );
     const runId = randomUUID();
     const traceId = randomUUID();
     const startedAt = new Date().toISOString();
-    const run = await this.options.store.createRun({
-      id: runId,
-      websiteId: this.options.websiteId,
-      sessionId: managed.websiteSessionId,
-      status: 'PENDING',
-      model: this.options.model ? `${this.options.model.provider}/${this.options.model.id}` : null,
-      error: null,
-      startedAt: null,
-      endedAt: null,
-    });
-    const activeRun: ActiveRun = { runId: run.id, traceId, aborted: false };
+    const activeRun: ActiveRun = { runId, traceId, aborted: false };
     managed.activeRun = activeRun;
-    await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+    let run: AgentRunIndex | undefined;
+    try {
+      run = await this.options.store.createRun({
+        id: runId,
+        websiteId: this.options.websiteId,
+        sessionId: managed.websiteSessionId,
+        traceId,
+        status: 'PENDING',
+        model: this.options.model
+          ? `${this.options.model.provider}/${this.options.model.id}`
+          : null,
+        error: null,
+        startedAt: null,
+        endedAt: null,
+      });
+      await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+    } catch (error) {
+      if (run) {
+        await this.options.store
+          .updateRun(run.id, {
+            status: 'FAILED',
+            error: error instanceof Error ? error.message.slice(0, 500) : 'run bootstrap failed',
+            endedAt: new Date().toISOString(),
+          })
+          .catch(() => undefined);
+      }
+      if (managed.activeRun === activeRun) managed.activeRun = undefined;
+      throw error;
+    }
     let settled = false;
     let resolveSettled!: () => void;
     const settledPromise = new Promise<void>((resolve) => {
@@ -258,7 +333,12 @@ export class WebsiteAgentRuntime {
       const status = this.getRunStatus(managed.piRuntime.session, activeRun);
       const endedAt = new Date().toISOString();
       await this.options.store.updateRun(run.id, { status, endedAt });
-      await this.options.store.updateSession(managed.websiteSessionId, { lastActiveAt: endedAt });
+      const sessionStatus = managed.sessionManager.isPersisted() ? 'ACTIVE' : managed.record.status;
+      managed.record.status = sessionStatus;
+      await this.options.store.updateSession(managed.websiteSessionId, {
+        status: sessionStatus,
+        lastActiveAt: endedAt,
+      });
       return {
         runId,
         traceId,
@@ -276,6 +356,7 @@ export class WebsiteAgentRuntime {
       throw error;
     } finally {
       unsubscribe();
+      processMutationLeases.release(this.options.websiteId, activeRun.runId);
       if (managed.activeRun === activeRun) managed.activeRun = undefined;
     }
   }
@@ -305,22 +386,18 @@ export class WebsiteAgentRuntime {
     });
   }
 
-  async newSession(websiteSessionId: string): Promise<WebsiteSessionIndex> {
-    const managed = await this.getManaged(websiteSessionId);
-    await managed.piRuntime.newSession();
-    await this.persistSessionBinding(managed);
-    return managed.record;
+  async newSession(sourceWebsiteSessionId?: string): Promise<WebsiteSessionIndex> {
+    if (sourceWebsiteSessionId) await this.openSession(sourceWebsiteSessionId);
+    return this.createSession();
   }
 
   async switchSession(
     websiteSessionId: string,
-    relativeSessionFile: string,
+    targetWebsiteSessionId?: string,
   ): Promise<WebsiteSessionIndex> {
-    const managed = await this.getManaged(websiteSessionId);
-    const absolute = this.layout.absoluteSessionFile(this.options.websiteId, relativeSessionFile);
-    await managed.piRuntime.switchSession(absolute, { cwdOverride: this.piCwd });
-    await this.persistSessionBinding(managed);
-    return managed.record;
+    assertUuid(websiteSessionId, 'websiteSessionId');
+    const targetId = targetWebsiteSessionId ?? websiteSessionId;
+    return this.openSession(targetId);
   }
 
   async recoverStaleRuns(): Promise<void> {
@@ -339,6 +416,11 @@ export class WebsiteAgentRuntime {
     return this.sessions.size;
   }
 
+  async getSystemPrompt(websiteSessionId: string): Promise<string> {
+    const managed = await this.getManaged(websiteSessionId);
+    return managed.piRuntime.session.agent.state.systemPrompt;
+  }
+
   private async getManaged(websiteSessionId: string): Promise<ManagedSession> {
     const record = await this.openSession(websiteSessionId);
     return this.sessions.getOrLoad(record.id, () => this.loadManaged(record));
@@ -348,19 +430,40 @@ export class WebsiteAgentRuntime {
     record: WebsiteSessionIndex,
     manager?: SessionManager,
   ): Promise<ManagedSession> {
-    const sessionManager =
-      manager ??
-      SessionManager.open(
-        this.layout.absoluteSessionFile(this.options.websiteId, record.sessionFile),
-        this.layout.sessionDirectory(this.options.websiteId),
-        this.piCwd,
-      );
+    const sessionManager = manager ?? (await this.openOrRecreateSession(record));
     await this.ensurePiCwd();
     const modelRuntime = await this.modelRuntimePromise;
-    const tools = createCloudCraneCodingTools({
+    const rawTools = createCloudCraneCodingTools({
       workspaceClient: this.workspaceClient,
       cwd: LOGICAL_CWD,
     });
+    const tools = {
+      ...rawTools,
+      edit: wrapMutationTool(
+        rawTools.edit as unknown as ToolDefinition,
+        this.options.websiteId,
+        () => this.runContext.getStore(),
+      ),
+      write: wrapMutationTool(
+        rawTools.write as unknown as ToolDefinition,
+        this.options.websiteId,
+        () => this.runContext.getStore(),
+      ),
+      bash: wrapMutationTool(
+        rawTools.bash as unknown as ToolDefinition,
+        this.options.websiteId,
+        () => this.runContext.getStore(),
+      ),
+    };
+    const modelFacingCwdExtension: InlineExtension = {
+      name: 'cloudcrane-logical-cwd',
+      hidden: true,
+      factory: (pi) => {
+        pi.on('before_agent_start', ({ systemPrompt }) => ({
+          systemPrompt: replaceModelFacingCwd(systemPrompt, this.piCwd),
+        }));
+      },
+    };
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({
       cwd,
       agentDir,
@@ -380,6 +483,7 @@ export class WebsiteAgentRuntime {
           noThemes: true,
           noContextFiles: true,
           appendSystemPrompt: [APPEND_SYSTEM_PROMPT],
+          extensionFactories: [modelFacingCwdExtension],
           agentsFilesOverride: () => ({ agentsFiles }),
         },
       });
@@ -428,7 +532,8 @@ export class WebsiteAgentRuntime {
   private async persistSessionBinding(managed: ManagedSession): Promise<void> {
     const sessionFile = managed.piRuntime.session.sessionFile;
     if (!sessionFile) throw new Error('Pi session is missing its persistent file');
-    managed.record.piSessionId = managed.piRuntime.session.sessionId;
+    if (managed.record.piSessionId !== managed.piRuntime.session.sessionId)
+      throw new Error('Pi session identity changed for an existing WebsiteSession');
     managed.record.sessionFile = this.layout.relativeSessionFile(
       this.options.websiteId,
       sessionFile,
@@ -482,22 +587,49 @@ export class WebsiteAgentRuntime {
     return 'COMPLETED';
   }
 
-  private loadRemoteAgents(): Promise<Array<{ path: string; content: string }>> {
-    if (!this.remoteAgentsPromise) {
-      this.remoteAgentsPromise = this.workspaceClient.fs
-        .read({ path: '/workspace/AGENTS.md', maxBytes: REMOTE_AGENTS_MAX_BYTES })
-        .then((result) => {
-          if (result.truncated)
-            throw new Error('remote AGENTS.md exceeds the allowed context size');
-          return [{ path: '/workspace/AGENTS.md', content: result.content }];
-        })
-        .catch((error: unknown) => {
-          if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') return [];
-          throw error;
-        });
+  private async loadRemoteAgents(): Promise<Array<{ path: string; content: string }>> {
+    try {
+      const result = await this.workspaceClient.fs.read({
+        path: '/workspace/AGENTS.md',
+        maxBytes: REMOTE_AGENTS_MAX_BYTES,
+      });
+      if (result.truncated) throw new Error('remote AGENTS.md exceeds the allowed context size');
+      return [{ path: '/workspace/AGENTS.md', content: result.content }];
+    } catch (error: unknown) {
+      if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') return [];
+      throw error;
     }
-    return this.remoteAgentsPromise!;
   }
+
+  private async openOrRecreateSession(record: WebsiteSessionIndex): Promise<SessionManager> {
+    const sessionFile = this.layout.absoluteSessionFile(this.options.websiteId, record.sessionFile);
+    try {
+      await access(sessionFile);
+      return SessionManager.open(
+        sessionFile,
+        this.layout.sessionDirectory(this.options.websiteId),
+        this.piCwd,
+      );
+    } catch (error: unknown) {
+      if (!isFileNotFound(error)) throw error;
+      return SessionManager.create(
+        this.piCwd,
+        this.layout.sessionDirectory(this.options.websiteId),
+        { id: record.piSessionId },
+      );
+    }
+  }
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+}
+
+function replaceModelFacingCwd(systemPrompt: string, internalCwd: string): string {
+  const logicalLine = `Current working directory: ${LOGICAL_CWD}`;
+  const replaced = systemPrompt.replace(/^Current working directory: .*$/m, logicalLine);
+  const withLine = replaced.includes(logicalLine) ? replaced : `${logicalLine}\n\n${replaced}`;
+  return withLine.replaceAll(internalCwd, LOGICAL_CWD);
 }
 
 export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
@@ -536,7 +668,7 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
     },
     async recoverStaleRuns(websiteId) {
       for (const run of runs.values()) {
-        if (run.websiteId === websiteId && run.status === 'RUNNING') {
+        if (run.websiteId === websiteId && (run.status === 'PENDING' || run.status === 'RUNNING')) {
           run.status = 'INTERRUPTED';
           run.endedAt = new Date().toISOString();
         }

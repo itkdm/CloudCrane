@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,10 +8,18 @@ import {
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
+  type FauxResponseStep,
   type Model,
 } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import { createPlatformDb, website, websiteSession, workspace } from '@cloudcrane/db';
+import {
+  agentRun,
+  createPlatformDb,
+  runner as runnerTable,
+  website,
+  websiteSession,
+  workspace,
+} from '@cloudcrane/db';
 import { WorkspaceClient } from '@cloudcrane/workspace-client';
 import { WebsiteAgentRuntime, type WorkspaceClientFactory } from '@cloudcrane/website-agent';
 import { DrizzleWebsiteAgentStore } from './infrastructure/website-agent-store.js';
@@ -26,6 +34,29 @@ const port = 4104;
 const platform = process.env.DATABASE_URL ? createPlatformDb() : undefined;
 let gateway: ChildProcess | undefined;
 let runner: ChildProcess | undefined;
+let probe: WorkspaceClient | undefined;
+const agentDataRoots: string[] = [];
+const childLogs = new Map<ChildProcess, string[]>();
+
+function trackChild(child: ChildProcess, label: string): void {
+  const lines: string[] = [];
+  childLogs.set(child, lines);
+  const append = (chunk: Buffer | string) => {
+    lines.push(
+      ...`${chunk}`
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => `${label}: ${line}`),
+    );
+    if (lines.length > 40) lines.splice(0, lines.length - 40);
+  };
+  child.stdout?.on('data', append);
+  child.stderr?.on('data', append);
+}
+
+function diagnostics(): string {
+  return [...childLogs.values()].flat().join('\n');
+}
 
 async function waitFor(url: string): Promise<void> {
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -36,7 +67,35 @@ async function waitFor(url: string): Promise<void> {
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
   }
-  throw new Error(`timed out waiting for ${url}`);
+  throw new Error(`timed out waiting for ${url}\n${diagnostics()}`);
+}
+
+async function waitForRunnerRegistered(): Promise<void> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const rows = await platform!.db
+      .select({ status: runnerTable.status })
+      .from(runnerTable)
+      .where(eq(runnerTable.id, runnerId))
+      .limit(1);
+    if (rows[0]?.status === 'online') return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  }
+  throw new Error(`timed out waiting for runner ${runnerId} registration\n${diagnostics()}`);
+}
+
+async function terminate(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve();
+    }, 5_000);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', () => {
@@ -54,7 +113,14 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     await platform.db
       .insert(workspace)
       .values({ id: workspaceId, websiteId, provider: 'docker', status: 'missing' })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: workspace.id,
+        set: { runnerId: null, status: 'missing', containerRef: null, updatedAt: new Date() },
+      });
+    await platform.db
+      .update(runnerTable)
+      .set({ status: 'offline', lastHeartbeatAt: null, updatedAt: new Date() })
+      .where(eq(runnerTable.id, runnerId));
     const env = {
       ...process.env,
       DATABASE_URL: process.env.DATABASE_URL,
@@ -70,36 +136,33 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     };
     gateway = spawn(process.execPath, [path.resolve('../workspace-gateway/dist/index.js')], {
       env,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
+    trackChild(gateway, 'gateway');
     await waitFor(`http://127.0.0.1:${port}/health`);
     runner = spawn(process.execPath, [path.resolve('../runner/dist/index.js')], {
       env,
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const probe = new WorkspaceClient(`http://127.0.0.1:${port}`, clientToken, {
+    trackChild(runner, 'runner');
+    await waitForRunnerRegistered();
+    probe = new WorkspaceClient(`http://127.0.0.1:${port}`, clientToken, {
       websiteId,
       workspaceId,
     });
-    for (let attempt = 0; attempt < 60; attempt += 1) {
-      try {
-        await probe.runtime.status();
-        return;
-      } catch {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
-      }
-    }
-    throw new Error('timed out waiting for agent runtime runner registration');
+    await probe.runtime.create();
   }, 60_000);
 
   afterAll(async () => {
-    runner?.kill();
-    gateway?.kill();
+    await probe?.runtime.destroy().catch(() => undefined);
+    await Promise.all([terminate(runner), terminate(gateway)]);
+    await Promise.all(agentDataRoots.map((root) => rm(root, { recursive: true, force: true })));
     await platform?.pool.end();
   }, 30_000);
 
   it('drives remote read/write/edit/bash through a real prompt and records run context', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-runtime-'));
+    agentDataRoots.push(dataRoot);
     const faux = fauxProvider({
       provider: 'cloudcrane-integration',
       models: [{ id: 'deterministic' }],
@@ -208,11 +271,19 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       .from(websiteSession)
       .where(eq(websiteSession.id, session.id));
     expect(indexed[0]?.sessionFile).toBe(session.sessionFile);
+    expect(indexed[0]?.status).toBe('ACTIVE');
+    const indexedRuns = await platform!.db
+      .select()
+      .from(agentRun)
+      .where(eq(agentRun.id, result.runId));
+    expect(indexedRuns[0]?.status).toBe('COMPLETED');
+    expect(indexedRuns[0]?.traceId).toBe(result.traceId);
     await runtime.disposeAll();
   }, 120_000);
 
   it('surfaces FILE_CHANGED and aborts a remote long command through Pi', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-runtime-failure-'));
+    agentDataRoots.push(dataRoot);
     const faux = fauxProvider({
       provider: 'cloudcrane-failure',
       models: [{ id: 'deterministic' }],
@@ -260,8 +331,13 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       model: faux.getModel() as Model<'cloudcrane-failure'>,
     });
     const session = await runtime.createSession();
+    const runtimeEvents: string[] = [];
+    runtime.subscribe(({ event }) => {
+      if (event.type === 'tool_execution_end') runtimeEvents.push(JSON.stringify(event));
+    });
     const conflict = await runtime.prompt(session.id, 'Change the conflict file.');
     expect(conflict.status).toBe('COMPLETED');
+    expect(runtimeEvents.some((event) => event.includes('FILE_CHANGED'))).toBe(true);
     await expect(api.fs.read({ path: '/workspace/conflict.txt' })).resolves.toMatchObject({
       content: 'outside-change',
     });
@@ -274,6 +350,151 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     const longRun = runtime.prompt(session.id, 'Run the long command.');
     setTimeout(() => void runtime.abort(session.id), 500);
     await expect(longRun).resolves.toMatchObject({ status: 'ABORTED' });
+    const processProbe = await api.process.exec({
+      command: '/bin/bash',
+      args: ['-lc', "pgrep -af 'sleep 30' || true"],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 5_000,
+      maxOutputBytes: 32_768,
+      executionId: '00000000-0000-4000-8000-000000000504',
+    });
+    expect(processProbe.stdout).not.toContain('sleep 30');
+    await runtime.disposeAll();
+  }, 120_000);
+
+  it('keeps read-only sessions available while the Website mutation lease is held', async () => {
+    const leaseRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-runtime-lease-'));
+    agentDataRoots.push(leaseRoot);
+    await probe!.fs.write({ path: '/workspace/lease-source.txt', content: 'read me' });
+
+    const createRuntime = async (
+      providerName: 'cloudcrane-lease-a' | 'cloudcrane-lease-b',
+      responses: FauxResponseStep[],
+    ) => {
+      const faux = fauxProvider({ provider: providerName, models: [{ id: 'deterministic' }] });
+      faux.setResponses(responses);
+      const modelRuntime = await ModelRuntime.create({
+        modelsPath: null,
+        allowModelNetwork: false,
+        refreshOnCreate: false,
+      });
+      modelRuntime.registerNativeProvider(faux.provider);
+      const runtime = new WebsiteAgentRuntime({
+        websiteId,
+        workspaceId,
+        workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
+        workspaceClientToken: clientToken,
+        agentDataRoot: path.join(leaseRoot, providerName),
+        store: new DrizzleWebsiteAgentStore(platform!),
+        modelRuntime,
+        model: faux.getModel() as Model<typeof providerName>,
+      });
+      return { faux, runtime };
+    };
+
+    const { runtime: runtimeA } = await createRuntime('cloudcrane-lease-a', [
+      fauxAssistantMessage([fauxToolCall('bash', { command: 'sleep 3' })], {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage('lease A completed'),
+    ]);
+    const { faux: fauxB, runtime: runtimeB } = await createRuntime('cloudcrane-lease-b', [
+      fauxAssistantMessage([fauxToolCall('read', { path: '/workspace/lease-source.txt' })], {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage('read while lease held'),
+    ]);
+    const sessionA = await runtimeA.createSession();
+    const sessionB = await runtimeB.createSession();
+    let mutationStarted!: () => void;
+    const mutationStartedPromise = new Promise<void>((resolve) => {
+      mutationStarted = resolve;
+    });
+    runtimeA.subscribe(({ event }) => {
+      if (event.type === 'tool_execution_start' && event.toolName === 'bash') mutationStarted();
+    });
+    const runA = runtimeA.prompt(sessionA.id, 'hold the mutation lease');
+    await mutationStartedPromise;
+    await expect(runtimeB.prompt(sessionB.id, 'read while A mutates')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+
+    const busyEvents: string[] = [];
+    runtimeB.subscribe(({ event }) => {
+      if (event.type === 'tool_execution_end') busyEvents.push(JSON.stringify(event));
+    });
+    fauxB.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('write', { path: '/workspace/lease-b.txt', content: 'blocked' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage('mutation was busy'),
+    ]);
+    await expect(runtimeB.prompt(sessionB.id, 'mutate while A mutates')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+    expect(busyEvents.some((event) => event.includes('WEBSITE_MUTATION_BUSY'))).toBe(true);
+    await expect(runA).resolves.toMatchObject({ status: 'COMPLETED' });
+
+    fauxB.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('write', { path: '/workspace/lease-b.txt', content: 'allowed' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage('mutation completed'),
+    ]);
+    await expect(runtimeB.prompt(sessionB.id, 'mutate after A settles')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+    await expect(probe!.fs.read({ path: '/workspace/lease-b.txt' })).resolves.toMatchObject({
+      content: 'allowed',
+    });
+    await Promise.all([runtimeA.disposeAll(), runtimeB.disposeAll()]);
+  }, 120_000);
+
+  it('creates a new WebsiteSession without rebinding the source session', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-runtime-session-'));
+    agentDataRoots.push(dataRoot);
+    const faux = fauxProvider({
+      provider: 'cloudcrane-session-identity',
+      models: [{ id: 'deterministic' }],
+    });
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
+      workspaceClientToken: clientToken,
+      agentDataRoot: dataRoot,
+      store: new DrizzleWebsiteAgentStore(platform!),
+      modelRuntime,
+      model: faux.getModel() as Model<'cloudcrane-session-identity'>,
+    });
+    const source = await runtime.createSession();
+    const child = await runtime.newSession(source.id);
+    expect(child.id).not.toBe(source.id);
+    expect(child.piSessionId).not.toBe(source.piSessionId);
+    await expect(runtime.openSession(source.id)).resolves.toMatchObject({
+      id: source.id,
+      piSessionId: source.piSessionId,
+      sessionFile: source.sessionFile,
+    });
+    const rows = await platform!.db
+      .select()
+      .from(websiteSession)
+      .where(eq(websiteSession.websiteId, websiteId));
+    expect(rows.some((row) => row.id === source.id && row.piSessionId === source.piSessionId)).toBe(
+      true,
+    );
+    expect(rows.some((row) => row.id === child.id && row.piSessionId === child.piSessionId)).toBe(
+      true,
+    );
     await runtime.disposeAll();
   }, 120_000);
 });

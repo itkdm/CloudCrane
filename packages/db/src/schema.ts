@@ -78,6 +78,7 @@ export const agentRun = pgTable(
     sessionId: uuid('session_id')
       .notNull()
       .references(() => websiteSession.id, { onDelete: 'cascade' }),
+    traceId: uuid('trace_id').notNull(),
     status: varchar('status', { length: 32 }).notNull(),
     model: varchar('model', { length: 255 }),
     error: text('error'),
@@ -87,6 +88,7 @@ export const agentRun = pgTable(
   (table) => [
     index('agent_run_website_id_idx').on(table.websiteId),
     index('agent_run_session_id_idx').on(table.sessionId),
+    index('agent_run_trace_id_idx').on(table.traceId),
   ],
 );
 

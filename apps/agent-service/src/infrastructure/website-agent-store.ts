@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import type { PlatformDb } from '@cloudcrane/db';
 import { agentRun, websiteSession } from '@cloudcrane/db';
 import type {
@@ -20,7 +20,7 @@ function mapSession(row: typeof websiteSession.$inferSelect): WebsiteSessionInde
     piSessionId: row.piSessionId,
     sessionFile: row.sessionFile,
     title: row.title,
-    status: row.status as WebsiteSessionStatus,
+    status: row.status === 'OPEN' ? 'ACTIVE' : (row.status as WebsiteSessionStatus),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     lastActiveAt: toIso(row.lastActiveAt),
@@ -32,6 +32,7 @@ function mapRun(row: typeof agentRun.$inferSelect): AgentRunIndex {
     id: row.id,
     websiteId: row.websiteId,
     sessionId: row.sessionId,
+    traceId: row.traceId,
     status: row.status as AgentRunStatus,
     model: row.model,
     error: row.error,
@@ -98,6 +99,7 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
         ...(input.id ? { id: input.id } : {}),
         websiteId: input.websiteId,
         sessionId: input.sessionId,
+        traceId: input.traceId,
         status: input.status,
         model: input.model,
         error: input.error,
@@ -127,6 +129,11 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
     await this.platform.db
       .update(agentRun)
       .set({ status: 'INTERRUPTED', endedAt: new Date() })
-      .where(and(eq(agentRun.websiteId, websiteId), eq(agentRun.status, 'RUNNING')));
+      .where(
+        and(
+          eq(agentRun.websiteId, websiteId),
+          or(eq(agentRun.status, 'PENDING'), eq(agentRun.status, 'RUNNING')),
+        ),
+      );
   }
 }
