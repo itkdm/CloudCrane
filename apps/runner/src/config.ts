@@ -1,0 +1,21 @@
+export type RunnerConfig = {
+  runnerId: string;
+  workspaceRoot: string;
+  workspaceImage: string;
+  daemonPort: number;
+  cpuLimit: number;
+  memoryLimitBytes: number;
+  pidsLimit: number;
+};
+
+export function loadRunnerConfig(env = process.env): RunnerConfig {
+  return {
+    runnerId: env.RUNNER_ID ?? 'runner-local',
+    workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
+    workspaceImage: env.WORKSPACE_IMAGE ?? 'website-workspace-pboot:v1',
+    daemonPort: 7070,
+    cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),
+    memoryLimitBytes: Number(env.WORKSPACE_MEMORY_LIMIT_BYTES ?? 536_870_912),
+    pidsLimit: Number(env.WORKSPACE_PIDS_LIMIT ?? 256),
+  };
+}

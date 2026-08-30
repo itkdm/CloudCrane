@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { envelopeSchema } from './index.js';
+import { envelopeSchema, processExecRequestSchema, workspaceErrorCodeSchema } from './index.js';
 
 describe('workspace envelope', () => {
   it('accepts the shared envelope fields', () => {
@@ -24,5 +24,15 @@ describe('workspace envelope', () => {
         payload: null,
       }),
     ).toThrow();
+  });
+
+  it('validates runtime contracts and standard errors', () => {
+    expect(workspaceErrorCodeSchema.parse('FILE_CHANGED')).toBe('FILE_CHANGED');
+    expect(
+      processExecRequestSchema.parse({
+        command: 'php',
+        executionId: '00000000-0000-4000-8000-000000000000',
+      }),
+    ).toMatchObject({ cwd: '/workspace', timeoutMs: 120000 });
   });
 });
