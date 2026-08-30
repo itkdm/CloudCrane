@@ -7,16 +7,9 @@ RUN apt-get update \
   && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash workspace
 
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-COPY apps/workspace-daemon/package.json apps/workspace-daemon/package.json
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/workspace-protocol/package.json packages/workspace-protocol/package.json
+COPY . .
 RUN npm install --global pnpm@10.11.0 \
   && pnpm install --frozen-lockfile --filter @cloudcrane/workspace-daemon...
-
-COPY apps/workspace-daemon apps/workspace-daemon
-COPY packages/shared packages/shared
-COPY packages/workspace-protocol packages/workspace-protocol
 RUN pnpm --filter @cloudcrane/workspace-daemon build
 
 RUN mkdir -p /workspace && chown -R workspace:workspace /workspace
