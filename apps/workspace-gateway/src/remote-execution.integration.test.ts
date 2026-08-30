@@ -81,7 +81,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
     runner?.kill();
     gateway?.kill();
     await platform?.pool.end();
-  });
+  }, 30_000);
 
   const client = () =>
     new WorkspaceClient('http://127.0.0.1:4102', token, { websiteId, workspaceId });

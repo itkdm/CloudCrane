@@ -1,6 +1,7 @@
 import type { RunnerOperation } from '@cloudcrane/workspace-protocol';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import { WorkspaceRuntimeService } from '../../application/workspace-runtime-service.js';
+import type { WorkspaceRuntime } from '../../ports/workspace-provider.js';
 
 export class WorkspaceOperationHandler {
   constructor(private readonly runtime: WorkspaceRuntimeService) {}
@@ -8,9 +9,9 @@ export class WorkspaceOperationHandler {
   async execute(operation: RunnerOperation): Promise<unknown> {
     switch (operation.operation) {
       case 'runtime.create':
-        return this.runtime.create(operation.workspaceId);
+        return this.waitForDaemon(await this.runtime.create(operation.workspaceId));
       case 'runtime.start':
-        return this.runtime.start(operation.workspaceId);
+        return this.waitForDaemon(await this.runtime.start(operation.workspaceId));
       case 'runtime.stop':
         return this.runtime.stop(operation.workspaceId);
       case 'runtime.status':
@@ -39,5 +40,19 @@ export class WorkspaceOperationHandler {
 
   private async daemon(workspaceId: string) {
     return new WorkspaceDaemonClient(await this.runtime.endpoint(workspaceId));
+  }
+
+  private async waitForDaemon(runtime: WorkspaceRuntime) {
+    if (!runtime.endpoint) return runtime;
+    const client = new WorkspaceDaemonClient(runtime.endpoint);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        await client.health();
+        return runtime;
+      } catch {
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+      }
+    }
+    throw new Error('workspace daemon did not become ready');
   }
 }
