@@ -134,6 +134,7 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         await provider.getEndpoint(workspaceId),
         5_000,
       );
+      await waitForHealth(recreatedClient);
       expect((await recreatedClient.read({ path: '/workspace/persistence.txt' })).content).toBe(
         'survives runtime recreation',
       );
