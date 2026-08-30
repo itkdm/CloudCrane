@@ -74,7 +74,7 @@ class RemoteToolOperations {
 
   readonly edit: EditOperations = {
     access: (absolutePath) => this.access(absolutePath),
-    readFile: (absolutePath) => this.readFile(absolutePath),
+    readFile: (absolutePath) => this.readFile(absolutePath, false),
     writeFile: (absolutePath, content) => this.writeFile(absolutePath, content, true),
   };
 
@@ -122,7 +122,7 @@ class RemoteToolOperations {
     return result.entries.map((entry) => path.posix.basename(entry.path));
   }
 
-  private async readFile(absolutePath: string): Promise<Buffer> {
+  private async readFile(absolutePath: string, rememberSha = true): Promise<Buffer> {
     const remotePath = this.map(absolutePath);
     const result = await this.workspaceClient.fs.read({ path: remotePath });
     if (result.truncated) {
@@ -133,7 +133,8 @@ class RemoteToolOperations {
         { path: remotePath, size: result.size },
       );
     }
-    this.shaByPath.set(remotePath, result.sha256);
+    if (rememberSha || !this.shaByPath.has(remotePath))
+      this.shaByPath.set(remotePath, result.sha256);
     return Buffer.from(result.content, 'utf8');
   }
 
