@@ -301,7 +301,10 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         stopReason: 'toolUse',
       }),
       async () => {
-        await api.fs.write({ path: '/workspace/conflict.txt', content: 'outside-change' });
+        await api.fs.write({
+          path: '/workspace/conflict.txt',
+          content: 'original\noutside-change',
+        });
         return fauxAssistantMessage(
           [
             fauxToolCall('edit', {
@@ -339,7 +342,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     expect(conflict.status).toBe('COMPLETED');
     expect(runtimeEvents.some((event) => event.includes('FILE_CHANGED'))).toBe(true);
     await expect(api.fs.read({ path: '/workspace/conflict.txt' })).resolves.toMatchObject({
-      content: 'outside-change',
+      content: 'original\noutside-change',
     });
 
     faux.setResponses([
