@@ -65,7 +65,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   async stop(workspaceId: string): Promise<WorkspaceRuntime> {
     const container = await this.container(workspaceId);
     await container.stop();
-    return this.runtime(workspaceId, container.id, 'stopped');
+    return { workspaceId, containerRef: container.id, status: 'stopped' };
   }
 
   async getStatus(workspaceId: string): Promise<WorkspaceRuntime> {
