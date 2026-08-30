@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cloudcrane
+      POSTGRES_USER: cloudcrane
+      POSTGRES_PASSWORD: cloudcrane
+    ports:
+      - '5432:5432'
+    volumes:
+      - cloudcrane-postgres:/var/lib/postgresql/data
+
+volumes:
+  cloudcrane-postgres:

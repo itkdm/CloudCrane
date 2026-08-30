@@ -4,6 +4,10 @@ node_modules/
 !.env.example
 .DS_Store
 Thumbs.db
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
 
 # IDE temporary files
 .idea/

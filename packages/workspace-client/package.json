@@ -1,0 +1,11 @@
+{
+  "name": "@cloudcrane/workspace-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint ../../eslint.config.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
+  }
+}
