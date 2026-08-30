@@ -112,8 +112,8 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         .getContainer(runtime.containerRef!)
         .inspect()) as ContainerInspectInfo;
       expect(inspected.HostConfig?.Privileged).toBe(false);
-      expect(inspected.HostConfig?.PidMode ?? '').toBe('');
-      expect(inspected.HostConfig?.IpcMode ?? '').toBe('');
+      expect(inspected.HostConfig?.PidMode).toBe('private');
+      expect(inspected.HostConfig?.IpcMode).toBe('private');
       expect(
         inspected.HostConfig?.Binds?.some((mount) => mount.includes('/var/run/docker.sock')),
       ).toBe(false);
