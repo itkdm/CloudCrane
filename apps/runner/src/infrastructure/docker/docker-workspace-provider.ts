@@ -39,7 +39,6 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           Privileged: false,
           PidMode: '',
           IpcMode: '',
-          CapDrop: ['ALL'],
           SecurityOpt: ['no-new-privileges:true'],
           NanoCpus: this.config.cpuLimit,
           Memory: this.config.memoryLimitBytes,

@@ -49,6 +49,8 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         .inspect()) as ContainerInspectInfo;
       expect(inspected.HostConfig?.Privileged).toBe(false);
       expect(inspected.HostConfig?.NetworkMode).toContain('cloudcrane-workspace-');
+      expect(inspected.HostConfig?.PidMode ?? '').toBe('');
+      expect(inspected.HostConfig?.IpcMode ?? '').toBe('');
       expect(
         inspected.HostConfig?.Binds?.some((mount) => mount.includes('/var/run/docker.sock')),
       ).toBe(false);
