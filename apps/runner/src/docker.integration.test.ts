@@ -112,7 +112,6 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         .getContainer(runtime.containerRef!)
         .inspect()) as ContainerInspectInfo;
       expect(inspected.HostConfig?.Privileged).toBe(false);
-      expect(inspected.HostConfig?.NetworkMode).toContain('cloudcrane-workspace-');
       expect(inspected.HostConfig?.PidMode ?? '').toBe('');
       expect(inspected.HostConfig?.IpcMode ?? '').toBe('');
       expect(
@@ -124,6 +123,7 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       const networkInfo = await docker
         .getNetwork(inspected.HostConfig?.NetworkMode ?? '')
         .inspect();
+      expect(networkInfo.Name).toBe(`cloudcrane-workspace-${workspaceId}`);
       expect(networkInfo.Internal).toBe(false);
       expect(Object.keys(inspected.NetworkSettings?.Networks ?? {})).toHaveLength(1);
       await provider.destroyRuntime(workspaceId);
