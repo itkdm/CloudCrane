@@ -101,7 +101,7 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
         { path: '/workspace/hello.txt', content: 'hello cloudcrane' },
         { idempotencyKey: 'integration-write' },
       ),
-    ).resolves.toMatchObject({ size: 15 });
+    ).resolves.toMatchObject({ size: 16 });
     await expect(api.fs.read({ path: '/workspace/hello.txt' })).resolves.toMatchObject({
       content: 'hello cloudcrane',
     });
