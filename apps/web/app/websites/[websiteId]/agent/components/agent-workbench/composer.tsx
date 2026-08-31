@@ -19,6 +19,7 @@ export function Composer({
   onStop,
 }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const canSubmit = !running && !disabled;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -35,15 +36,16 @@ export function Composer({
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              onSubmit();
-            }
+            if (event.key !== 'Enter' || event.shiftKey || !canSubmit || !draft.trim()) return;
+            event.preventDefault();
+            onSubmit();
           }}
           placeholder="描述你想修改的网站，例如：“把首页标题改成蓝色，并增加一个联系我们按钮”"
           aria-label="描述你想修改的网站"
+          id="agent-prompt"
+          name="prompt"
           rows={1}
-          disabled={disabled}
+          disabled={!canSubmit}
         />
         <div className="composer-toolbar">
           <span className="composer-hint">Enter 发送 · Shift + Enter 换行</span>
@@ -62,7 +64,7 @@ export function Composer({
               className="composer-send"
               type="button"
               onClick={onSubmit}
-              disabled={disabled || !draft.trim()}
+              disabled={!canSubmit || !draft.trim()}
               aria-label="发送消息"
             >
               {disabled ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}

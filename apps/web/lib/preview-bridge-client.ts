@@ -164,6 +164,11 @@ export class PreviewBridgeClient {
   };
 
   private sendConnectRequest(): void {
+    if (
+      this.iframe.contentDocument &&
+      this.iframe.contentDocument.location.origin !== this.origin()
+    )
+      return;
     this.iframe.contentWindow?.postMessage(
       {
         version: 'cloudcrane.preview.v1',

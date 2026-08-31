@@ -11,6 +11,7 @@ import {
   Waypoints,
   X,
 } from 'lucide-react';
+import { memo } from 'react';
 import type { Message } from './types';
 
 const toolLabels: Record<string, string> = {
@@ -37,7 +38,7 @@ const toolIcons: Record<string, typeof FileCode2> = {
   preview_navigate: Waypoints,
 };
 
-export function ToolExecution({ message }: { message: Message }) {
+export const ToolExecution = memo(function ToolExecution({ message }: { message: Message }) {
   const toolName = message.toolName ?? 'tool';
   const label = toolLabels[toolName] ?? '执行工具';
   const Icon = toolIcons[toolName] ?? Terminal;
@@ -66,7 +67,7 @@ export function ToolExecution({ message }: { message: Message }) {
       </div>
       {(input || output) && (
         <details className="tool-details">
-          <summary aria-label="查看工具详情">
+          <summary title="查看工具详情" aria-label="查看工具详情">
             <ChevronDown size={15} aria-hidden="true" />
           </summary>
           <div className="tool-detail-content">
@@ -87,7 +88,7 @@ export function ToolExecution({ message }: { message: Message }) {
       )}
     </article>
   );
-}
+});
 
 const statusLabels = {
   waiting: '等待',
@@ -103,15 +104,58 @@ function normalizeStatus(value?: string): keyof typeof statusLabels {
 }
 
 function toolTarget(toolName: string, text = ''): string {
-  if (toolName.startsWith('preview_'))
-    return toolName === 'preview_navigate' ? '当前网站页面' : '当前预览';
+  if (toolName.startsWith('preview_')) {
+    if (toolName !== 'preview_navigate') return '当前预览';
+    const path = readInputValue(text, ['path', 'target', 'url']);
+    return path ? `打开页面 ${boundedPath(path)}` : '当前网站页面';
+  }
   const path = text.match(/(?:\/workspace|workspace)[^\s"'`}\]]+/i)?.[0];
-  if (path) return path.replace(/^workspace/i, '/workspace');
+  if (path) return basename(path.replace(/^workspace/i, '/workspace'));
   const command = text.match(/(?:command|cmd)\s*[:=]\s*["']([^"']+)/i)?.[1];
   if (command) return command;
   const simpleTarget = text.trim();
   if (/^[\w./-]{1,120}$/.test(simpleTarget)) return simpleTarget;
   return '当前工作区';
+}
+
+function readInputValue(text: string, keys: string[]): string {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value && typeof value === 'object') {
+      for (const key of keys) {
+        const candidate = (value as Record<string, unknown>)[key];
+        if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+      }
+    }
+  } catch {
+    // Tool input can also be a human-readable string.
+  }
+
+  for (const key of keys) {
+    const match = text.match(
+      new RegExp(`(?:\\"|\\b)${key}(?:\\"|\\b)\\s*[:=]\\s*[\\"']([^\\"']+)`, 'i'),
+    );
+    if (match?.[1]) return match[1].trim();
+
+    const unquotedMatch = text.match(
+      new RegExp(`(?:\\"|\\b)${key}(?:\\"|\\b)\\s*[:=]\\s*([^\\s,}]+)`, 'i'),
+    );
+    if (unquotedMatch?.[1]) return unquotedMatch[1].trim();
+  }
+  return '';
+}
+
+function basename(path: string): string {
+  const normalized = path
+    .replace(/[?#].*$/, '')
+    .replace(/\\/g, '/')
+    .replace(/\/$/, '');
+  return normalized.split('/').filter(Boolean).pop() ?? normalized;
+}
+
+function boundedPath(path: string): string {
+  const normalized = path.replace(/[?#].*$/, '').trim();
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}…` : normalized;
 }
 
 function boundedDetail(text = ''): string {
@@ -120,11 +164,11 @@ function boundedDetail(text = ''): string {
   return trimmed.length > 900 ? `${trimmed.slice(0, 900)}\n…` : trimmed;
 }
 
-export function ToolFailure({ message }: { message: string }) {
+export const ToolFailure = memo(function ToolFailure({ message }: { message: string }) {
   return (
     <div className="tool-inline-error">
       <CircleAlert size={15} aria-hidden="true" />
       <span>{message}</span>
     </div>
   );
-}
+});

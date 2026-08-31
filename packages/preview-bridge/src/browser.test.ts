@@ -140,6 +140,26 @@ describe('Preview Bridge browser boundary', () => {
         requestId: 'wrong-origin',
       },
     });
+    bridge.listeners.get('message')?.({
+      source: {},
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'wrong-connect-source',
+        payload: {},
+      },
+    });
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://evil.example',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'wrong-connect-origin',
+        payload: {},
+      },
+    });
     expect(bridge.messages).toHaveLength(before);
 
     bridge.listeners.get('message')?.({

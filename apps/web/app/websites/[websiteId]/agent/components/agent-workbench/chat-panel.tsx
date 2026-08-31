@@ -65,8 +65,11 @@ export function ChatPanel({
 
 function friendlyError(error: string): string {
   if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(error))
-    return '预览暂时无法检查页面';
-  if (/connect|socket|Agent Service/i.test(error)) return 'Agent 服务连接失败';
-  if (/timeout/i.test(error)) return '操作响应超时，请稍后重试';
-  return error;
+    return '页面检查暂时不可用，请稍后重试';
+  if (/PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(error)) return '页面检查发生异常，请稍后重试';
+  if (/timeout/i.test(error)) return '页面检查响应超时，请稍后重试';
+  if (/connect|socket|Agent Service|disconnected|连接/i.test(error))
+    return '连接已中断，正在重新连接';
+  if (/INVALID_ARGUMENT|Website-relative path|路径/i.test(error)) return '暂不支持该页面路径';
+  return '操作暂时未完成，请稍后重试';
 }

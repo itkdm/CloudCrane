@@ -20,5 +20,6 @@ export type Session = {
 export type PreviewState = {
   status: 'loading' | 'ready' | 'unavailable' | 'stopped';
   url?: string;
+  path?: string;
   message?: string;
 };

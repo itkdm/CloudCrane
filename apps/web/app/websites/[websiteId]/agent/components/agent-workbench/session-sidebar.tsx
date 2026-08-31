@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import type { Session } from './types';
 
 type SessionSidebarProps = {
@@ -6,41 +6,84 @@ type SessionSidebarProps = {
   sessionId?: string;
   onSelect: (sessionId: string) => void;
   onCreate: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
 };
 
 type SessionGroup = { label: string; sessions: Session[] };
 
-export function SessionSidebar({ sessions, sessionId, onSelect, onCreate }: SessionSidebarProps) {
+export function SessionSidebar({
+  sessions,
+  sessionId,
+  onSelect,
+  onCreate,
+  collapsed = false,
+  onToggle,
+}: SessionSidebarProps) {
   const groups = groupSessions(sessions);
 
   return (
-    <aside className="session-sidebar" aria-label="对话列表">
-      <div className="sidebar-heading">
-        <span>对话</span>
+    <aside
+      className={collapsed ? 'session-sidebar collapsed' : 'session-sidebar'}
+      aria-label={collapsed ? '已折叠的对话列表' : '对话列表'}
+    >
+      <div className="sidebar-heading" id="session-sidebar-title">
+        {!collapsed ? <span>对话</span> : null}
+        {onToggle ? (
+          <button
+            className="icon-button sidebar-toggle-button"
+            type="button"
+            onClick={onToggle}
+            aria-label={collapsed ? '展开对话侧栏' : '折叠对话侧栏'}
+            title={collapsed ? '展开对话侧栏' : '折叠对话侧栏'}
+          >
+            {collapsed ? (
+              <PanelLeftOpen size={16} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose size={16} strokeWidth={1.8} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
       </div>
-      <button className="new-session-button" type="button" onClick={onCreate}>
+      <button
+        className="new-session-button"
+        type="button"
+        onClick={onCreate}
+        aria-label="新建对话"
+        title="新建对话"
+      >
         <Plus size={16} strokeWidth={2} aria-hidden="true" />
-        <span>新建对话</span>
+        {!collapsed ? <span>新建对话</span> : null}
       </button>
-      <nav className="session-groups">
-        {groups.map((group) => (
-          <section className="session-group" key={group.label}>
-            <h2>{group.label}</h2>
-            <div className="session-list">
-              {group.sessions.map((session) => (
-                <button
-                  className={session.id === sessionId ? 'session-item active' : 'session-item'}
-                  key={session.id}
-                  type="button"
-                  onClick={() => onSelect(session.id)}
-                >
-                  <span className="session-title">{session.title || '新对话'}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-      </nav>
+      {!collapsed ? (
+        <nav className="session-groups" aria-labelledby="session-sidebar-title">
+          {groups.map((group) => (
+            <section className="session-group" key={group.label}>
+              <h2>{group.label}</h2>
+              <div className="session-list">
+                {group.sessions.map((session) => {
+                  const isActive = session.id === sessionId;
+                  const title = session.title?.trim() || '新对话';
+
+                  return (
+                    <button
+                      className={isActive ? 'session-item active' : 'session-item'}
+                      key={session.id}
+                      type="button"
+                      onClick={() => onSelect(session.id)}
+                      aria-current={isActive ? 'page' : undefined}
+                      aria-label={`打开对话：${title}`}
+                      title={title}
+                    >
+                      <span className="session-title">{title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </nav>
+      ) : null}
     </aside>
   );
 }
