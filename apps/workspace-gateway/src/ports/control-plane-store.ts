@@ -6,6 +6,7 @@ export type WorkspaceBinding = {
   runnerId: string | null;
   status: string;
   containerRef: string | null;
+  previewPort: number | null;
 };
 export type RunnerRecord = {
   runnerId: string;
@@ -23,6 +24,6 @@ export interface ControlPlaneStore {
   findAvailableRunner(capability: string): Promise<RunnerRecord | null>;
   updateWorkspace(
     workspaceId: string,
-    patch: Partial<Pick<WorkspaceBinding, 'runnerId' | 'status' | 'containerRef'>>,
+    patch: Partial<Pick<WorkspaceBinding, 'runnerId' | 'status' | 'containerRef' | 'previewPort'>>,
   ): Promise<void>;
 }

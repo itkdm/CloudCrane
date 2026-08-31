@@ -3,6 +3,7 @@ import {
   agentWireMessageSchema,
   type AgentCommand,
   type AgentEvent,
+  type AgentEnvelope,
   type AgentWireMessage,
 } from '@cloudcrane/agent-protocol';
 
@@ -39,9 +40,17 @@ export function parseAgentMessage(raw: string): AgentWireMessage | null {
   }
 }
 
-export function parseAgentEvent(message: AgentWireMessage): AgentEvent | null {
+export function parseAgentEvent(
+  message: AgentWireMessage,
+): { event: AgentEvent; envelope: AgentEnvelope } | null {
   const parsed = agentEventSchema.safeParse({ type: message.type, payload: message.payload });
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? { event: parsed.data, envelope: message } : null;
+}
+
+export async function getPreviewUrl(websiteId: string) {
+  const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/preview`);
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { url: string };
 }
 
 export function command(input: Omit<AgentCommand, 'requestId' | 'timestamp'>): AgentCommand {

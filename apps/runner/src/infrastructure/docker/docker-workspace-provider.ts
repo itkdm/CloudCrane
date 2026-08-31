@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import Docker from 'dockerode';
 import { z } from 'zod';
+import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import type { RunnerConfig } from '../../config.js';
 import type { WorkspaceProvider, WorkspaceRuntime } from '../../ports/workspace-provider.js';
 
@@ -33,11 +34,14 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           'WORKSPACE_DAEMON_PORT=7070',
           'WORKSPACE_DAEMON_HOST=0.0.0.0',
         ],
-        ExposedPorts: { '7070/tcp': {} },
+        ExposedPorts: { '7070/tcp': {}, '8080/tcp': {} },
         HostConfig: {
           Binds: [`${persistentPath}:/workspace`],
           NetworkMode: network.id,
-          PortBindings: { '7070/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+          PortBindings: {
+            '7070/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
+            '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
+          },
           Privileged: false,
           PidMode: '',
           IpcMode: 'private',
@@ -49,6 +53,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         },
       });
       await container.start();
+      await this.waitForPreview(container);
       return this.runtime(workspaceId, container.id, 'running');
     } catch (error) {
       await container?.remove({ force: true }).catch(() => undefined);
@@ -60,6 +65,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   async start(workspaceId: string): Promise<WorkspaceRuntime> {
     const container = await this.container(workspaceId);
     await container.start();
+    await this.waitForPreview(container);
     return this.runtime(workspaceId, container.id, 'running');
   }
   async stop(workspaceId: string): Promise<WorkspaceRuntime> {
@@ -105,7 +111,42 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     containerRef: string,
     status: WorkspaceRuntime['status'],
   ): Promise<WorkspaceRuntime> {
-    return { workspaceId, containerRef, status, endpoint: await this.getEndpoint(workspaceId) };
+    return {
+      workspaceId,
+      containerRef,
+      status,
+      endpoint: await this.getEndpoint(workspaceId),
+      previewPort: await this.getPreviewPort(workspaceId),
+    };
+  }
+
+  private async waitForPreview(container: Docker.Container): Promise<void> {
+    const endpoint = await this.getEndpointByContainer(container);
+    const client = new WorkspaceDaemonClient(endpoint, 2_000);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const info = await client.runtimeInfo();
+        if (info.preview.status === 'ready') return;
+      } catch {
+        /* daemon or preview is still starting */
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    throw new Error('workspace preview runtime did not become ready');
+  }
+
+  private async getEndpointByContainer(container: Docker.Container): Promise<string> {
+    const info = await container.inspect();
+    const binding = info.NetworkSettings?.Ports?.['7070/tcp']?.[0];
+    if (!binding?.HostPort) throw new Error('Workspace daemon endpoint is unavailable');
+    return `http://127.0.0.1:${binding.HostPort}`;
+  }
+
+  private async getPreviewPort(workspaceId: string): Promise<number | undefined> {
+    const container = await this.container(workspaceId);
+    const info = await container.inspect();
+    const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
+    return binding?.HostPort ? Number(binding.HostPort) : undefined;
   }
   private persistentPath(workspaceId: string): string {
     return `${this.config.workspaceRoot}/${workspaceId}/workspace`;

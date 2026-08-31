@@ -5,6 +5,7 @@ export type WorkspaceRuntime = {
   status: WorkspaceRuntimeStatus;
   containerRef?: string;
   endpoint?: string;
+  previewPort?: number;
 };
 
 export interface WorkspaceProvider {

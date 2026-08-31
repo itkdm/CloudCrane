@@ -84,6 +84,14 @@ jobs:
       - run: pnpm --filter @cloudcrane/workspace-gateway... build
       - run: pnpm --filter @cloudcrane/pi-adapter... build
       - run: pnpm --filter @cloudcrane/agent-service... build
+      - run: pnpm --filter @cloudcrane/preview-gateway... build
+      - name: Start Agent Service health process
+        run: |
+          nohup node apps/agent-service/dist/index.js >/tmp/cloudcrane-agent-service.log 2>&1 &
+          echo $! >/tmp/cloudcrane-agent-service.pid
+          for attempt in $(seq 1 40); do curl --fail --silent http://127.0.0.1:4101/health && exit 0; sleep 1; done
+          cat /tmp/cloudcrane-agent-service.log
+          exit 1
       - name: Run Docker integration test
         run: |
           set +e

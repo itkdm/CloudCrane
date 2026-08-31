@@ -18,6 +18,7 @@ export class DrizzleControlPlaneStore implements ControlPlaneStore {
         runnerId: workspace.runnerId,
         status: workspace.status,
         containerRef: workspace.containerRef,
+        previewPort: workspace.previewPort,
       })
       .from(workspace)
       .where(and(eq(workspace.id, workspaceId), eq(workspace.websiteId, websiteId)))
@@ -89,7 +90,7 @@ export class DrizzleControlPlaneStore implements ControlPlaneStore {
   }
   async updateWorkspace(
     workspaceId: string,
-    patch: Partial<Pick<WorkspaceBinding, 'runnerId' | 'status' | 'containerRef'>>,
+    patch: Partial<Pick<WorkspaceBinding, 'runnerId' | 'status' | 'containerRef' | 'previewPort'>>,
   ) {
     await this.platform.db
       .update(workspace)

@@ -1,0 +1,16 @@
+{
+  "name": "@cloudcrane/preview-access",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint --config ../../eslint.config.mjs .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude dist/** --exclude .next/**"
+  },
+  "dependencies": {
+    "zod": "4.5.4"
+  }
+}

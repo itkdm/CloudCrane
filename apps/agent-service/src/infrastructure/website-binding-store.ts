@@ -16,6 +16,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
         websiteStatus: website.status,
         workspaceId: workspace.id,
         workspaceStatus: workspace.status,
+        previewPort: workspace.previewPort,
       })
       .from(website)
       .leftJoin(workspace, eq(workspace.websiteId, website.id))
@@ -29,6 +30,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
         workspaceId: '00000000-0000-4000-8000-000000000000',
         websiteStatus: row.websiteStatus,
         workspaceStatus: 'missing',
+        previewPort: null,
       };
     }
     const workspaceId = row.workspaceId;
@@ -39,6 +41,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
       websiteStatus: row.websiteStatus,
       workspaceId,
       workspaceStatus,
+      previewPort: row.previewPort,
     };
   }
 }

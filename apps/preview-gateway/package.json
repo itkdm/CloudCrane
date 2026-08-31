@@ -1,7 +1,9 @@
 {
-  "name": "@cloudcrane/agent-service",
+  "name": "@cloudcrane/preview-gateway",
   "private": true,
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -11,21 +13,10 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
-    "@cloudcrane/agent-protocol": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-access": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
-    "@cloudcrane/website-agent": "workspace:*",
-    "@cloudcrane/workspace-client": "workspace:*",
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
-    "drizzle-orm": "0.45.2",
     "fastify": "5.12.1",
-    "pino": "10.3.1",
-    "ws": "8.18.3",
     "zod": "4.5.4"
-  },
-  "devDependencies": {
-    "@types/ws": "8.18.1"
   }
 }

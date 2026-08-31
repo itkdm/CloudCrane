@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { sessionSnapshotSchema, sessionViewSchema } from '@cloudcrane/agent-protocol';
+import { signPreviewToken } from '@cloudcrane/preview-access';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
@@ -40,6 +41,25 @@ export function buildAgentServiceApp(
   });
   app.options('/*', async (_request, reply) => reply.code(204).send());
   app.get('/health', async () => ({ service: 'agent-service', status: 'ok' }));
+  app.get<{ Params: { websiteId: string } }>('/v1/websites/:websiteId/preview', async (request) => {
+    if (!isUuid(request.params.websiteId))
+      throw new AgentServiceError('INVALID_ARGUMENT', 'websiteId must be a UUID', 400);
+    const binding = await options.registry.resolve(request.params.websiteId);
+    if (!binding.previewPort)
+      throw new AgentServiceError('WORKSPACE_NOT_READY', 'website preview is not ready', 409);
+    const token = signPreviewToken(
+      {
+        websiteId: binding.websiteId,
+        expiresAt: Math.floor(Date.now() / 1000) + options.config.previewTokenTtlSeconds,
+      },
+      options.config.previewSigningSecret,
+    );
+    const origin = options.config.previewGatewayOriginTemplate.replace(
+      '{websiteId}',
+      binding.websiteId,
+    );
+    return { url: `${origin.replace(/\/$/, '')}/?token=${encodeURIComponent(token)}` };
+  });
   app.get<{ Params: { websiteId: string } }>(
     '/v1/websites/:websiteId/sessions',
     async (request) => {

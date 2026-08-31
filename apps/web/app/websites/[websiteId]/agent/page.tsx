@@ -1,11 +1,12 @@
 'use client';
 
 import { use, useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentEvent } from '@cloudcrane/agent-protocol';
+import type { AgentEnvelope, AgentEvent } from '@cloudcrane/agent-protocol';
 import {
   agentWebSocketUrl,
   command,
   createAgentSession,
+  getPreviewUrl,
   listAgentSessions,
   parseAgentEvent,
   parseAgentMessage,
@@ -17,28 +18,61 @@ type Message = {
   text: string;
   toolName?: string;
   status?: string;
+  requestId?: string;
 };
 type Session = { id: string; title: string | null; createdAt: string; updatedAt: string };
+type PreviewState = {
+  status: 'loading' | 'ready' | 'unavailable' | 'stopped';
+  url?: string;
+  message?: string;
+};
 
 export default function AgentWorkbench({ params }: { params: Promise<{ websiteId: string }> }) {
   const { websiteId } = use(params);
   const socket = useRef<WebSocket | null>(null);
+  const activeRunRef = useRef<string | undefined>(undefined);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [connection, setConnection] = useState('connecting');
-  const [runId, setRunId] = useState<string>();
+  const [runId, setRunIdState] = useState<string>();
   const [error, setError] = useState<string>();
+  const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
+  const [previewKey, setPreviewKey] = useState(0);
 
-  const send = useCallback(
-    (payload: Parameters<WebSocket['send']>[0]) => socket.current?.send(payload),
-    [],
-  );
-  const sendCommand = useCallback(
-    (input: Parameters<typeof command>[0]) => send(JSON.stringify(command(input))),
-    [send],
-  );
+  const setRunId = useCallback((value: string | undefined) => {
+    activeRunRef.current = value;
+    setRunIdState(value);
+  }, []);
+  const refreshPreview = useCallback(() => setPreviewKey((current) => current + 1), []);
+  const schedulePreviewRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(refreshPreview, 300);
+  }, [refreshPreview]);
+  const sendCommand = useCallback((input: Parameters<typeof command>[0]) => {
+    const payload = JSON.stringify(command(input));
+    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(payload);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPreviewUrl(websiteId)
+      .then(({ url }) => !cancelled && setPreview({ status: 'ready', url }))
+      .catch((cause) => {
+        if (!cancelled) {
+          const message = cause instanceof Error ? cause.message : 'Preview 暂不可用';
+          setPreview({
+            status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
+            message,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [websiteId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,25 +114,60 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
       ws.onerror = () => setError('Agent Service 连接异常');
       ws.onmessage = (event) => {
         const message = parseAgentMessage(String(event.data));
-        const productEvent = message ? parseAgentEvent(message) : null;
-        if (productEvent) handleEvent(productEvent, setMessages, setRunId, setError);
+        const projected = message ? parseAgentEvent(message) : null;
+        if (!projected) return;
+        if (projected.envelope.websiteId && projected.envelope.websiteId !== websiteId) return;
+        if (projected.envelope.sessionId && projected.envelope.sessionId !== sessionId) return;
+        if (
+          projected.envelope.runId &&
+          activeRunRef.current &&
+          projected.envelope.runId !== activeRunRef.current &&
+          projected.event.type !== 'run.started'
+        )
+          return;
+        handleEvent(
+          projected.event,
+          projected.envelope,
+          setMessages,
+          setRunId,
+          setError,
+          schedulePreviewRefresh,
+        );
       };
     };
     connect();
     return () => {
       disposed = true;
       if (retryTimer) clearTimeout(retryTimer);
-      const ws = socket.current;
-      ws?.close();
-      if (socket.current === ws) socket.current = null;
+      const current = socket.current;
+      current?.close();
+      if (socket.current === current) socket.current = null;
     };
-  }, [sendCommand, sessionId, websiteId]);
+  }, [schedulePreviewRefresh, sendCommand, sessionId, setRunId, websiteId]);
 
   function submit() {
     const text = draft.trim();
     if (!text || !sessionId) return;
-    setMessages((current) => [...current, { id: `local-${Date.now()}`, role: 'user', text }]);
-    sendCommand({ type: 'agent.prompt', websiteId, sessionId, payload: { text } });
+    const requestId = crypto.randomUUID();
+    setMessages((current) => [
+      ...current,
+      { id: requestId, requestId, role: 'user', text, status: 'pending' },
+    ]);
+    if (socket.current?.readyState === WebSocket.OPEN) {
+      socket.current.send(
+        JSON.stringify({
+          ...command({ type: 'agent.prompt', websiteId, sessionId, payload: { text } }),
+          requestId,
+        }),
+      );
+    } else {
+      setMessages((current) =>
+        current.map((message) =>
+          message.requestId === requestId ? { ...message, status: 'failed' } : message,
+        ),
+      );
+      setError('Agent Service 尚未连接');
+    }
     setDraft('');
   }
 
@@ -168,7 +237,7 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
             </div>
           )}
           {messages.map((message) => (
-            <article className={`message ${message.role}`} key={message.id}>
+            <article className={`message ${message.role} ${message.status ?? ''}`} key={message.id}>
               <span className="message-role">
                 {message.role === 'tool' ? message.toolName || 'tool' : message.role}
               </span>
@@ -206,19 +275,82 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
           </div>
         </footer>
       </section>
+      <aside className="preview-pane">
+        <header className="preview-header">
+          <div>
+            <span className="eyebrow">LIVE PREVIEW</span>
+            <strong>Website workspace</strong>
+          </div>
+          <span className={`preview-status ${preview.status}`}>{preview.status}</span>
+        </header>
+        {preview.status === 'ready' && preview.url ? (
+          <iframe
+            key={previewKey}
+            title="Website live preview"
+            src={preview.url}
+            sandbox="allow-scripts allow-forms allow-same-origin"
+          />
+        ) : (
+          <div className="preview-unavailable">
+            <span className="status-dot" />
+            <strong>
+              {preview.status === 'loading'
+                ? 'Loading preview…'
+                : preview.status === 'stopped'
+                  ? 'Preview stopped'
+                  : 'Preview unavailable'}
+            </strong>
+            <p>{preview.message ?? 'Waiting for the workspace preview runtime.'}</p>
+          </div>
+        )}
+        <div className="preview-actions">
+          <button type="button" onClick={refreshPreview} disabled={preview.status !== 'ready'}>
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
+            disabled={preview.status !== 'ready'}
+          >
+            Open new tab
+          </button>
+        </div>
+      </aside>
     </main>
   );
 }
 
 function handleEvent(
   event: AgentEvent,
+  envelope: AgentEnvelope,
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
-  setRunId: React.Dispatch<React.SetStateAction<string | undefined>>,
+  setRunId: (value: string | undefined) => void,
   setError: React.Dispatch<React.SetStateAction<string | undefined>>,
+  schedulePreviewRefresh: () => void,
 ) {
   if (event.type === 'run.started') setRunId(event.payload.runId);
-  if (event.type === 'run.settled') setRunId(undefined);
-  if (event.type === 'command.error') setError(event.payload.message);
+  if (event.type === 'run.settled') {
+    setRunId(undefined);
+    schedulePreviewRefresh();
+  }
+  if (event.type === 'command.ack')
+    setMessages((current) =>
+      current.map((message) =>
+        message.requestId === envelope.requestId ? { ...message, status: 'accepted' } : message,
+      ),
+    );
+  if (event.type === 'command.error') {
+    setError(event.payload.message);
+    setMessages((current) =>
+      current.map((message) =>
+        message.requestId === envelope.requestId ? { ...message, status: 'failed' } : message,
+      ),
+    );
+  }
+  if (event.type === 'session.snapshot') {
+    setMessages(event.payload.messages);
+    setRunId(event.payload.activeRun?.runId);
+  }
   if (event.type === 'assistant.started')
     setMessages((current) => [
       ...current,
@@ -257,7 +389,7 @@ function handleEvent(
           : message,
       ),
     );
-  if (event.type === 'tool.completed')
+  if (event.type === 'tool.completed') {
     setMessages((current) =>
       current.map((message) =>
         message.id === event.payload.toolCallId
@@ -265,5 +397,6 @@ function handleEvent(
           : message,
       ),
     );
-  if (event.type === 'session.snapshot') setMessages(event.payload.messages);
+    if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
+  }
 }

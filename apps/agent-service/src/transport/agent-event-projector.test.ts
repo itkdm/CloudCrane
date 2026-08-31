@@ -28,4 +28,42 @@ describe('agent event projector', () => {
   it('never forwards unrelated Pi events', () => {
     expect(projectWebsiteAgentEvent({ ...context, event: { type: 'agent_start' } })).toBeNull();
   });
+
+  it('assigns a fresh UUID to every assistant turn and keeps deltas correlated', () => {
+    const message = { role: 'assistant', content: [] } as never;
+    const first = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-1',
+      event: { type: 'message_start', message },
+    });
+    const firstDelta = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-1',
+      event: {
+        type: 'message_update',
+        message,
+        assistantMessageEvent: { delta: 'one' } as never,
+      },
+    });
+    const firstEnd = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-1',
+      event: { type: 'message_end', message },
+    });
+    const second = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-1',
+      event: { type: 'message_start', message },
+    });
+    expect(first?.payload).toMatchObject({ messageId: expect.any(String) });
+    expect(firstDelta?.payload).toMatchObject({
+      messageId: (first?.payload as { messageId: string }).messageId,
+    });
+    expect(firstEnd?.payload).toMatchObject({
+      messageId: (first?.payload as { messageId: string }).messageId,
+    });
+    expect((second?.payload as { messageId: string }).messageId).not.toBe(
+      (first?.payload as { messageId: string }).messageId,
+    );
+  });
 });

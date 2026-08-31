@@ -9,6 +9,10 @@ export const runtimeInfoSchema = z.object({
   gid: z.number().int().nonnegative(),
   platform: z.string(),
   nodeVersion: z.string(),
+  preview: z.object({
+    status: z.enum(['starting', 'ready', 'stopped', 'error']),
+    port: z.number().int().positive(),
+  }),
 });
 export const fsPathSchema = z.object({ path: z.string().min(1).max(4096) });
 export const fsReadRequestSchema = fsPathSchema.extend({

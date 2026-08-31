@@ -15,11 +15,13 @@ import { FilesystemService } from './filesystem-service.js';
 import { ProcessService } from './process-service.js';
 import { toWorkspaceError, WorkspaceDaemonError } from './errors.js';
 import { WorkspacePathResolver } from './workspace-path-resolver.js';
+import { WorkspacePreviewRuntime } from './preview-runtime.js';
 
 const logger = createLogger('workspace-daemon');
 const resolver = new WorkspacePathResolver();
 const filesystem = new FilesystemService(resolver);
 const processes = new ProcessService(resolver);
+const previewRuntime = new WorkspacePreviewRuntime();
 const app = Fastify({ loggerInstance: logger });
 const requestStarts = new WeakMap<object, number>();
 
@@ -78,6 +80,7 @@ app.get('/v1/runtime/info', async () =>
     gid: typeof process.getgid === 'function' ? process.getgid() : 0,
     platform: process.platform,
     nodeVersion: process.version,
+    preview: previewRuntime.info(),
   }),
 );
 app.post('/v1/fs/read', async (request) =>
@@ -101,12 +104,14 @@ app.post('/v1/process/cancel', async (request) =>
 const port = Number(process.env.WORKSPACE_DAEMON_PORT ?? 7070);
 const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');
+  await previewRuntime.stop();
   await app.close();
   process.exit(0);
 };
 process.once('SIGINT', () => void close('SIGINT'));
 process.once('SIGTERM', () => void close('SIGTERM'));
 try {
+  await previewRuntime.start();
   await app.listen({ host: process.env.WORKSPACE_DAEMON_HOST ?? '127.0.0.1', port });
   logger.info(
     { port, workspaceId: process.env.WORKSPACE_ID, operation: 'daemon.start', status: 'ok' },
@@ -120,4 +125,4 @@ try {
   process.exit(1);
 }
 
-export { app, filesystem, processes, resolver, WorkspaceDaemonError };
+export { app, filesystem, processes, resolver, previewRuntime, WorkspaceDaemonError };

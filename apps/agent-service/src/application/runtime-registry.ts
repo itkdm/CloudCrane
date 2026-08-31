@@ -7,6 +7,7 @@ export type WebsiteRuntimeBinding = Pick<
 > & {
   websiteStatus: string;
   workspaceStatus: string;
+  previewPort?: number | null;
 };
 
 export interface WebsiteBindingStore {
@@ -38,6 +39,12 @@ export class WebsiteRuntimeRegistry {
     }
   }
 
+  async resolve(websiteId: string): Promise<WebsiteRuntimeBinding> {
+    const binding = await this.options.bindingStore.findWebsiteWorkspace(websiteId);
+    this.validateBinding(binding);
+    return binding;
+  }
+
   get size(): number {
     return this.runtimes.size;
   }
@@ -56,7 +63,13 @@ export class WebsiteRuntimeRegistry {
   }
 
   private async create(websiteId: string): Promise<WebsiteAgentRuntime> {
-    const binding = await this.options.bindingStore.findWebsiteWorkspace(websiteId);
+    const binding = await this.resolve(websiteId);
+    return this.options.createRuntime(binding);
+  }
+
+  private validateBinding(
+    binding: WebsiteRuntimeBinding | null,
+  ): asserts binding is WebsiteRuntimeBinding {
     if (!binding) throw new AgentServiceError('WEBSITE_NOT_FOUND', 'website was not found', 404);
     if (
       !['active', 'ready', 'running', 'ACTIVE', 'READY', 'RUNNING'].includes(binding.websiteStatus)
@@ -70,6 +83,5 @@ export class WebsiteRuntimeRegistry {
       )
     )
       throw new AgentServiceError('WORKSPACE_NOT_READY', 'website workspace is not ready', 409);
-    return this.options.createRuntime(binding);
   }
 }

@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
@@ -37,7 +38,9 @@ const port = 4104;
 const platform = process.env.DATABASE_URL ? createPlatformDb() : undefined;
 let gateway: ChildProcess | undefined;
 let runner: ChildProcess | undefined;
+let previewGateway: ChildProcess | undefined;
 let probe: WorkspaceClient | undefined;
+let previewPort: number;
 const agentDataRoots: string[] = [];
 const childLogs = new Map<ChildProcess, string[]>();
 
@@ -118,7 +121,13 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       .values({ id: workspaceId, websiteId, provider: 'docker', status: 'missing' })
       .onConflictDoUpdate({
         target: workspace.id,
-        set: { runnerId: null, status: 'missing', containerRef: null, updatedAt: new Date() },
+        set: {
+          runnerId: null,
+          status: 'missing',
+          containerRef: null,
+          previewPort: null,
+          updatedAt: new Date(),
+        },
       });
     await platform.db
       .update(runnerTable)
@@ -154,11 +163,29 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       workspaceId,
     });
     await probe.runtime.create();
+    const binding = await platform.db
+      .select({ previewPort: workspace.previewPort })
+      .from(workspace)
+      .where(eq(workspace.id, workspaceId))
+      .limit(1);
+    previewPort = binding[0]?.previewPort ?? 0;
+    if (!previewPort) throw new Error('workspace preview port was not persisted');
+    previewGateway = spawn(process.execPath, [path.resolve('../preview-gateway/dist/index.js')], {
+      env: {
+        ...env,
+        PREVIEW_GATEWAY_PORT: '4103',
+        PREVIEW_SIGNING_SECRET: 'test-preview-signing-secret',
+        PREVIEW_HOST_SUFFIXES: 'localhost',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    trackChild(previewGateway, 'preview-gateway');
+    await waitFor('http://127.0.0.1:4103/health');
   }, 60_000);
 
   afterAll(async () => {
     await probe?.runtime.destroy().catch(() => undefined);
-    await Promise.all([terminate(runner), terminate(gateway)]);
+    await Promise.all([terminate(previewGateway), terminate(runner), terminate(gateway)]);
     await Promise.all(agentDataRoots.map((root) => rm(root, { recursive: true, force: true })));
     await platform?.pool.end();
   }, 30_000);
@@ -513,7 +540,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     });
     faux.setResponses([
       fauxAssistantMessage(
-        [fauxToolCall('write', { path: '/workspace/transport.txt', content: 'transport-ok' })],
+        [fauxToolCall('write', { path: '/workspace/index.php', content: '<h1>After</h1>' })],
         { stopReason: 'toolUse' },
       ),
       fauxAssistantMessage('transport run completed'),
@@ -535,6 +562,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       model: faux.getModel() as Model<'cloudcrane-browser-protocol'>,
     });
     const session = await runtime.createSession();
+    await probe!.fs.write({ path: '/workspace/index.php', content: '<h1>Before</h1>' });
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: {
         findWebsiteWorkspace: async () => ({
@@ -542,6 +570,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
           workspaceId,
           websiteStatus: 'active',
           workspaceStatus: 'running',
+          previewPort,
         }),
       },
       createRuntime: () => runtime,
@@ -553,6 +582,9 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
         workspaceGatewayClientToken: clientToken,
         agentDataRoot: dataRoot,
+        previewGatewayOriginTemplate: 'http://site-{websiteId}.localhost:4103/',
+        previewSigningSecret: 'test-preview-signing-secret',
+        previewTokenTtlSeconds: 600,
         modelProvider: 'cloudcrane-browser-protocol',
         modelId: 'deterministic',
         modelAuthPath: undefined,
@@ -606,10 +638,54 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     expect(events).toContain('tool.completed');
     expect(events).toContain('assistant.completed');
     expect(events).toContain('run.settled');
-    await expect(probe!.fs.read({ path: '/workspace/transport.txt' })).resolves.toMatchObject({
-      content: 'transport-ok',
+    await expect(probe!.fs.read({ path: '/workspace/index.php' })).resolves.toMatchObject({
+      content: '<h1>After</h1>',
     });
+    const descriptor = agentApp.inject({
+      method: 'GET',
+      url: `/v1/websites/${websiteId}/preview`,
+    });
+    const preview = JSON.parse((await descriptor).body) as { url: string };
+    const previewUrl = new URL(preview.url);
+    const firstPreview = await requestPreview(`/?token=${previewUrl.searchParams.get('token')}`);
+    expect(firstPreview.status).toBe(302);
+    const previewCookie = firstPreview.headers['set-cookie']?.[0]?.split(';')[0];
+    expect(previewCookie).toBeTruthy();
+    const finalPreview = await requestPreview('/', previewCookie);
+    expect(finalPreview.status).toBe(200);
+    expect(finalPreview.body).toContain('<h1>After</h1>');
     client.close();
     await agentApp.close();
   }, 120_000);
 });
+
+function requestPreview(pathname: string, cookie?: string) {
+  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>(
+    (resolve, reject) => {
+      const request = http.request(
+        {
+          host: '127.0.0.1',
+          port: 4103,
+          path: pathname,
+          headers: {
+            host: `site-${websiteId}.localhost:4103`,
+            ...(cookie ? { cookie } : {}),
+          },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on('data', (chunk: Buffer) => chunks.push(chunk));
+          response.on('end', () =>
+            resolve({
+              status: response.statusCode ?? 0,
+              headers: response.headers,
+              body: Buffer.concat(chunks).toString('utf8'),
+            }),
+          );
+        },
+      );
+      request.on('error', reject);
+      request.end();
+    },
+  );
+}

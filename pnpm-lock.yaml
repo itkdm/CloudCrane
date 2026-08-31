@@ -50,6 +50,9 @@ importers:
       '@cloudcrane/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@cloudcrane/preview-access':
+        specifier: workspace:*
+        version: link:../../packages/preview-access
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -84,6 +87,24 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+
+  apps/preview-gateway:
+    dependencies:
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@cloudcrane/preview-access':
+        specifier: workspace:*
+        version: link:../../packages/preview-access
+      '@cloudcrane/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      fastify:
+        specifier: 5.12.1
+        version: 5.12.1
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   apps/runner:
     dependencies:
@@ -227,6 +248,12 @@ importers:
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@types/pg@8.23.1)(pg@8.23.0)
+
+  packages/preview-access:
+    dependencies:
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   packages/shared:
     dependencies:

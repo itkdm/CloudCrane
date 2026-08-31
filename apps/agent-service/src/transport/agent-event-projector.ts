@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import type { AgentWireMessage } from '@cloudcrane/agent-protocol';
 import { createAgentEnvelope } from '@cloudcrane/agent-protocol';
 import type { WebsiteAgentEvent, WebsiteAgentLifecycleEvent } from '@cloudcrane/website-agent';
 
 const MAX_SUMMARY_BYTES = 512;
+const activeAssistantMessageIds = new Map<string, string>();
 
 export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMessage | null {
   const base = {
@@ -37,7 +39,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
       return createAgentEnvelope({
         ...base,
         type: 'assistant.started',
-        payload: { messageId: messageId(value.message) },
+        payload: { messageId: startAssistantMessage(event) },
       });
     case 'message_update': {
       if (!isAssistantMessage(value.message)) return null;
@@ -46,17 +48,20 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         ? createAgentEnvelope({
             ...base,
             type: 'assistant.delta',
-            payload: { messageId: messageId(value.message), text: delta },
+            payload: { messageId: activeAssistantMessage(event), text: delta },
           })
         : null;
     }
-    case 'message_end':
+    case 'message_end': {
       if (!isAssistantMessage(value.message)) return null;
-      return createAgentEnvelope({
+      const projected = createAgentEnvelope({
         ...base,
         type: 'assistant.completed',
-        payload: { messageId: messageId(value.message), text: extractText(value.message) },
+        payload: { messageId: activeAssistantMessage(event), text: extractText(value.message) },
       });
+      activeAssistantMessageIds.delete(assistantKey(event));
+      return projected;
+    }
     case 'tool_execution_start':
       return createAgentEnvelope({
         ...base,
@@ -105,8 +110,23 @@ function isAssistantMessage(message: unknown): message is Record<string, unknown
   );
 }
 
-function messageId(message: Record<string, unknown>): string {
-  return typeof message.id === 'string' ? message.id : 'assistant-message';
+function assistantKey(event: WebsiteAgentEvent): string {
+  return `${event.websiteId}:${event.websiteSessionId}:${event.runId ?? 'no-run'}`;
+}
+
+function startAssistantMessage(event: WebsiteAgentEvent): string {
+  const id = randomUUID();
+  activeAssistantMessageIds.set(assistantKey(event), id);
+  return id;
+}
+
+function activeAssistantMessage(event: WebsiteAgentEvent): string {
+  const key = assistantKey(event);
+  const existing = activeAssistantMessageIds.get(key);
+  if (existing) return existing;
+  const id = randomUUID();
+  activeAssistantMessageIds.set(key, id);
+  return id;
 }
 
 function extractDelta(value: unknown): string {
@@ -158,4 +178,3 @@ function stringValue(value: unknown): string {
 function arrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
-import { randomUUID } from 'node:crypto';

@@ -62,6 +62,7 @@ export class WorkspaceDispatchService {
         runnerId,
         status: String(runtime.status ?? 'created'),
         containerRef: typeof runtime.containerRef === 'string' ? runtime.containerRef : null,
+        previewPort: typeof runtime.previewPort === 'number' ? runtime.previewPort : null,
       });
     if (
       operation.operation === 'runtime.start' ||
@@ -70,12 +71,21 @@ export class WorkspaceDispatchService {
     )
       await this.store.updateWorkspace(operation.workspaceId, {
         status: String(runtime.status ?? 'unknown'),
+        ...((operation.operation === 'runtime.start' ||
+          (operation.operation === 'runtime.status' && runtime.status === 'running')) &&
+        typeof runtime.previewPort === 'number'
+          ? { previewPort: runtime.previewPort }
+          : operation.operation === 'runtime.stop' ||
+              (operation.operation === 'runtime.status' && runtime.status !== 'running')
+            ? { previewPort: null }
+            : {}),
       });
     if (operation.operation === 'runtime.destroy')
       await this.store.updateWorkspace(operation.workspaceId, {
         runnerId: null,
         status: 'missing',
         containerRef: null,
+        previewPort: null,
       });
   }
 

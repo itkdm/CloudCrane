@@ -36,6 +36,7 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       await waitForHealth(client);
       const info = await client.runtimeInfo();
       expect(info.uid).not.toBe(0);
+      expect(info.preview).toMatchObject({ status: 'ready', port: 8080 });
       await client.write({
         path: '/workspace/persistence.txt',
         content: 'survives runtime recreation',
@@ -126,6 +127,16 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       expect(networkInfo.Name).toBe(`cloudcrane-workspace-${workspaceId}`);
       expect(networkInfo.Internal).toBe(false);
       expect(Object.keys(inspected.NetworkSettings?.Networks ?? {})).toHaveLength(1);
+      expect(inspected.NetworkSettings?.Ports?.['7070/tcp']?.[0]?.HostPort).toBeTruthy();
+      expect(inspected.NetworkSettings?.Ports?.['8080/tcp']?.[0]?.HostPort).toBeTruthy();
+      const stopped = await provider.stop(workspaceId);
+      expect(stopped.status).toBe('stopped');
+      const restarted = await provider.start(workspaceId);
+      expect(restarted.status).toBe('running');
+      expect(restarted.previewPort).toBeGreaterThan(0);
+      await expect(client.runtimeInfo()).resolves.toMatchObject({
+        preview: { status: 'ready', port: 8080 },
+      });
       await provider.destroyRuntime(workspaceId);
       created = false;
       const recreated = await provider.create(workspaceId);

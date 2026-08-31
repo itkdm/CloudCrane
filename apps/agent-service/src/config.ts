@@ -10,6 +10,9 @@ const configSchema = z.object({
   modelProvider: z.string().min(1).optional(),
   modelId: z.string().min(1).optional(),
   modelAuthPath: z.string().min(1).optional(),
+  previewGatewayOriginTemplate: z.string().url().default('http://site-{websiteId}.localhost:4103/'),
+  previewSigningSecret: z.string().min(16).default('cloudcrane-preview-dev-secret'),
+  previewTokenTtlSeconds: z.coerce.number().int().positive().max(3600).default(600),
 });
 
 export type AgentServiceConfig = z.infer<typeof configSchema> & {
@@ -27,6 +30,9 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     modelProvider: env.AGENT_MODEL_PROVIDER,
     modelId: env.AGENT_MODEL_ID,
     modelAuthPath: env.AGENT_MODEL_AUTH_PATH,
+    previewGatewayOriginTemplate: env.PREVIEW_GATEWAY_ORIGIN_TEMPLATE,
+    previewSigningSecret: env.PREVIEW_SIGNING_SECRET,
+    previewTokenTtlSeconds: env.PREVIEW_TOKEN_TTL_SECONDS,
   });
   return {
     ...parsed,

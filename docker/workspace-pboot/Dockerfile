@@ -15,6 +15,6 @@ RUN pnpm --filter @cloudcrane/workspace-daemon... build
 RUN mkdir -p /workspace && chown -R workspace:workspace /workspace
 WORKDIR /workspace
 ENV NODE_ENV=production
-EXPOSE 7070
+EXPOSE 7070 8080
 USER workspace
 CMD ["node", "/app/apps/workspace-daemon/dist/index.js"]
