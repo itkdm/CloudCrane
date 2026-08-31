@@ -19,9 +19,14 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
     return createAgentEnvelope({
       ...base,
       type: 'run.started',
-      payload: { runId: lifecycle.runId, traceId: lifecycle.traceId },
+      payload: {
+        runId: lifecycle.runId,
+        traceId: lifecycle.traceId,
+        ...(lifecycle.previewClientId ? { previewClientId: lifecycle.previewClientId } : {}),
+      },
     });
-  if (lifecycle?.type === 'run_settled')
+  if (lifecycle?.type === 'run_settled') {
+    activeAssistantMessageIds.delete(assistantKey(event));
     return createAgentEnvelope({
       ...base,
       type: 'run.settled',
@@ -32,6 +37,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         ...(lifecycle.error ? { error: lifecycle.error } : {}),
       },
     });
+  }
   const value = event.event as unknown as Record<string, unknown>;
   switch (value.type) {
     case 'message_start':

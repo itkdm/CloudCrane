@@ -26,6 +26,11 @@ import {
 } from '@cloudcrane/workspace-client';
 import { ActiveSessionRegistry, type DisposableSession } from './registry.js';
 import { AgentSessionPathLayout, assertUuid } from './paths.js';
+import {
+  createPreviewTools,
+  type PreviewObservationContext,
+  type PreviewObservationProvider,
+} from './preview.js';
 
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
@@ -34,6 +39,10 @@ const APPEND_SYSTEM_PROMPT = [
   '- The working directory is the remote website workspace at /workspace.',
   '- Use the supplied remote tools for all workspace file and process operations.',
   '- Do not assume that the control-plane host filesystem is the website workspace.',
+  "- Preview tools observe the user's current development Preview when available.",
+  '- After page changes, use preview_refresh or preview_observe to verify the result when available.',
+  '- If the Preview Client is unavailable, continue non-visual work without inventing page state.',
+  '- preview_navigate only accepts Website-relative paths.',
 ].join('\n');
 
 export const AGENT_RUN_STATUSES = [
@@ -98,6 +107,7 @@ export type WebsiteAgentRuntimeOptions = {
   modelRuntime?: ModelRuntime;
   model?: Model<Api>;
   workspaceClientFactory?: WorkspaceClientFactory;
+  previewObservationProvider?: PreviewObservationProvider;
 };
 
 export type AgentRunResult = {
@@ -123,7 +133,7 @@ export type WebsiteAgentSessionSnapshot = {
 };
 
 export type WebsiteAgentLifecycleEvent =
-  | { type: 'run_started'; runId: string; traceId: string }
+  | { type: 'run_started'; runId: string; traceId: string; previewClientId?: string }
   | {
       type: 'run_settled';
       runId: string;
@@ -141,7 +151,7 @@ export type WebsiteAgentEvent = {
   event: AgentSessionEvent | WebsiteAgentLifecycleEvent;
 };
 
-type RunContext = { runId: string; traceId: string };
+type RunContext = { runId: string; traceId: string; previewClientId?: string };
 type ActiveRun = RunContext & { aborted: boolean };
 
 export class WebsiteAgentRuntimeError extends Error {
@@ -310,12 +320,21 @@ export class WebsiteAgentRuntime {
       session: { ...managed.record },
       messages: projectMessages(managed.piRuntime.session.agent.state.messages),
       activeRun: managed.activeRun
-        ? { runId: managed.activeRun.runId, traceId: managed.activeRun.traceId, status: 'RUNNING' }
+        ? {
+            runId: managed.activeRun.runId,
+            traceId: managed.activeRun.traceId,
+            previewClientId: managed.activeRun.previewClientId,
+            status: 'RUNNING',
+          }
         : null,
     };
   }
 
-  async prompt(websiteSessionId: string, text: string): Promise<AgentRunResult> {
+  async prompt(
+    websiteSessionId: string,
+    text: string,
+    previewClientId?: string,
+  ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
     if (managed.activeRun)
       throw new WebsiteAgentRuntimeError(
@@ -325,7 +344,7 @@ export class WebsiteAgentRuntime {
     const runId = randomUUID();
     const traceId = randomUUID();
     const startedAt = new Date().toISOString();
-    const activeRun: ActiveRun = { runId, traceId, aborted: false };
+    const activeRun: ActiveRun = { runId, traceId, previewClientId, aborted: false };
     managed.activeRun = activeRun;
     let run: AgentRunIndex | undefined;
     try {
@@ -343,7 +362,7 @@ export class WebsiteAgentRuntime {
         endedAt: null,
       });
       await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
-      this.emitLifecycle(managed, { type: 'run_started', runId, traceId });
+      this.emitLifecycle(managed, { type: 'run_started', runId, traceId, previewClientId });
     } catch (error) {
       if (run) {
         await this.options.store
@@ -371,7 +390,7 @@ export class WebsiteAgentRuntime {
     };
     const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
     try {
-      await this.runContext.run({ runId, traceId }, () => managed.piRuntime.session.prompt(text));
+      await this.runContext.run(activeRun, () => managed.piRuntime.session.prompt(text));
       if (!settled) await settledPromise;
       const status = this.getRunStatus(managed.piRuntime.session, activeRun);
       const endedAt = new Date().toISOString();
@@ -499,8 +518,14 @@ export class WebsiteAgentRuntime {
       workspaceClient: this.workspaceClient,
       cwd: LOGICAL_CWD,
     });
+    const previewTools = this.options.previewObservationProvider
+      ? createPreviewTools(this.options.previewObservationProvider, () =>
+          this.currentPreviewContext(record.id),
+        )
+      : {};
     const tools = {
       ...rawTools,
+      ...previewTools,
       edit: wrapMutationTool(
         rawTools.edit as unknown as ToolDefinition,
         this.options.websiteId,
@@ -638,6 +663,18 @@ export class WebsiteAgentRuntime {
     return context
       ? { ...this.baseContext, traceId: context.traceId, agentRunId: context.runId }
       : this.baseContext;
+  }
+
+  private currentPreviewContext(websiteSessionId: string): PreviewObservationContext | undefined {
+    const context = this.runContext.getStore();
+    if (!context) return undefined;
+    return {
+      websiteId: this.options.websiteId,
+      websiteSessionId,
+      runId: context.runId,
+      traceId: context.traceId,
+      previewClientId: context.previewClientId,
+    };
   }
 
   private async withCurrentRun<T>(

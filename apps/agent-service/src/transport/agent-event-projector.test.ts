@@ -66,4 +66,35 @@ describe('agent event projector', () => {
       (first?.payload as { messageId: string }).messageId,
     );
   });
+
+  it('cleans the assistant correlation state when a run settles without message_end', () => {
+    const message = { role: 'assistant', content: [] } as never;
+    const started = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-cleanup',
+      event: { type: 'message_start', message },
+    });
+    projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-cleanup',
+      event: {
+        type: 'run_settled',
+        runId: 'run-cleanup',
+        traceId: 'trace-cleanup',
+        status: 'FAILED',
+      },
+    });
+    const update = projectWebsiteAgentEvent({
+      ...context,
+      runId: 'run-cleanup',
+      event: {
+        type: 'message_update',
+        message,
+        assistantMessageEvent: { delta: 'after cleanup' } as never,
+      },
+    });
+    expect((update?.payload as { messageId: string }).messageId).not.toBe(
+      (started?.payload as { messageId: string }).messageId,
+    );
+  });
 });

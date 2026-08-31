@@ -24,6 +24,13 @@ import {
 } from '@cloudcrane/db';
 import { WorkspaceClient } from '@cloudcrane/workspace-client';
 import { WebsiteAgentRuntime, type WorkspaceClientFactory } from '@cloudcrane/website-agent';
+import type {
+  AgentWireMessage,
+  PreviewCapability,
+  PreviewObservation,
+} from '@cloudcrane/agent-protocol';
+import { ClientPreviewProvider } from './infrastructure/client-preview-provider.js';
+import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 import { DrizzleWebsiteAgentStore } from './infrastructure/website-agent-store.js';
 import { buildAgentServiceApp } from './app.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
@@ -543,7 +550,8 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         [fauxToolCall('write', { path: '/workspace/index.php', content: '<h1>After</h1>' })],
         { stopReason: 'toolUse' },
       ),
-      fauxAssistantMessage('transport run completed'),
+      fauxAssistantMessage([fauxToolCall('preview_refresh', {})], { stopReason: 'toolUse' }),
+      fauxAssistantMessage('transport run completed after Preview observation'),
     ]);
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
@@ -551,6 +559,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       refreshOnCreate: false,
     });
     modelRuntime.registerNativeProvider(faux.provider);
+    const previewClients = new PreviewClientRegistry({ observeMs: 5_000, refreshMs: 5_000 });
     const runtime = new WebsiteAgentRuntime({
       websiteId,
       workspaceId,
@@ -560,6 +569,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       store: new DrizzleWebsiteAgentStore(platform!),
       modelRuntime,
       model: faux.getModel() as Model<'cloudcrane-browser-protocol'>,
+      previewObservationProvider: new ClientPreviewProvider(previewClients),
     });
     const session = await runtime.createSession();
     await probe!.fs.write({ path: '/workspace/index.php', content: '<h1>Before</h1>' });
@@ -591,21 +601,66 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         modelConfigured: true,
       },
       registry,
+      previewClientRegistry: previewClients,
     });
     await agentApp.listen({ host: '127.0.0.1', port: 0 });
     const address = agentApp.server.address();
     if (!address || typeof address === 'string')
       throw new Error('Agent Service did not bind a port');
     const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const clientB = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const previewClientA = '00000000-0000-4000-8000-000000000511';
+    const previewClientB = '00000000-0000-4000-8000-000000000512';
+    const previewCapabilities: PreviewCapability[] = [
+      'DOM_SNAPSHOT',
+      'VISIBLE_TEXT',
+      'CONSOLE',
+      'WINDOW_ERRORS',
+      'VIEWPORT',
+      'CURRENT_URL',
+    ];
+    const observed: PreviewObservation[] = [];
+    const clientBRequests: AgentWireMessage[] = [];
     const events: string[] = [];
     await new Promise<void>((resolve, reject) => {
+      clientB.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as { type: string };
+        if (message.type === 'connection.ready') {
+          clientB.send(
+            JSON.stringify({
+              type: 'preview.client.register',
+              requestId: 'register-preview-b',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { previewClientId: previewClientB, capabilities: previewCapabilities },
+            }),
+          );
+        }
+        if (message.type === 'preview.request') clientBRequests.push(message as AgentWireMessage);
+      });
+      clientB.on('error', reject);
       client.on('message', (raw) => {
         const message = JSON.parse(raw.toString()) as {
           type: string;
-          payload?: { runId?: string };
+          requestId?: string;
+          payload?: { runId?: string; commandType?: string; operation?: string };
         };
         events.push(message.type);
         if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'preview.client.register',
+              requestId: 'register-preview-a',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { previewClientId: previewClientA, capabilities: previewCapabilities },
+            }),
+          );
+        }
+        if (
+          message.type === 'command.ack' &&
+          message.payload?.commandType === 'preview.client.register'
+        ) {
           client.send(
             JSON.stringify({
               type: 'session.attach',
@@ -628,6 +683,40 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
             }),
           );
         }
+        if (message.type === 'preview.request') {
+          const next: PreviewObservation = {
+            url: `http://site-${websiteId}.localhost:4103/`,
+            path: '/',
+            title: 'After',
+            viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
+            scroll: { x: 0, y: 0 },
+            dom: [
+              {
+                ref: 'e1',
+                tag: 'h1',
+                attributes: { id: 'hero' },
+                text: 'After',
+                children: [],
+              },
+            ],
+            domTruncated: false,
+            visibleText: 'After',
+            consoleErrors: [],
+            windowErrors: [],
+            capturedAt: new Date().toISOString(),
+          };
+          observed.push(next);
+          client.send(
+            JSON.stringify({
+              type: 'preview.response',
+              requestId: message.requestId,
+              websiteId,
+              sessionId: session.id,
+              timestamp: new Date().toISOString(),
+              payload: { ok: true, observation: next },
+            }),
+          );
+        }
         if (message.type === 'run.settled' && message.payload?.runId) resolve();
       });
       client.on('error', reject);
@@ -638,6 +727,8 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     expect(events).toContain('tool.completed');
     expect(events).toContain('assistant.completed');
     expect(events).toContain('run.settled');
+    expect(observed.at(-1)?.visibleText).toContain('After');
+    expect(clientBRequests).toHaveLength(0);
     await expect(probe!.fs.read({ path: '/workspace/index.php' })).resolves.toMatchObject({
       content: '<h1>After</h1>',
     });
@@ -654,7 +745,9 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     const finalPreview = await requestPreview('/', previewCookie);
     expect(finalPreview.status).toBe(200);
     expect(finalPreview.body).toContain('<h1>After</h1>');
+    expect(finalPreview.body).toContain('/__cloudcrane/preview-bridge.js');
     client.close();
+    clientB.close();
     await agentApp.close();
   }, 120_000);
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentEnvelope, AgentEvent } from '@cloudcrane/agent-protocol';
+import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
 import {
   agentWebSocketUrl,
   command,
@@ -11,6 +11,7 @@ import {
   parseAgentEvent,
   parseAgentMessage,
 } from '../../../../lib/agent-client';
+import { PreviewBridgeClient } from '../../../../lib/preview-bridge-client';
 
 type Message = {
   id: string;
@@ -30,6 +31,10 @@ type PreviewState = {
 export default function AgentWorkbench({ params }: { params: Promise<{ websiteId: string }> }) {
   const { websiteId } = use(params);
   const socket = useRef<WebSocket | null>(null);
+  const previewFrame = useRef<HTMLIFrameElement | null>(null);
+  const previewBridge = useRef<PreviewBridgeClient | null>(null);
+  const previewClientIdRef = useRef<string | undefined>(undefined);
+  const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const activeRunRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -41,20 +46,49 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
   const [error, setError] = useState<string>();
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
   const [previewKey, setPreviewKey] = useState(0);
+  const [bridgeStatus, setBridgeStatus] = useState('waiting');
 
   const setRunId = useCallback((value: string | undefined) => {
     activeRunRef.current = value;
     setRunIdState(value);
   }, []);
-  const refreshPreview = useCallback(() => setPreviewKey((current) => current + 1), []);
+  const refreshPreview = useCallback(() => {
+    if (previewBridge.current) {
+      void previewBridge.current
+        .refresh()
+        .catch((cause) =>
+          setError(cause instanceof Error ? cause.message : 'Preview refresh failed'),
+        );
+    } else setPreviewKey((current) => current + 1);
+  }, []);
   const schedulePreviewRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(refreshPreview, 300);
   }, [refreshPreview]);
-  const sendCommand = useCallback((input: Parameters<typeof command>[0]) => {
-    const payload = JSON.stringify(command(input));
-    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(payload);
+  const sendCommand = useCallback((input: Parameters<typeof command>[0], requestId?: string) => {
+    const next = command(input);
+    if (requestId) next.requestId = requestId;
+    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
   }, []);
+
+  const registerPreviewClient = useCallback(() => {
+    if (!previewClientIdRef.current || !previewCapabilitiesRef.current) return;
+    sendCommand({
+      type: 'preview.client.register',
+      websiteId,
+      payload: {
+        previewClientId: previewClientIdRef.current,
+        capabilities: [...previewCapabilitiesRef.current],
+      },
+    });
+  }, [sendCommand, websiteId]);
+
+  useEffect(() => {
+    const key = `cloudcrane.previewClientId.${websiteId}`;
+    const stored = sessionStorage.getItem(key) ?? crypto.randomUUID();
+    sessionStorage.setItem(key, stored);
+    previewClientIdRef.current = stored;
+  }, [websiteId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +139,7 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
       ws.onopen = () => {
         setConnection('connected');
         sendCommand({ type: 'session.attach', websiteId, payload: { sessionId } });
+        registerPreviewClient();
       };
       ws.onclose = () => {
         if (disposed) return;
@@ -125,6 +160,52 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
           projected.event.type !== 'run.started'
         )
           return;
+        if (projected.event.type === 'preview.request') {
+          const client = previewBridge.current;
+          if (!client) {
+            sendCommand(
+              {
+                type: 'preview.response',
+                websiteId,
+                sessionId,
+                payload: {
+                  ok: false,
+                  error: {
+                    code: 'CLIENT_UNAVAILABLE',
+                    message: 'Preview Client is not connected',
+                  },
+                },
+              },
+              projected.envelope.requestId,
+            );
+          } else {
+            void handlePreviewRequest(client, projected.event.payload)
+              .then((payload) => {
+                sendCommand(
+                  { type: 'preview.response', websiteId, sessionId, payload },
+                  projected.envelope.requestId,
+                );
+              })
+              .catch((cause) => {
+                sendCommand(
+                  {
+                    type: 'preview.response',
+                    websiteId,
+                    sessionId,
+                    payload: {
+                      ok: false,
+                      error: {
+                        code: 'PREVIEW_PROTOCOL_ERROR',
+                        message: cause instanceof Error ? cause.message : 'Preview request failed',
+                      },
+                    },
+                  },
+                  projected.envelope.requestId,
+                );
+              });
+          }
+          return;
+        }
         handleEvent(
           projected.event,
           projected.envelope,
@@ -143,7 +224,22 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
       current?.close();
       if (socket.current === current) socket.current = null;
     };
-  }, [schedulePreviewRefresh, sendCommand, sessionId, setRunId, websiteId]);
+  }, [registerPreviewClient, schedulePreviewRefresh, sendCommand, sessionId, setRunId, websiteId]);
+
+  useEffect(() => {
+    if (preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
+    const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
+      previewCapabilitiesRef.current = capabilities;
+      setBridgeStatus('connected');
+      registerPreviewClient();
+    });
+    previewBridge.current = client;
+    return () => {
+      client.dispose();
+      if (previewBridge.current === client) previewBridge.current = null;
+      setBridgeStatus('waiting');
+    };
+  }, [preview.status, preview.url, registerPreviewClient]);
 
   function submit() {
     const text = draft.trim();
@@ -282,10 +378,12 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
             <strong>Website workspace</strong>
           </div>
           <span className={`preview-status ${preview.status}`}>{preview.status}</span>
+          <span className="preview-bridge-status">Agent Preview {bridgeStatus}</span>
         </header>
         {preview.status === 'ready' && preview.url ? (
           <iframe
             key={previewKey}
+            ref={previewFrame}
             title="Website live preview"
             src={preview.url}
             sandbox="allow-scripts allow-forms allow-same-origin"
@@ -318,6 +416,17 @@ export default function AgentWorkbench({ params }: { params: Promise<{ websiteId
       </aside>
     </main>
   );
+}
+
+async function handlePreviewRequest(
+  client: PreviewBridgeClient,
+  request: Extract<AgentEvent, { type: 'preview.request' }>['payload'],
+) {
+  if (request.operation === 'observe')
+    return { ok: true as const, observation: await client.observe() };
+  if (request.operation === 'refresh')
+    return { ok: true as const, observation: await client.refresh() };
+  return { ok: true as const, observation: await client.navigate(request.path) };
 }
 
 function handleEvent(

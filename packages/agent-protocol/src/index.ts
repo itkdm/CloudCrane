@@ -1,4 +1,16 @@
 import { z } from 'zod';
+import {
+  previewClientRegisterPayloadSchema,
+  previewRequestPayloadSchema,
+  previewResponsePayloadSchema,
+} from '@cloudcrane/preview-protocol';
+export type {
+  PreviewCapability,
+  PreviewClientRegisterPayload,
+  PreviewObservation,
+  PreviewRequestPayload,
+  PreviewResponsePayload,
+} from '@cloudcrane/preview-protocol';
 
 export const agentEnvelopeSchema = z.object({
   type: z.string().min(1),
@@ -38,6 +50,14 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('agent.follow_up'),
     payload: z.object({ text: z.string().min(1).max(32_000) }),
   }),
+  commandBase.extend({
+    type: z.literal('preview.client.register'),
+    payload: previewClientRegisterPayloadSchema,
+  }),
+  commandBase.extend({
+    type: z.literal('preview.response'),
+    payload: previewResponsePayloadSchema,
+  }),
 ]);
 export type AgentCommand = z.infer<typeof agentCommandSchema>;
 
@@ -66,7 +86,12 @@ export const sessionSnapshotSchema = z.object({
   session: sessionViewSchema,
   messages: z.array(snapshotMessageSchema),
   activeRun: z
-    .object({ runId: z.string().uuid(), traceId: z.string().uuid(), status: z.literal('RUNNING') })
+    .object({
+      runId: z.string().uuid(),
+      traceId: z.string().uuid(),
+      previewClientId: z.string().uuid().optional(),
+      status: z.literal('RUNNING'),
+    })
     .nullable(),
 });
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
@@ -83,7 +108,11 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session.snapshot'), payload: sessionSnapshotSchema }),
   z.object({
     type: z.literal('run.started'),
-    payload: z.object({ runId: z.string().uuid(), traceId: z.string().uuid() }),
+    payload: z.object({
+      runId: z.string().uuid(),
+      traceId: z.string().uuid(),
+      previewClientId: z.string().uuid().optional(),
+    }),
   }),
   z.object({
     type: z.literal('run.settled'),
@@ -134,6 +163,10 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       steering: z.number().int().nonnegative(),
       followUp: z.number().int().nonnegative(),
     }),
+  }),
+  z.object({
+    type: z.literal('preview.request'),
+    payload: previewRequestPayloadSchema,
   }),
   z.object({ type: z.literal('command.ack'), payload: z.object({ commandType: z.string() }) }),
   z.object({

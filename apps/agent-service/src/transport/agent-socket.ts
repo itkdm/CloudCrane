@@ -10,12 +10,14 @@ import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from '../application/errors.js';
 import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
+import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 import { projectWebsiteAgentEvent } from './agent-event-projector.js';
 
 type AgentSocketOptions = {
   app: FastifyInstance;
   config: AgentServiceConfig;
   registry: WebsiteRuntimeRegistry;
+  previewClients: PreviewClientRegistry;
 };
 
 export class AgentSocketTransport {
@@ -58,6 +60,11 @@ class AgentSocketConnection {
   private unsubscribe?: () => void;
   private websiteId?: string;
   private closed = false;
+  private previewWebsiteId?: string;
+  private previewClientId?: string;
+  private readonly previewConnection = {
+    send: (message: ReturnType<typeof createAgentEnvelope>) => this.write(message),
+  };
 
   constructor(
     private readonly socket: WebSocket,
@@ -104,6 +111,12 @@ class AgentSocketConnection {
 
   private async dispatch(command: AgentCommand): Promise<void> {
     if (command.type === 'session.attach') {
+      if (this.previewWebsiteId && this.previewWebsiteId !== command.websiteId)
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'Preview Client website does not match session',
+          400,
+        );
       const runtime = await this.options.registry.get(command.websiteId);
       let session;
       try {
@@ -130,6 +143,39 @@ class AgentSocketConnection {
       });
       return;
     }
+    if (command.type === 'preview.client.register') {
+      if (this.previewWebsiteId && this.previewClientId)
+        this.options.previewClients.unregister(
+          this.previewWebsiteId,
+          this.previewClientId,
+          this.previewConnection,
+        );
+      this.previewWebsiteId = command.websiteId;
+      this.previewClientId = command.payload.previewClientId;
+      this.options.previewClients.register(
+        command.websiteId,
+        command.payload.previewClientId,
+        command.payload.capabilities,
+        this.previewConnection,
+      );
+      this.ack(command);
+      return;
+    }
+    if (command.type === 'preview.response') {
+      if (this.previewWebsiteId !== command.websiteId || !this.previewClientId)
+        throw new AgentServiceError('INVALID_ARGUMENT', 'Preview Client is not registered', 400);
+      if (
+        !this.options.previewClients.respond(
+          command.websiteId,
+          this.previewClientId,
+          command.requestId,
+          command.payload,
+          this.previewConnection,
+        )
+      )
+        throw new AgentServiceError('INVALID_ARGUMENT', 'Preview response is not pending', 400);
+      return;
+    }
     this.requireAttached(command);
     const runtime = this.runtime!;
     const sessionId = this.sessionId!;
@@ -139,7 +185,9 @@ class AgentSocketConnection {
       if (await runtime.hasActiveRun(sessionId))
         throw new AgentServiceError('SESSION_BUSY', 'this session already has an active run', 409);
       this.ack(command);
-      void runtime.prompt(sessionId, command.payload.text).catch(() => undefined);
+      void runtime
+        .prompt(sessionId, command.payload.text, this.previewClientId)
+        .catch(() => undefined);
       return;
     }
     if (command.type === 'agent.abort') {
@@ -203,6 +251,12 @@ class AgentSocketConnection {
     this.closed = true;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    if (this.previewWebsiteId && this.previewClientId)
+      this.options.previewClients.unregister(
+        this.previewWebsiteId,
+        this.previewClientId,
+        this.previewConnection,
+      );
     this.onClose();
   }
 }

@@ -6,20 +6,24 @@ import { AgentServiceError, asAgentServiceError } from './application/errors.js'
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 import type { AgentServiceConfig } from './config.js';
 import { AgentSocketTransport } from './transport/agent-socket.js';
+import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 
 export type AgentServiceAppOptions = {
   config: AgentServiceConfig;
   registry: WebsiteRuntimeRegistry;
+  previewClientRegistry?: PreviewClientRegistry;
 };
 
 export function buildAgentServiceApp(
   options: AgentServiceAppOptions,
 ): FastifyInstance & { agentSocket: AgentSocketTransport } {
   const app = Fastify({ bodyLimit: 256 * 1024 });
+  const previewClients = options.previewClientRegistry ?? new PreviewClientRegistry();
   const sockets = new AgentSocketTransport({
     app,
     config: options.config,
     registry: options.registry,
+    previewClients,
   });
   (app as unknown as FastifyInstance & { agentSocket: AgentSocketTransport }).agentSocket = sockets;
   app.addHook('onRequest', async (request, reply) => {
@@ -94,6 +98,7 @@ export function buildAgentServiceApp(
   });
   app.addHook('onClose', async () => {
     await sockets.close();
+    previewClients.close();
     await options.registry.shutdown();
   });
   return app as unknown as FastifyInstance & { agentSocket: AgentSocketTransport };

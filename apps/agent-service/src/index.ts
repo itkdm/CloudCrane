@@ -8,6 +8,8 @@ import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 import { loadAgentServiceConfig } from './config.js';
 import { DrizzleWebsiteAgentStore } from './infrastructure/website-agent-store.js';
 import { DrizzleWebsiteBindingStore } from './infrastructure/website-binding-store.js';
+import { ClientPreviewProvider } from './infrastructure/client-preview-provider.js';
+import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
@@ -22,6 +24,7 @@ const model = config.modelConfigured
   ? modelRuntime.getModel(config.modelProvider!, config.modelId!)
   : undefined;
 if (config.modelConfigured && !model) throw new Error('configured agent model is not available');
+const previewClients = new PreviewClientRegistry();
 
 const registry = new WebsiteRuntimeRegistry({
   bindingStore: new DrizzleWebsiteBindingStore(platform),
@@ -35,9 +38,10 @@ const registry = new WebsiteRuntimeRegistry({
       store: new DrizzleWebsiteAgentStore(platform),
       modelRuntime,
       model,
+      previewObservationProvider: new ClientPreviewProvider(previewClients),
     }),
 });
-const app = buildAgentServiceApp({ config, registry });
+const app = buildAgentServiceApp({ config, registry, previewClientRegistry: previewClients });
 
 const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');

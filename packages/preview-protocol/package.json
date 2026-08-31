@@ -1,17 +1,22 @@
 {
-  "name": "@cloudcrane/agent-protocol",
+  "name": "@cloudcrane/preview-protocol",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "eslint --config ../../eslint.config.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --exclude dist/** --exclude .next/**"
+    "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
-    "@cloudcrane/preview-protocol": "workspace:*",
     "zod": "4.5.4"
   }
 }
