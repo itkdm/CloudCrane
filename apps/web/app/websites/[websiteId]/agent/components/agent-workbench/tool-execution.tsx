@@ -42,8 +42,9 @@ export function ToolExecution({ message }: { message: Message }) {
   const label = toolLabels[toolName] ?? '执行工具';
   const Icon = toolIcons[toolName] ?? Terminal;
   const status = normalizeStatus(message.status);
-  const target = toolTarget(toolName, message.text);
-  const detail = boundedDetail(message.text);
+  const target = toolTarget(toolName, message.toolInput);
+  const input = boundedDetail(message.toolInput);
+  const output = boundedDetail(message.toolOutput);
 
   return (
     <article className={`tool-execution ${status}`}>
@@ -63,12 +64,25 @@ export function ToolExecution({ message }: { message: Message }) {
         </div>
         <span className="tool-target">{target}</span>
       </div>
-      {detail && (
+      {(input || output) && (
         <details className="tool-details">
           <summary aria-label="查看工具详情">
             <ChevronDown size={15} aria-hidden="true" />
           </summary>
-          <pre>{detail}</pre>
+          <div className="tool-detail-content">
+            {input && (
+              <div className="tool-detail-section">
+                <span>输入</span>
+                <pre>{input}</pre>
+              </div>
+            )}
+            {output && (
+              <div className="tool-detail-section">
+                <span>输出</span>
+                <pre>{output}</pre>
+              </div>
+            )}
+          </div>
         </details>
       )}
     </article>
@@ -88,7 +102,7 @@ function normalizeStatus(value?: string): keyof typeof statusLabels {
   return 'completed';
 }
 
-function toolTarget(toolName: string, text: string): string {
+function toolTarget(toolName: string, text = ''): string {
   if (toolName.startsWith('preview_'))
     return toolName === 'preview_navigate' ? '当前网站页面' : '当前预览';
   const path = text.match(/(?:\/workspace|workspace)[^\s"'`}\]]+/i)?.[0];
@@ -100,7 +114,7 @@ function toolTarget(toolName: string, text: string): string {
   return '当前工作区';
 }
 
-function boundedDetail(text: string): string {
+function boundedDetail(text = ''): string {
   const trimmed = text.trim();
   if (!trimmed || trimmed === '当前工作区') return '';
   return trimmed.length > 900 ? `${trimmed.slice(0, 900)}\n…` : trimmed;

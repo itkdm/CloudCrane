@@ -87,6 +87,10 @@ function installPreviewBridge(): void {
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const message = event.data;
+    if (isConnectRequest(message)) {
+      postReady(parentOrigin, message.requestId);
+      return;
+    }
     if (!isObserveRequest(message)) return;
     try {
       post(parentOrigin, {
@@ -106,10 +110,14 @@ function installPreviewBridge(): void {
       });
     }
   });
+  postReady(parentOrigin);
+}
+
+function postReady(parentOrigin: string, requestId = `bridge:${Date.now()}`): void {
   post(parentOrigin, {
     version: BRIDGE_VERSION,
     type: 'bridge.ready',
-    requestId: `bridge:${Date.now()}`,
+    requestId,
     payload: { capabilities: PREVIEW_CAPABILITIES },
   });
 }
@@ -131,6 +139,17 @@ function isObserveRequest(value: unknown): value is { requestId: string } {
     typeof value === 'object' &&
     (value as { version?: unknown }).version === BRIDGE_VERSION &&
     (value as { type?: unknown }).type === 'bridge.observe.request' &&
+    typeof (value as { requestId?: unknown }).requestId === 'string' &&
+    (value as { requestId: string }).requestId.length < 128,
+  );
+}
+
+function isConnectRequest(value: unknown): value is { requestId: string } {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    (value as { version?: unknown }).version === BRIDGE_VERSION &&
+    (value as { type?: unknown }).type === 'bridge.connect.request' &&
     typeof (value as { requestId?: unknown }).requestId === 'string' &&
     (value as { requestId: string }).requestId.length < 128,
   );

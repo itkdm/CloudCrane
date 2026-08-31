@@ -722,7 +722,7 @@ button:disabled {
   transform: rotate(180deg);
 }
 
-.tool-details pre {
+.tool-detail-content {
   position: absolute;
   z-index: 2;
   top: 31px;
@@ -730,12 +730,29 @@ button:disabled {
   width: min(380px, 60vw);
   max-height: 220px;
   overflow: auto;
-  margin: 0;
   border: 1px solid var(--cc-line);
   border-radius: 7px;
   padding: 10px;
   background: #17211f;
   color: #d9e8e2;
+}
+
+.tool-detail-section + .tool-detail-section {
+  margin-top: 9px;
+  border-top: 1px solid #40514d;
+  padding-top: 9px;
+}
+
+.tool-detail-section > span {
+  display: block;
+  margin-bottom: 4px;
+  color: #91c8b8;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.tool-detail-content pre {
+  margin: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
   line-height: 1.55;
@@ -1072,7 +1089,7 @@ button:disabled {
     margin-left: 8px;
   }
 
-  .tool-details pre {
+  .tool-detail-content {
     right: -6px;
     width: min(300px, 80vw);
   }

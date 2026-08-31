@@ -33,6 +33,9 @@ function setup() {
   const iframe = {
     contentWindow: iframeWindow,
     src: 'https://preview.example/',
+    addEventListener: (type: string, listener: () => void) =>
+      listeners.set(type, listener as never),
+    removeEventListener: (type: string) => listeners.delete(type),
   } as unknown as HTMLIFrameElement;
   vi.stubGlobal('window', {
     addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) =>
@@ -41,16 +44,47 @@ function setup() {
   });
   const emit = (source: object, data: unknown, origin = 'https://preview.example') =>
     listeners.get('message')?.({ source, origin, data } as MessageEvent<unknown>);
-  return { iframe, iframeWindow, emit };
+  const load = () => listeners.get('load')?.({} as never);
+  return { iframe, iframeWindow, emit, load };
 }
 
-function ready(emit: ReturnType<typeof setup>['emit'], source: object, requestId = 'ready-1') {
+function ready(emit: ReturnType<typeof setup>['emit'], source: object, requestId: string) {
   emit(source, {
     version: 'cloudcrane.preview.v1',
     type: 'bridge.ready',
     requestId,
     payload: { capabilities },
   });
+}
+
+function latestRequest(
+  iframeWindow: { postMessage: ReturnType<typeof vi.fn> },
+  type: string,
+): { type: string; requestId: string } {
+  const request = [...iframeWindow.postMessage.mock.calls]
+    .reverse()
+    .map((call) => call[0] as { type?: string; requestId?: string })
+    .find((message) => message.type === type);
+  if (!request?.requestId) throw new Error(`${type} was not posted`);
+  return { type, requestId: request.requestId };
+}
+
+async function resolveObserve(
+  client: PreviewBridgeClient,
+  iframeWindow: { postMessage: ReturnType<typeof vi.fn> },
+  emit: ReturnType<typeof setup>['emit'],
+) {
+  const pending = client.observe();
+  await Promise.resolve();
+  await Promise.resolve();
+  const request = latestRequest(iframeWindow, 'bridge.observe.request');
+  emit(iframeWindow, {
+    version: 'cloudcrane.preview.v1',
+    type: 'bridge.observe.response',
+    requestId: request.requestId,
+    payload: { observation: observation('https://preview.example/') },
+  });
+  return pending;
 }
 
 afterEach(() => {
@@ -75,7 +109,7 @@ describe('PreviewBridgeClient lifecycle', () => {
   });
 
   it('isolates stale READY messages and routes navigate input to the new generation', async () => {
-    const { iframe, iframeWindow: oldWindow, emit } = setup();
+    const { iframe, iframeWindow: oldWindow, emit, load } = setup();
     const client = new PreviewBridgeClient(iframe, 'https://preview.example/');
     const navigation = client.navigate('/about?from=agent');
     const newWindow = { postMessage: vi.fn() };
@@ -85,11 +119,13 @@ describe('PreviewBridgeClient lifecycle', () => {
     expect(newWindow.postMessage).not.toHaveBeenCalled();
     ready(emit, newWindow, 'bridge:0');
     expect(newWindow.postMessage).not.toHaveBeenCalled();
-    ready(emit, newWindow);
+    load();
+    const connect = newWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    ready(emit, newWindow, connect.requestId);
     await Promise.resolve();
     await Promise.resolve();
-    expect(newWindow.postMessage).toHaveBeenCalledTimes(1);
-    const request = newWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    expect(newWindow.postMessage).toHaveBeenCalledTimes(2);
+    const request = latestRequest(newWindow, 'bridge.observe.request');
     emit(newWindow, {
       version: 'cloudcrane.preview.v1',
       type: 'bridge.observe.response',
@@ -103,14 +139,15 @@ describe('PreviewBridgeClient lifecycle', () => {
   });
 
   it('refreshes the observed current URL instead of reverting to the initial URL', async () => {
-    const { iframe, iframeWindow, emit } = setup();
+    const { iframe, iframeWindow, emit, load } = setup();
     const client = new PreviewBridgeClient(iframe, 'https://preview.example/');
-    ready(emit, iframeWindow);
+    const initialConnect = iframeWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    ready(emit, iframeWindow, initialConnect.requestId);
 
     const firstObserve = client.observe();
     await Promise.resolve();
     await Promise.resolve();
-    const firstRequest = iframeWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    const firstRequest = latestRequest(iframeWindow, 'bridge.observe.request');
     emit(iframeWindow, {
       version: 'cloudcrane.preview.v1',
       type: 'bridge.observe.response',
@@ -122,7 +159,7 @@ describe('PreviewBridgeClient lifecycle', () => {
     const refresh = client.refresh();
     await Promise.resolve();
     await Promise.resolve();
-    const currentRequest = iframeWindow.postMessage.mock.calls[1]?.[0] as { requestId: string };
+    const currentRequest = latestRequest(iframeWindow, 'bridge.observe.request');
     emit(iframeWindow, {
       version: 'cloudcrane.preview.v1',
       type: 'bridge.observe.response',
@@ -133,12 +170,14 @@ describe('PreviewBridgeClient lifecycle', () => {
     await Promise.resolve();
     const refreshedWindow = { postMessage: vi.fn() };
     (iframe as { contentWindow: object }).contentWindow = refreshedWindow;
-    ready(emit, refreshedWindow);
-    await Promise.resolve();
-    await Promise.resolve();
-    const refreshedRequest = refreshedWindow.postMessage.mock.calls[0]?.[0] as {
+    load();
+    const refreshedConnect = refreshedWindow.postMessage.mock.calls[0]?.[0] as {
       requestId: string;
     };
+    ready(emit, refreshedWindow, refreshedConnect.requestId);
+    await Promise.resolve();
+    await Promise.resolve();
+    const refreshedRequest = latestRequest(refreshedWindow, 'bridge.observe.request');
     emit(refreshedWindow, {
       version: 'cloudcrane.preview.v1',
       type: 'bridge.observe.response',
@@ -148,6 +187,55 @@ describe('PreviewBridgeClient lifecycle', () => {
 
     await expect(refresh).resolves.toMatchObject({ path: '/about' });
     expect(iframe.src).toBe('https://preview.example/about');
+    client.dispose();
+  });
+
+  it('recovers when the initial Bridge READY was sent before the parent listener', async () => {
+    const { iframe, iframeWindow, emit } = setup();
+    const onReady = vi.fn();
+    const client = new PreviewBridgeClient(iframe, 'https://preview.example/', onReady);
+    const connect = iframeWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    ready(emit, iframeWindow, connect.requestId);
+
+    await expect(resolveObserve(client, iframeWindow, emit)).resolves.toMatchObject({
+      title: 'Preview',
+    });
+    expect(onReady).toHaveBeenCalledTimes(1);
+    client.dispose();
+  });
+
+  it('uses iframe load handshake when the parent is ready first and ignores wrong source or origin', async () => {
+    const { iframe, iframeWindow, emit, load } = setup();
+    const onReady = vi.fn();
+    const client = new PreviewBridgeClient(iframe, 'https://preview.example/', onReady);
+
+    emit(
+      {},
+      {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.ready',
+        requestId: 'wrong-source',
+        payload: { capabilities },
+      },
+    );
+    emit(
+      iframeWindow,
+      {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.ready',
+        requestId: 'wrong-origin',
+        payload: { capabilities },
+      },
+      'https://evil.example',
+    );
+    load();
+    const connect = iframeWindow.postMessage.mock.calls.at(-1)?.[0] as { requestId: string };
+    ready(emit, iframeWindow, connect.requestId);
+
+    await expect(resolveObserve(client, iframeWindow, emit)).resolves.toMatchObject({
+      title: 'Preview',
+    });
+    expect(onReady).toHaveBeenCalledTimes(1);
     client.dispose();
   });
 });

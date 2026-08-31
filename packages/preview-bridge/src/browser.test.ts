@@ -50,7 +50,13 @@ async function runBridge(body: FakeElement | null = null) {
   const script = await readFile(path.join(process.cwd(), 'dist', 'browser.js'), 'utf8');
   const messages: unknown[] = [];
   const listeners = new Map<string, (event: unknown) => void>();
-  const parent = { postMessage: (message: unknown) => messages.push(message) };
+  const targetOrigins: unknown[] = [];
+  const parent = {
+    postMessage: (message: unknown, targetOrigin: unknown) => {
+      messages.push(message);
+      targetOrigins.push(targetOrigin);
+    },
+  };
   const consoleValue = {
     error: (...args: unknown[]) => {
       void args;
@@ -102,7 +108,7 @@ async function runBridge(body: FakeElement | null = null) {
     clearTimeout,
   };
   vm.runInNewContext(script, context);
-  return { messages, listeners, parent, windowValue, consoleValue };
+  return { messages, listeners, parent, targetOrigins, windowValue, consoleValue };
 }
 
 describe('Preview Bridge browser boundary', () => {
@@ -135,6 +141,35 @@ describe('Preview Bridge browser boundary', () => {
       },
     });
     expect(bridge.messages).toHaveLength(before);
+
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'connect-1',
+        payload: {},
+      },
+    });
+    expect(bridge.messages.at(-1)).toMatchObject({
+      type: 'bridge.ready',
+      requestId: 'connect-1',
+    });
+    expect(bridge.targetOrigins.every((origin) => origin === 'http://localhost:3000')).toBe(true);
+
+    const duplicateBefore = bridge.messages.length;
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'connect-1',
+        payload: {},
+      },
+    });
+    expect(bridge.messages).toHaveLength(duplicateBefore + 1);
   });
 
   it('correlates observe requests and returns bounded typed state without screenshot claims', async () => {

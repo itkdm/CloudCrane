@@ -1,8 +1,11 @@
 export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
-  text: string;
+  text?: string;
+  toolCallId?: string;
   toolName?: string;
+  toolInput?: string;
+  toolOutput?: string;
   status?: string;
   requestId?: string;
 };

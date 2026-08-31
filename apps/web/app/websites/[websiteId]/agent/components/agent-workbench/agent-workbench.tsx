@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
+import type {
+  AgentEnvelope,
+  AgentEvent,
+  PreviewCapability,
+  SnapshotMessage,
+} from '@cloudcrane/agent-protocol';
 import {
   agentWebSocketUrl,
   command,
@@ -343,7 +348,7 @@ function handleEvent(
     );
   }
   if (event.type === 'session.snapshot') {
-    setMessages(event.payload.messages);
+    setMessages(event.payload.messages.map(projectSnapshotMessage));
     setRunId(event.payload.activeRun?.runId);
   }
   if (event.type === 'assistant.started')
@@ -355,7 +360,7 @@ function handleEvent(
     setMessages((current) =>
       current.map((message) =>
         message.id === event.payload.messageId
-          ? { ...message, text: message.text + event.payload.text }
+          ? { ...message, text: (message.text ?? '') + event.payload.text }
           : message,
       ),
     );
@@ -372,7 +377,7 @@ function handleEvent(
         id: event.payload.toolCallId,
         role: 'tool',
         toolName: event.payload.toolName,
-        text: event.payload.input ?? '',
+        toolInput: event.payload.input,
         status: 'running',
       },
     ]);
@@ -380,7 +385,7 @@ function handleEvent(
     setMessages((current) =>
       current.map((message) =>
         message.id === event.payload.toolCallId
-          ? { ...message, text: event.payload.output ?? message.text }
+          ? { ...message, toolOutput: event.payload.output ?? message.toolOutput }
           : message,
       ),
     );
@@ -388,10 +393,26 @@ function handleEvent(
     setMessages((current) =>
       current.map((message) =>
         message.id === event.payload.toolCallId
-          ? { ...message, text: event.payload.output ?? message.text, status: event.payload.status }
+          ? {
+              ...message,
+              toolOutput: event.payload.output ?? message.toolOutput,
+              status: event.payload.status,
+            }
           : message,
       ),
     );
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
   }
+}
+
+function projectSnapshotMessage(message: SnapshotMessage): Message {
+  if (message.role !== 'tool') return { ...message };
+  return {
+    id: message.id,
+    role: 'tool',
+    toolCallId: message.toolCallId,
+    toolName: message.toolName,
+    toolOutput: message.text || undefined,
+    status: message.status,
+  };
 }

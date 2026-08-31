@@ -30,6 +30,8 @@ export class PreviewBridgeClient {
   private rejectReady!: (error: PreviewBridgeClientError) => void;
   private readyGeneration = 0;
   private readyStartedAt = 0;
+  private readyRequestId = '';
+  private readyNotifiedGeneration = 0;
   private readonly pending = new Map<string, Pending>();
   private capabilities: PreviewCapability[] = [];
   private currentUrl: string;
@@ -42,10 +44,13 @@ export class PreviewBridgeClient {
     this.currentUrl = cleanPreviewUrl(previewUrl);
     this.ready = this.createReadyPromise();
     window.addEventListener('message', this.handleMessage);
+    this.iframe.addEventListener('load', this.handleLoad);
+    this.sendConnectRequest();
   }
 
   dispose(): void {
     window.removeEventListener('message', this.handleMessage);
+    this.iframe.removeEventListener('load', this.handleLoad);
     this.rejectAll(
       new PreviewBridgeClientError('PREVIEW_PROTOCOL_ERROR', 'Preview Client disposed'),
     );
@@ -111,10 +116,17 @@ export class PreviewBridgeClient {
     if (!parsed.success) return;
     if (parsed.data.type === 'bridge.ready') {
       const readyTimestamp = parseReadyTimestamp(parsed.data.requestId);
-      if (readyTimestamp !== undefined && readyTimestamp < this.readyStartedAt) return;
+      if (
+        parsed.data.requestId !== this.readyRequestId &&
+        (readyTimestamp === undefined || readyTimestamp < this.readyStartedAt)
+      )
+        return;
       this.capabilities = parsed.data.payload.capabilities;
       this.resolveReady(this.capabilities);
-      this.onReady?.(this.capabilities);
+      if (this.readyNotifiedGeneration !== this.readyGeneration) {
+        this.readyNotifiedGeneration = this.readyGeneration;
+        this.onReady?.(this.capabilities);
+      }
       return;
     }
     if (parsed.data.type === 'bridge.observe.response') {
@@ -147,9 +159,26 @@ export class PreviewBridgeClient {
     this.ready = this.createReadyPromise();
   }
 
+  private readonly handleLoad = (): void => {
+    this.sendConnectRequest();
+  };
+
+  private sendConnectRequest(): void {
+    this.iframe.contentWindow?.postMessage(
+      {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: this.readyRequestId,
+        payload: {},
+      },
+      this.origin(),
+    );
+  }
+
   private createReadyPromise(): Promise<PreviewCapability[]> {
     const generation = ++this.readyGeneration;
     this.readyStartedAt = Date.now();
+    this.readyRequestId = `connect:${crypto.randomUUID()}`;
     const promise = new Promise<PreviewCapability[]>((resolve, reject) => {
       let settled = false;
       const settleResolve = (capabilities: PreviewCapability[]) => {

@@ -17,14 +17,6 @@ export function SessionSidebar({ sessions, sessionId, onSelect, onCreate }: Sess
     <aside className="session-sidebar" aria-label="对话列表">
       <div className="sidebar-heading">
         <span>对话</span>
-        <button
-          className="icon-button sidebar-new-button"
-          type="button"
-          onClick={onCreate}
-          aria-label="新建对话"
-        >
-          <Plus size={17} strokeWidth={2} aria-hidden="true" />
-        </button>
       </div>
       <button className="new-session-button" type="button" onClick={onCreate}>
         <Plus size={16} strokeWidth={2} aria-hidden="true" />

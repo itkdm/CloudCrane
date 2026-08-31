@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isWebsiteRelativePath, previewObservationSchema } from './index.js';
+import { bridgeMessageSchema, isWebsiteRelativePath, previewObservationSchema } from './index.js';
 
 describe('preview protocol', () => {
   it('accepts website-relative paths and rejects authority-bearing URLs', () => {
@@ -39,5 +39,16 @@ describe('preview protocol', () => {
         capturedAt: new Date().toISOString(),
       }).success,
     ).toBe(false);
+  });
+
+  it('accepts a parent-to-bridge connect handshake', () => {
+    expect(
+      bridgeMessageSchema.safeParse({
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'connect-1',
+        payload: {},
+      }).success,
+    ).toBe(true);
   });
 });

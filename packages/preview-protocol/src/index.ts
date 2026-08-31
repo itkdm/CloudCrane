@@ -94,6 +94,13 @@ export const bridgeReadyMessageSchema = z.object({
   payload: z.object({ capabilities: z.array(previewCapabilitySchema).max(16) }),
 });
 
+export const bridgeConnectRequestMessageSchema = z.object({
+  version: z.literal('cloudcrane.preview.v1'),
+  type: z.literal('bridge.connect.request'),
+  requestId: z.string().min(1).max(128),
+  payload: z.object({}),
+});
+
 export const bridgeObserveRequestMessageSchema = z.object({
   version: z.literal('cloudcrane.preview.v1'),
   type: z.literal('bridge.observe.request'),
@@ -116,6 +123,7 @@ export const bridgeErrorMessageSchema = z.object({
 });
 
 export const bridgeMessageSchema = z.discriminatedUnion('type', [
+  bridgeConnectRequestMessageSchema,
   bridgeReadyMessageSchema,
   bridgeObserveRequestMessageSchema,
   bridgeObserveResponseMessageSchema,
