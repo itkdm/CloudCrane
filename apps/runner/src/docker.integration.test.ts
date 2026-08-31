@@ -134,7 +134,11 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       const restarted = await provider.start(workspaceId);
       expect(restarted.status).toBe('running');
       expect(restarted.previewPort).toBeGreaterThan(0);
-      await expect(client.runtimeInfo()).resolves.toMatchObject({
+      const restartedClient = new WorkspaceDaemonClient(
+        await provider.getEndpoint(workspaceId),
+        5_000,
+      );
+      await expect(restartedClient.runtimeInfo()).resolves.toMatchObject({
         preview: { status: 'ready', port: 8080 },
       });
       await provider.destroyRuntime(workspaceId);
