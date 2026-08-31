@@ -5,102 +5,298 @@ import {
   type ConversationEvent,
 } from './conversation-reducer';
 
-function reduce(state: ReturnType<typeof conversationReducer>, event: ConversationEvent) {
-  return conversationReducer(state, event);
+function reduce(...events: ConversationEvent[]) {
+  return events.reduce(conversationReducer, initialConversationState);
 }
 
-describe('conversationReducer', () => {
-  it('projects snapshots without pretending tool text is tool input', () => {
-    const state = reduce(initialConversationState, {
+const user = (id = 'user-1'): ConversationEvent => ({
+  type: 'user.added',
+  payload: { message: { id, role: 'user', text: '请修改首页', requestId: id, status: 'pending' } },
+});
+
+describe('conversationReducer turn presentation model', () => {
+  it('keeps chat-only turns free of an empty execution', () => {
+    const state = reduce(
+      user(),
+      { type: 'assistant.started', payload: { messageId: 'answer-1' } },
+      { type: 'assistant.delta', payload: { messageId: 'answer-1', text: '已完成' } },
+      { type: 'assistant.completed', payload: { messageId: 'answer-1', text: '已完成' } },
+      { type: 'run.settled', payload: { status: 'COMPLETED' } },
+    );
+
+    expect(state.turns).toEqual([
+      expect.objectContaining({
+        finalAnswer: expect.objectContaining({ id: 'answer-1', text: '已完成' }),
+        status: 'completed',
+        expanded: false,
+      }),
+    ]);
+    expect(state.turns[0]).not.toHaveProperty('execution');
+    expect(state.messages.map((message) => message.role)).toEqual(['user', 'assistant']);
+  });
+
+  it('stores intermediate assistant narrative and multiple paired tools', () => {
+    const state = reduce(
+      user(),
+      { type: 'assistant.delta', payload: { messageId: 'narrative', text: '我先检查一下。' } },
+      { type: 'assistant.completed', payload: { messageId: 'narrative', text: '我先检查一下。' } },
+      {
+        type: 'tool.started',
+        payload: { toolCallId: 'tool-1', toolName: 'read', input: 'a.html' },
+      },
+      {
+        type: 'tool.completed',
+        payload: { toolCallId: 'tool-1', toolName: 'read', output: 'A', status: 'completed' },
+      },
+      {
+        type: 'tool.updated',
+        payload: { toolCallId: 'tool-2', toolName: 'write', output: 'written' },
+      },
+      {
+        type: 'tool.started',
+        payload: { toolCallId: 'tool-2', toolName: 'write', input: 'b.html' },
+      },
+      {
+        type: 'tool.completed',
+        payload: {
+          toolCallId: 'tool-2',
+          toolName: 'write',
+          output: 'written',
+          status: 'completed',
+        },
+      },
+      { type: 'assistant.completed', payload: { messageId: 'answer-1', text: '修改完成。' } },
+      { type: 'run.settled', payload: { status: 'COMPLETED', finalMessageId: 'answer-1' } },
+    );
+
+    const turn = state.turns[0];
+    expect(turn?.execution).toEqual([
+      expect.objectContaining({ kind: 'assistant', id: 'narrative', text: '我先检查一下。' }),
+      expect.objectContaining({
+        kind: 'tool',
+        toolCallId: 'tool-1',
+        toolInput: 'a.html',
+        toolOutput: 'A',
+        status: 'completed',
+      }),
+      expect.objectContaining({
+        kind: 'tool',
+        toolCallId: 'tool-2',
+        toolInput: 'b.html',
+        toolOutput: 'written',
+        status: 'completed',
+      }),
+    ]);
+    expect(turn?.finalAnswer).toMatchObject({ id: 'answer-1', text: '修改完成。' });
+    expect(
+      turn?.execution?.some((step) => step.kind === 'tool' && step.toolInput === step.toolOutput),
+    ).toBe(false);
+  });
+
+  it('uses the latest completed assistant as a reliable final candidate', () => {
+    const state = reduce(
+      user(),
+      { type: 'assistant.completed', payload: { messageId: 'intermediate', text: '正在处理。' } },
+      { type: 'tool.started', payload: { toolCallId: 'tool-1', toolName: 'bash', input: 'build' } },
+      {
+        type: 'tool.completed',
+        payload: { toolCallId: 'tool-1', toolName: 'bash', output: 'ok', status: 'completed' },
+      },
+      { type: 'assistant.completed', payload: { messageId: 'final', text: '处理完成。' } },
+      { type: 'run.settled', payload: { status: 'COMPLETED' } },
+    );
+
+    expect(state.turns[0]?.finalAnswer?.id).toBe('final');
+    expect(state.turns[0]?.execution?.map((step) => step.kind)).toEqual(['assistant', 'tool']);
+  });
+
+  it('uses authoritative completion text instead of the longest streamed value', () => {
+    const state = reduce(
+      user(),
+      { type: 'assistant.delta', payload: { messageId: 'answer-1', text: '较长的临时内容' } },
+      { type: 'assistant.completed', payload: { messageId: 'answer-1', text: '完成' } },
+    );
+
+    expect(state.turns[0]?.execution).toEqual([
+      expect.objectContaining({ id: 'answer-1', text: '完成', status: 'completed' }),
+    ]);
+  });
+
+  it('defaults live turns expanded and collapses them on settlement', () => {
+    let state = reduce(user(), {
+      type: 'tool.started',
+      payload: { toolCallId: 'tool-1', toolName: 'read' },
+    });
+    expect(state.turns[0]?.expanded).toBe(true);
+    state = conversationReducer(state, {
+      type: 'run.settled',
+      payload: { status: 'COMPLETED', finalMessageId: 'missing' },
+    });
+    expect(state.turns[0]).toMatchObject({ status: 'no-final-text', expanded: false });
+    expect(state.turns[0]?.error).toContain('final answer');
+  });
+
+  it('represents failed and aborted runs with clear terminal statuses', () => {
+    const failed = reduce(user('failed'), {
+      type: 'run.settled',
+      payload: { status: 'FAILED', error: '工具失败' },
+    });
+    const aborted = reduce(user('aborted'), {
+      type: 'run.settled',
+      payload: { status: 'ABORTED' },
+    });
+    expect(failed.turns[0]).toMatchObject({ status: 'error', error: '工具失败', expanded: false });
+    expect(aborted.turns[0]).toMatchObject({
+      status: 'aborted',
+      error: 'Agent run aborted',
+      expanded: false,
+    });
+  });
+
+  it('projects completed snapshots collapsed and merges live details without duplicates', () => {
+    let state = reduce(user(), {
+      type: 'tool.started',
+      payload: { toolCallId: 'tool-1', toolName: 'read', input: 'live-input' },
+    });
+    state = conversationReducer(state, {
       type: 'session.snapshot',
       payload: {
         messages: [
+          { id: 'user-1', role: 'user', text: '请修改首页' },
           {
             id: 'tool-1',
             role: 'tool',
-            text: 'command output',
+            text: 'snapshot-output',
             toolCallId: 'tool-1',
-            toolName: 'bash',
+            toolName: 'read',
             status: 'completed',
           },
+          { id: 'answer-1', role: 'assistant', text: '历史答案', status: 'completed' },
         ],
       },
     });
 
-    expect(state.messages[0]).toMatchObject({ toolOutput: 'command output' });
-    expect(state.messages[0]).not.toHaveProperty('toolInput');
-  });
-
-  it('upserts assistant events and preserves streamed text when completion is empty', () => {
-    let state = reduce(initialConversationState, {
-      type: 'assistant.delta',
-      payload: { messageId: 'assistant-1', text: '先到这里' },
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]).toMatchObject({
+      status: 'completed',
+      expanded: false,
+      finalAnswer: { id: 'answer-1' },
     });
-    state = reduce(state, {
-      type: 'assistant.completed',
-      payload: { messageId: 'assistant-1', text: '' },
-    });
-    state = reduce(state, {
-      type: 'assistant.started',
-      payload: { messageId: 'assistant-1' },
-    });
-
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]).toMatchObject({
-      id: 'assistant-1',
-      text: '先到这里',
-      status: 'streaming',
-    });
-  });
-
-  it('keeps tool input stable while output and status evolve', () => {
-    let state = reduce(initialConversationState, {
-      type: 'tool.started',
-      payload: { toolCallId: 'tool-1', toolName: 'read', input: '/workspace/index.html' },
-    });
-    state = reduce(state, {
-      type: 'tool.updated',
-      payload: { toolCallId: 'tool-1', toolName: 'read', output: 'partial result' },
-    });
-    state = reduce(state, {
-      type: 'tool.completed',
-      payload: {
-        toolCallId: 'tool-1',
-        toolName: 'read',
-        status: 'completed',
-        output: 'final result',
-      },
-    });
-
-    expect(state.messages).toEqual([
+    expect(state.turns[0]?.execution).toEqual([
       expect.objectContaining({
-        toolInput: '/workspace/index.html',
-        toolOutput: 'final result',
+        toolCallId: 'tool-1',
+        toolInput: 'live-input',
+        toolOutput: 'snapshot-output',
+      }),
+    ]);
+  });
+
+  it('is safe for duplicate and out-of-order tool events', () => {
+    const state = reduce(
+      user(),
+      { type: 'tool.updated', payload: { toolCallId: 'tool-1', output: 'full output' } },
+      {
+        type: 'tool.started',
+        payload: { toolCallId: 'tool-1', toolName: 'read', input: 'first input' },
+      },
+      {
+        type: 'tool.started',
+        payload: { toolCallId: 'tool-1', toolName: 'read', input: 'second input' },
+      },
+      {
+        type: 'tool.completed',
+        payload: { toolCallId: 'tool-1', status: 'completed', output: 'full output' },
+      },
+      { type: 'tool.updated', payload: { toolCallId: 'tool-1', output: 'short' } },
+    );
+
+    expect(state.turns[0]?.execution).toEqual([
+      expect.objectContaining({
+        toolCallId: 'tool-1',
+        toolInput: 'first input',
+        toolOutput: 'full output',
         status: 'completed',
       }),
     ]);
   });
 
-  it('is idempotent for duplicate starts and creates missing tool updates safely', () => {
-    let state = reduce(initialConversationState, {
-      type: 'tool.started',
-      payload: { toolCallId: 'tool-1', toolName: 'read', input: 'first-input' },
+  it('keeps snapshot tool output separate and bounded', () => {
+    const output = 'x'.repeat(40_000);
+    const state = reduce({
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'user-1', role: 'user', text: '查看文件' },
+          { id: 'tool-1', role: 'tool', text: output, toolCallId: 'tool-1', toolName: 'read' },
+        ],
+      },
     });
-    state = reduce(state, {
-      type: 'tool.started',
-      payload: { toolCallId: 'tool-1', toolName: 'read', input: 'second-input' },
-    });
-    state = reduce(state, {
-      type: 'tool.updated',
-      payload: { toolCallId: 'tool-2', toolName: 'ls', output: 'directory' },
-    });
-
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[0]).toMatchObject({ toolInput: 'first-input' });
-    expect(state.messages[1]).toMatchObject({
-      id: 'tool-2',
-      toolOutput: 'directory',
-      status: 'running',
-    });
+    const step = state.turns[0]?.execution?.[0];
+    expect(step).toMatchObject({ kind: 'tool', toolOutput: output.slice(0, 32_000) });
+    expect(step).not.toHaveProperty('toolInput');
+    expect(step?.kind === 'tool' ? step.toolOutput?.length : 0).toBe(32_000);
   });
+});
+
+it('reconciles a snapshot with a live turn even when transport ids differ', () => {
+  const state = conversationReducer(
+    reduce(user('request-1'), {
+      type: 'assistant.completed',
+      payload: { messageId: 'live-answer', text: '完成' },
+    }),
+    {
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'pi-user-entry', role: 'user', text: '请修改首页' },
+          { id: 'pi-answer-entry', role: 'assistant', text: '完成', status: 'completed' },
+        ],
+      },
+    },
+  );
+
+  expect(state.turns).toHaveLength(1);
+  expect(state.turns[0]?.finalAnswer?.text).toBe('完成');
+});
+
+it('preserves assistant and tool ordering when rebuilding a snapshot', () => {
+  const state = reduce({
+    type: 'session.snapshot',
+    payload: {
+      messages: [
+        { id: 'user-1', role: 'user', text: '执行两步' },
+        { id: 'assistant-1', role: 'assistant', text: '先读文件', status: 'completed' },
+        {
+          id: 'tool-1',
+          role: 'tool',
+          text: '',
+          toolCallId: 'tool-1',
+          toolName: 'read',
+          input: 'a.html',
+          output: 'A',
+          status: 'completed',
+        },
+        { id: 'assistant-2', role: 'assistant', text: '再写文件', status: 'completed' },
+        {
+          id: 'tool-2',
+          role: 'tool',
+          text: '',
+          toolCallId: 'tool-2',
+          toolName: 'write',
+          input: 'b.html',
+          output: 'B',
+          status: 'completed',
+        },
+        { id: 'assistant-3', role: 'assistant', text: '全部完成', status: 'completed' },
+      ],
+    },
+  });
+
+  expect(state.turns[0]?.execution?.map((step) => step.id)).toEqual([
+    'assistant-1',
+    'tool-1',
+    'assistant-2',
+    'tool-2',
+  ]);
+  expect(state.turns[0]?.finalAnswer?.id).toBe('assistant-3');
 });

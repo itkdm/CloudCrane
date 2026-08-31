@@ -12,7 +12,9 @@ import {
   X,
 } from 'lucide-react';
 import { memo } from 'react';
-import type { Message } from './types';
+import { useEffect, useState } from 'react';
+import { AssistantMessage } from './assistant-message';
+import type { ConversationTurnStatus, ExecutionStep, ToolExecutionStep } from './types';
 
 const toolLabels: Record<string, string> = {
   read: '读取文件',
@@ -38,14 +40,86 @@ const toolIcons: Record<string, typeof FileCode2> = {
   preview_navigate: Waypoints,
 };
 
-export const ToolExecution = memo(function ToolExecution({ message }: { message: Message }) {
-  const toolName = message.toolName ?? 'tool';
+export const ExecutionProcess = memo(function ExecutionProcess({
+  steps,
+  status,
+  expanded,
+}: {
+  steps: ExecutionStep[];
+  status: ConversationTurnStatus;
+  expanded: boolean;
+}) {
+  const isRunning = status === 'running';
+  const [open, setOpen] = useState(isRunning || expanded);
+
+  useEffect(() => {
+    setOpen(isRunning ? true : false);
+  }, [isRunning]);
+
+  const processLabel = isRunning
+    ? '正在执行'
+    : status === 'completed'
+      ? '执行完成'
+      : status === 'aborted'
+        ? '已停止'
+        : '执行失败';
+  const processSummary = `${processLabel} · ${steps.length} 个步骤`;
+
+  return (
+    <section className={`execution-process ${isRunning ? 'running' : 'settled'}`}>
+      <button
+        className="execution-summary"
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-label={`${processSummary}，${open ? '收起' : '展开'}执行详情`}
+        {...(isRunning ? { 'aria-live': 'polite' as const } : {})}
+      >
+        <span className="execution-summary-icon" aria-hidden="true">
+          {isRunning ? <LoaderCircle className="spin" size={15} /> : null}
+          {status === 'completed' ? <Check size={15} /> : null}
+          {status === 'error' || status === 'no-final-text' ? <CircleAlert size={15} /> : null}
+          {status === 'aborted' ? <X size={15} /> : null}
+        </span>
+        <span className="execution-summary-copy">
+          <strong>{processSummary}</strong>
+          <span>{open ? '点击收起详情' : '点击查看详情'}</span>
+        </span>
+        <ChevronDown className={open ? 'expanded' : ''} size={16} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="execution-content">
+          {steps.map((step) =>
+            step.kind === 'assistant' ? (
+              <AssistantMessage
+                key={step.id}
+                message={{ id: step.id, role: 'assistant', text: step.text, status: step.status }}
+                variant="narrative"
+              />
+            ) : (
+              <ToolExecution key={step.id} step={step} />
+            ),
+          )}
+          {status === 'error' || status === 'no-final-text' || status === 'aborted' ? (
+            <div className="execution-error" role="status">
+              <CircleAlert size={14} aria-hidden="true" />
+              <span>{status === 'aborted' ? '运行已停止' : '运行未能完成'}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+});
+
+export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolExecutionStep }) {
+  const toolName = step.toolName ?? 'tool';
   const label = toolLabels[toolName] ?? '执行工具';
   const Icon = toolIcons[toolName] ?? Terminal;
-  const status = normalizeStatus(message.status);
-  const target = toolTarget(toolName, message.toolInput);
-  const input = boundedDetail(message.toolInput);
-  const output = boundedDetail(message.toolOutput);
+  const status = normalizeStatus(step.status);
+  const target = toolTarget(toolName, step.toolInput);
+  const input = boundedDetail(step.toolInput);
+  const output = boundedDetail(step.toolOutput);
 
   return (
     <article className={`tool-execution ${status}`}>
@@ -159,9 +233,31 @@ function boundedPath(path: string): string {
 }
 
 function boundedDetail(text = ''): string {
-  const trimmed = text.trim();
+  const trimmed = sanitizeDetail(text.trim());
   if (!trimmed || trimmed === '当前工作区') return '';
   return trimmed.length > 900 ? `${trimmed.slice(0, 900)}\n…` : trimmed;
+}
+
+function sanitizeDetail(text: string): string {
+  if (!text) return '';
+  try {
+    const value: unknown = JSON.parse(text);
+    return JSON.stringify(stripInternalFields(value), null, 2);
+  } catch {
+    return text
+      .replace(/(?:agent\s*service|runId|traceId|turnIndex)\s*[:=]\s*[^,\s}]+,?/gi, '')
+      .trim();
+  }
+}
+
+function stripInternalFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripInternalFields);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !/^(agentservice|agent_service|runid|traceid|turnindex)$/i.test(key))
+      .map(([key, child]) => [key, stripInternalFields(child)]),
+  );
 }
 
 export const ToolFailure = memo(function ToolFailure({ message }: { message: string }) {

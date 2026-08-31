@@ -1,10 +1,10 @@
 import { AlertTriangle } from 'lucide-react';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
-import type { Message } from './types';
+import type { ConversationTurn } from './types';
 
 type ChatPanelProps = {
-  messages: Message[];
+  turns: ConversationTurn[];
   draft: string;
   running: boolean;
   disabled?: boolean;
@@ -17,7 +17,7 @@ type ChatPanelProps = {
 };
 
 export function ChatPanel({
-  messages,
+  turns,
   draft,
   running,
   disabled,
@@ -29,15 +29,10 @@ export function ChatPanel({
   onExample,
 }: ChatPanelProps) {
   return (
-    <section className="chat-panel" aria-label="AI 建站助手">
+    <section className="chat-panel" aria-label="网站对话">
       <header className="chat-header">
-        <div>
-          <span className="section-kicker">网站工作台</span>
-          <h1>AI 建站助手</h1>
-        </div>
-        <span className="chat-context">
-          {running ? '正在操作当前网站' : '随时描述你的修改需求'}
-        </span>
+        <span className="chat-session-label">当前对话</span>
+        {running ? <span className="chat-context">处理中</span> : null}
       </header>
       {error ? (
         <div className="error-banner" role="alert">
@@ -47,10 +42,8 @@ export function ChatPanel({
             ×
           </button>
         </div>
-      ) : (
-        <div className="error-placeholder" aria-hidden="true" />
-      )}
-      <MessageList messages={messages} onExample={onExample} />
+      ) : null}
+      <MessageList turns={turns} onExample={onExample} />
       <Composer
         draft={draft}
         running={running}

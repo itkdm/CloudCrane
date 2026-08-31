@@ -4,7 +4,10 @@ import { createAgentEnvelope } from '@cloudcrane/agent-protocol';
 import type { WebsiteAgentEvent, WebsiteAgentLifecycleEvent } from '@cloudcrane/website-agent';
 
 const MAX_SUMMARY_BYTES = 512;
+const MAX_TURN_INDEX = 1_000_000;
 const activeAssistantMessageIds = new Map<string, string>();
+const finalCandidateMessageIds = new Map<string, string>();
+const turnStates = new Map<string, { nextIndex: number; currentIndex?: number; turnId?: string }>();
 
 export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMessage | null {
   const base = {
@@ -23,10 +26,15 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         runId: lifecycle.runId,
         traceId: lifecycle.traceId,
         ...(lifecycle.previewClientId ? { previewClientId: lifecycle.previewClientId } : {}),
+        ...(lifecycle.promptRequestId ? { promptRequestId: lifecycle.promptRequestId } : {}),
       },
     });
   if (lifecycle?.type === 'run_settled') {
+    const key = assistantKey(event);
     activeAssistantMessageIds.delete(assistantKey(event));
+    const finalMessageId = lifecycle.finalMessageId ?? finalCandidateMessageIds.get(key);
+    finalCandidateMessageIds.delete(key);
+    turnStates.delete(key);
     return createAgentEnvelope({
       ...base,
       type: 'run.settled',
@@ -35,17 +43,51 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         traceId: lifecycle.traceId,
         status: lifecycle.status,
         ...(lifecycle.error ? { error: lifecycle.error } : {}),
+        ...(finalMessageId ? { finalMessageId } : {}),
       },
     });
   }
   const value = event.event as unknown as Record<string, unknown>;
+  const key = assistantKey(event);
+  if (value.type === 'turn_start' || value.type === 'turn_end') {
+    const state = turnStates.get(key) ?? { nextIndex: 0 };
+    const turnIndex = validTurnIndex(event.turnIndex) ?? state.currentIndex ?? state.nextIndex;
+    const turnId = event.turnId ?? `${event.runId ?? event.websiteSessionId}:turn:${turnIndex}`;
+    state.currentIndex = turnIndex;
+    state.turnId = turnId;
+    if (value.type === 'turn_start') {
+      finalCandidateMessageIds.delete(key);
+      turnStates.set(key, state);
+      return createAgentEnvelope({
+        ...base,
+        type: 'turn.started',
+        payload: { turnIndex, turnId },
+      });
+    }
+    state.nextIndex = Math.min(turnIndex + 1, MAX_TURN_INDEX);
+    state.currentIndex = undefined;
+    turnStates.set(key, state);
+    return createAgentEnvelope({
+      ...base,
+      type: 'turn.completed',
+      payload: {
+        turnIndex,
+        turnId,
+      },
+    });
+  }
+  const state = turnStates.get(key);
+  const turnFields =
+    state?.currentIndex === undefined
+      ? {}
+      : { turnIndex: state.currentIndex, turnId: state.turnId };
   switch (value.type) {
     case 'message_start':
       if (!isAssistantMessage(value.message)) return null;
       return createAgentEnvelope({
         ...base,
         type: 'assistant.started',
-        payload: { messageId: startAssistantMessage(event) },
+        payload: { messageId: startAssistantMessage(event, value.message), ...turnFields },
       });
     case 'message_update': {
       if (!isAssistantMessage(value.message)) return null;
@@ -54,7 +96,11 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         ? createAgentEnvelope({
             ...base,
             type: 'assistant.delta',
-            payload: { messageId: activeAssistantMessage(event), text: delta },
+            payload: {
+              messageId: activeAssistantMessage(event, value.message),
+              text: delta,
+              ...turnFields,
+            },
           })
         : null;
     }
@@ -63,12 +109,20 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
       const projected = createAgentEnvelope({
         ...base,
         type: 'assistant.completed',
-        payload: { messageId: activeAssistantMessage(event), text: extractText(value.message) },
+        payload: {
+          messageId: activeAssistantMessage(event, value.message),
+          text: extractText(value.message),
+          ...turnFields,
+        },
       });
+      const messageId = (projected.payload as { messageId: string }).messageId;
+      if (hasToolCall(value.message)) finalCandidateMessageIds.delete(key);
+      else finalCandidateMessageIds.set(key, messageId);
       activeAssistantMessageIds.delete(assistantKey(event));
       return projected;
     }
     case 'tool_execution_start':
+      finalCandidateMessageIds.delete(key);
       return createAgentEnvelope({
         ...base,
         type: 'tool.started',
@@ -76,6 +130,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
           toolCallId: stringValue(value.toolCallId),
           toolName: stringValue(value.toolName),
           input: summarize(value.args),
+          ...turnFields,
         },
       });
     case 'tool_execution_update':
@@ -86,6 +141,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
           toolCallId: stringValue(value.toolCallId),
           toolName: stringValue(value.toolName),
           output: summarize(value.partialResult),
+          ...turnFields,
         },
       });
     case 'tool_execution_end':
@@ -97,6 +153,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
           toolName: stringValue(value.toolName),
           status: value.isError ? 'error' : 'completed',
           output: summarize(value.result),
+          ...turnFields,
         },
       });
     case 'queue_update':
@@ -116,29 +173,62 @@ function isAssistantMessage(message: unknown): message is Record<string, unknown
   );
 }
 
+function hasToolCall(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const content = (message as { content?: unknown }).content;
+  return (
+    Array.isArray(content) &&
+    content.some((part) => {
+      return Boolean(
+        part && typeof part === 'object' && (part as { type?: unknown }).type === 'toolCall',
+      );
+    })
+  );
+}
+
 function assistantKey(event: WebsiteAgentEvent): string {
   return `${event.websiteId}:${event.websiteSessionId}:${event.runId ?? 'no-run'}`;
 }
 
-function startAssistantMessage(event: WebsiteAgentEvent): string {
-  const id = randomUUID();
+function startAssistantMessage(event: WebsiteAgentEvent, message?: unknown): string {
+  const id = stableMessageId(message) ?? randomUUID();
   activeAssistantMessageIds.set(assistantKey(event), id);
   return id;
 }
 
-function activeAssistantMessage(event: WebsiteAgentEvent): string {
+function activeAssistantMessage(event: WebsiteAgentEvent, message?: unknown): string {
   const key = assistantKey(event);
   const existing = activeAssistantMessageIds.get(key);
   if (existing) return existing;
-  const id = randomUUID();
+  const id = stableMessageId(message) ?? randomUUID();
   activeAssistantMessageIds.set(key, id);
   return id;
 }
 
+function stableMessageId(message: unknown): string | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const value = message as { id?: unknown; role?: unknown; timestamp?: unknown };
+  const sourceId = typeof value.id === 'string' && value.id.length > 0 ? value.id : undefined;
+  if (sourceId) return sourceId;
+  if (typeof value.timestamp === 'number' && Number.isFinite(value.timestamp))
+    return `pi:${stringValue(value.role) ?? 'message'}:${value.timestamp}`;
+  return undefined;
+}
+
 function extractDelta(value: unknown): string {
   if (!value || typeof value !== 'object') return '';
+  if ((value as { type?: unknown }).type !== 'text_delta') return '';
   const delta = (value as { delta?: unknown }).delta;
   return typeof delta === 'string' ? delta.slice(0, MAX_SUMMARY_BYTES) : '';
+}
+
+function validTurnIndex(value: unknown): number | undefined {
+  return typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= MAX_TURN_INDEX
+    ? value
+    : undefined;
 }
 
 function extractText(message: unknown): string {

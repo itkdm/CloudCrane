@@ -39,7 +39,10 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
   }),
   commandBase.extend({
     type: z.literal('agent.prompt'),
-    payload: z.object({ text: z.string().min(1).max(32_000) }),
+    payload: z.object({
+      text: z.string().min(1).max(32_000),
+      promptRequestId: z.string().min(1).max(256).optional(),
+    }),
   }),
   commandBase.extend({ type: z.literal('agent.abort'), payload: z.object({}) }),
   commandBase.extend({
@@ -78,6 +81,11 @@ export const snapshotMessageSchema = z.object({
   text: z.string(),
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
+  input: z.string().optional(),
+  output: z.string().optional(),
+  isError: z.boolean().optional(),
+  turnId: z.string().optional(),
+  kind: z.string().optional(),
   status: z.enum(['running', 'completed', 'error']).optional(),
 });
 export type SnapshotMessage = z.infer<typeof snapshotMessageSchema>;
@@ -90,6 +98,7 @@ export const sessionSnapshotSchema = z.object({
       runId: z.string().uuid(),
       traceId: z.string().uuid(),
       previewClientId: z.string().uuid().optional(),
+      promptRequestId: z.string().min(1).max(256).optional(),
       status: z.literal('RUNNING'),
     })
     .nullable(),
@@ -112,6 +121,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       runId: z.string().uuid(),
       traceId: z.string().uuid(),
       previewClientId: z.string().uuid().optional(),
+      promptRequestId: z.string().min(1).max(256).optional(),
     }),
   }),
   z.object({
@@ -121,16 +131,49 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       traceId: z.string().uuid(),
       status: z.enum(['COMPLETED', 'FAILED', 'ABORTED', 'INTERRUPTED']),
       error: z.string().optional(),
+      finalMessageId: z.string().optional(),
     }),
   }),
-  z.object({ type: z.literal('assistant.started'), payload: z.object({ messageId: z.string() }) }),
+  z.object({
+    type: z.literal('turn.started'),
+    payload: z.object({
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000),
+      turnId: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('turn.completed'),
+    payload: z.object({
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000),
+      turnId: z.string().optional(),
+      finalMessageId: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal('assistant.started'),
+    payload: z.object({
+      messageId: z.string(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
+    }),
+  }),
   z.object({
     type: z.literal('assistant.delta'),
-    payload: z.object({ messageId: z.string(), text: z.string() }),
+    payload: z.object({
+      messageId: z.string(),
+      text: z.string(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
+    }),
   }),
   z.object({
     type: z.literal('assistant.completed'),
-    payload: z.object({ messageId: z.string(), text: z.string() }),
+    payload: z.object({
+      messageId: z.string(),
+      text: z.string(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
+    }),
   }),
   z.object({
     type: z.literal('tool.started'),
@@ -138,6 +181,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       toolCallId: z.string(),
       toolName: z.string(),
       input: z.string().optional(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
     }),
   }),
   z.object({
@@ -146,6 +191,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       toolCallId: z.string(),
       toolName: z.string(),
       output: z.string().optional(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
     }),
   }),
   z.object({
@@ -155,6 +202,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
       toolName: z.string(),
       status: z.enum(['completed', 'error']),
       output: z.string().optional(),
+      turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
+      turnId: z.string().optional(),
     }),
   }),
   z.object({

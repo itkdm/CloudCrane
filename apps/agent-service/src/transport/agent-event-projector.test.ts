@@ -42,7 +42,7 @@ describe('agent event projector', () => {
       event: {
         type: 'message_update',
         message,
-        assistantMessageEvent: { delta: 'one' } as never,
+        assistantMessageEvent: { type: 'text_delta', delta: 'one' } as never,
       },
     });
     const firstEnd = projectWebsiteAgentEvent({
@@ -90,11 +90,101 @@ describe('agent event projector', () => {
       event: {
         type: 'message_update',
         message,
-        assistantMessageEvent: { delta: 'after cleanup' } as never,
+        assistantMessageEvent: { type: 'text_delta', delta: 'after cleanup' } as never,
       },
     });
     expect((update?.payload as { messageId: string }).messageId).not.toBe(
       (started?.payload as { messageId: string }).messageId,
     );
+  });
+
+  it('only projects text deltas and emits bounded turn lifecycle events', () => {
+    const runId = '00000000-0000-4000-8000-000000000005';
+    const turnStart = projectWebsiteAgentEvent({
+      ...context,
+      runId,
+      event: { type: 'turn_start' },
+      turnIndex: 2,
+    });
+    expect(turnStart?.type).toBe('turn.started');
+    expect(turnStart?.payload).toMatchObject({ turnIndex: 2 });
+
+    const message = { role: 'assistant', content: [] } as never;
+    projectWebsiteAgentEvent({
+      ...context,
+      runId,
+      turnIndex: 2,
+      event: { type: 'message_start', message },
+    });
+    expect(
+      projectWebsiteAgentEvent({
+        ...context,
+        runId,
+        turnIndex: 2,
+        event: {
+          type: 'message_update',
+          message,
+          assistantMessageEvent: { type: 'thinking_delta', delta: 'private' } as never,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      projectWebsiteAgentEvent({
+        ...context,
+        runId,
+        turnIndex: 2,
+        event: {
+          type: 'message_update',
+          message,
+          assistantMessageEvent: { type: 'toolcall_delta', delta: '{"path":"x"}' } as never,
+        },
+      }),
+    ).toBeNull();
+    const delta = projectWebsiteAgentEvent({
+      ...context,
+      runId,
+      turnIndex: 2,
+      event: {
+        type: 'message_update',
+        message,
+        assistantMessageEvent: { type: 'text_delta', delta: 'public' } as never,
+      },
+    });
+    expect(delta?.payload).toMatchObject({ text: 'public', turnIndex: 2 });
+
+    const completed = projectWebsiteAgentEvent({
+      ...context,
+      runId,
+      turnIndex: 2,
+      event: { type: 'turn_end', message, toolResults: [] },
+    });
+    expect(completed?.type).toBe('turn.completed');
+    expect(completed?.payload).toMatchObject({ turnIndex: 2 });
+    expect(agentWireMessageSchema.parse(completed).type).toBe('turn.completed');
+  });
+
+  it('keeps tool events correlated by toolCallId and forwards run correlation fields', () => {
+    const started = projectWebsiteAgentEvent({
+      ...context,
+      runId: '00000000-0000-4000-8000-000000000003',
+      traceId: '00000000-0000-4000-8000-000000000004',
+      event: {
+        type: 'run_started',
+        runId: '00000000-0000-4000-8000-000000000003',
+        traceId: '00000000-0000-4000-8000-000000000004',
+        promptRequestId: 'prompt-1',
+      },
+    });
+    expect(started?.payload).toMatchObject({ promptRequestId: 'prompt-1' });
+    const tool = projectWebsiteAgentEvent({
+      ...context,
+      event: {
+        type: 'tool_execution_start',
+        toolCallId: 'call-live',
+        toolName: 'read',
+        args: { path: 'index.php' },
+      },
+    });
+    expect(tool?.payload).toMatchObject({ toolCallId: 'call-live' });
   });
 });

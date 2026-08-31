@@ -31,4 +31,44 @@ describe('agent protocol', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts prompt correlation and reconstructable tool snapshot fields', () => {
+    const command = agentCommandSchema.parse({
+      type: 'agent.prompt',
+      requestId: 'req-2',
+      websiteId,
+      sessionId,
+      timestamp: new Date(),
+      payload: { text: '继续', promptRequestId: 'prompt-2' },
+    });
+    if (command.type !== 'agent.prompt') throw new Error('expected prompt command');
+    expect(command.payload.promptRequestId).toBe('prompt-2');
+    const event = agentEventSchema.parse({
+      type: 'tool.completed',
+      payload: {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        status: 'completed',
+        output: 'ok',
+        turnIndex: 3,
+        turnId: 'run:turn:3',
+      },
+    });
+    expect(event.type).toBe('tool.completed');
+  });
+
+  it('rejects non-finite and unbounded turn indexes', () => {
+    expect(() =>
+      agentEventSchema.parse({
+        type: 'turn.started',
+        payload: { turnIndex: Number.POSITIVE_INFINITY },
+      }),
+    ).toThrow();
+    expect(() =>
+      agentEventSchema.parse({
+        type: 'assistant.delta',
+        payload: { messageId: 'message-1', text: 'x', turnIndex: 1_000_001 },
+      }),
+    ).toThrow();
+  });
 });

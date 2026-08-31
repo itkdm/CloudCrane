@@ -4,9 +4,33 @@ import remarkGfm from 'remark-gfm';
 import { LoaderCircle } from 'lucide-react';
 import type { Message } from './types';
 
-export const AssistantMessage = memo(function AssistantMessage({ message }: { message: Message }) {
+type AssistantMessageProps = { message: Message; variant?: 'final' | 'narrative' };
+
+export const AssistantMessage = memo(function AssistantMessage({
+  message,
+  variant = 'final',
+}: AssistantMessageProps) {
   const isStreaming =
     message.status === 'running' || message.status === 'streaming' || !message.text;
+
+  if (variant === 'narrative')
+    return (
+      <div
+        className="assistant-narrative"
+        {...(isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
+      >
+        {message.text ? (
+          <div className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+          </div>
+        ) : (
+          <div className="message-streaming" aria-label="正在生成过程说明">
+            <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            <span>正在整理步骤…</span>
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <article className="assistant-message">

@@ -351,7 +351,12 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     if (socket.current?.readyState === WebSocket.OPEN) {
       socket.current.send(
         JSON.stringify({
-          ...command({ type: 'agent.prompt', websiteId, sessionId, payload: { text } }),
+          ...command({
+            type: 'agent.prompt',
+            websiteId,
+            sessionId,
+            payload: { text, promptRequestId: requestId },
+          }),
           requestId,
         }),
       );
@@ -401,7 +406,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           onCreate={createSession}
         />
         <ChatPanel
-          messages={conversation.messages}
+          turns={conversation.turns}
           draft={draft}
           running={Boolean(runId)}
           error={error}
@@ -497,6 +502,19 @@ function handleEvent(
   if (event.type === 'run.started') setRunId(event.payload.runId);
   if (event.type === 'run.settled') {
     flushConversation();
+    queueConversation(
+      {
+        type: 'run.settled',
+        payload: {
+          status: event.payload.status,
+          ...(event.payload.error ? { error: event.payload.error } : {}),
+          ...(event.payload.finalMessageId ? { finalMessageId: event.payload.finalMessageId } : {}),
+          runId: event.payload.runId ?? envelope.runId,
+          traceId: event.payload.traceId ?? envelope.traceId,
+        },
+      },
+      true,
+    );
     setRunId(undefined);
     schedulePreviewRefresh();
   }
@@ -515,10 +533,25 @@ function handleEvent(
   if (event.type === 'session.snapshot') {
     flushConversation();
     queueConversation(
-      { type: 'session.snapshot', payload: { messages: event.payload.messages } },
+      {
+        type: 'session.snapshot',
+        payload: {
+          messages: event.payload.messages,
+          session: event.payload.session,
+          activeRun: event.payload.activeRun,
+        },
+      },
       true,
     );
     setRunId(event.payload.activeRun?.runId);
+  }
+  if (event.type === 'turn.started') {
+    // Protocol turn markers belong to one product turn; the reducer keeps the
+    // product execution process expanded while the run is active.
+    queueConversation({ type: 'turn.started', payload: event.payload }, true);
+  }
+  if (event.type === 'turn.completed') {
+    queueConversation({ type: 'turn.completed', payload: event.payload }, true);
   }
   if (event.type === 'assistant.started')
     queueConversation({ type: 'assistant.started', payload: event.payload });

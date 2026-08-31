@@ -189,7 +189,12 @@ class AgentSocketConnection {
         throw new AgentServiceError('SESSION_BUSY', 'this session already has an active run', 409);
       this.ack(command);
       void runtime
-        .prompt(sessionId, command.payload.text, this.previewClientId)
+        .prompt(
+          sessionId,
+          command.payload.text,
+          this.previewClientId,
+          command.payload.promptRequestId,
+        )
         .catch(() => undefined);
       return;
     }

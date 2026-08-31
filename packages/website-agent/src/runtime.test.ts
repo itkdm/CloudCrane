@@ -12,14 +12,99 @@ import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { WorkspaceClientContext } from '@cloudcrane/workspace-client';
 import {
   createInMemoryWebsiteAgentStore,
+  projectMessages,
   WebsiteAgentRuntime,
   type WorkspaceClientFactory,
+  type WebsiteAgentLifecycleEvent,
 } from './runtime.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const workspaceId = '00000000-0000-4000-8000-000000000002';
 
 describe('WebsiteAgentRuntime', () => {
+  it('rebuilds user, assistant, and paired tool messages from Pi AgentMessage history', () => {
+    const messages = projectMessages([
+      { role: 'user', content: 'Read index.php', timestamp: 1 },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'private reasoning' },
+          { type: 'text', text: 'I will read it.' },
+          { type: 'toolCall', id: 'call-1', name: 'read', arguments: { path: 'index.php' } },
+        ],
+        timestamp: 2,
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        content: [{ type: 'text', text: 'file contents' }],
+        isError: false,
+        timestamp: 3,
+      },
+      { role: 'user', content: [{ type: 'text', text: 'Now summarize it.' }], timestamp: 4 },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Summary' }],
+        timestamp: 5,
+      },
+    ]);
+
+    expect(messages).toMatchObject([
+      { role: 'user', text: 'Read index.php', turnId: 'turn-0', kind: 'message' },
+      { role: 'assistant', text: 'I will read it.', turnId: 'turn-0' },
+      {
+        role: 'tool',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: '{"path":"index.php"}',
+        output: 'file contents',
+        text: 'file contents',
+        isError: false,
+        status: 'completed',
+        turnId: 'turn-0',
+      },
+      { role: 'user', text: 'Now summarize it.', turnId: 'turn-1' },
+      { role: 'assistant', text: 'Summary', turnId: 'turn-1' },
+    ]);
+    expect(messages.some((message) => message.text.includes('private reasoning'))).toBe(false);
+  });
+
+  it('redacts and bounds tool snapshot data while retaining error pairing', () => {
+    const messages = projectMessages([
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolCall',
+            id: 'call-error',
+            name: 'bash',
+            arguments: { command: 'echo password=top-secret' },
+          },
+        ],
+        timestamp: 1,
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'call-error',
+        toolName: 'bash',
+        content: [{ type: 'text', text: 'secret=top-secret' }],
+        isError: true,
+        timestamp: 2,
+      },
+    ]);
+    expect(messages).toMatchObject([
+      {
+        toolCallId: 'call-error',
+        input: '{"command":"echo password=[redacted]"}',
+        output: 'secret=[redacted]',
+        isError: true,
+        status: 'error',
+      },
+    ]);
+    expect(JSON.stringify(messages)).not.toContain('top-secret');
+  });
+
   it('runs a real Pi prompt with remote tools, persists JSONL, and reopens history', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-'));
     const faux = fauxProvider({ provider: 'cloudcrane-test', models: [{ id: 'deterministic' }] });
@@ -86,13 +171,21 @@ describe('WebsiteAgentRuntime', () => {
     });
     const session = await runtime.createSession();
     const events: string[] = [];
-    runtime.subscribe(({ event }) => events.push(event.type));
+    const lifecycleEvents: WebsiteAgentLifecycleEvent[] = [];
+    runtime.subscribe(({ event }) => {
+      events.push(event.type);
+      if (event.type === 'run_settled' || event.type === 'run_started') lifecycleEvents.push(event);
+    });
 
     const result = await runtime.prompt(session.id, 'Read index.php');
 
     expect(result.status).toBe('COMPLETED');
     expect(result.finalText).toBe('remote read completed');
     expect(events).toContain('agent_settled');
+    expect(lifecycleEvents.at(-1)).toMatchObject({
+      type: 'run_settled',
+      finalMessageId: expect.any(String),
+    });
     expect(
       contexts.some(
         (context) => context.traceId === result.traceId && context.agentRunId === result.runId,

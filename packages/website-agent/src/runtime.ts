@@ -34,6 +34,7 @@ import {
 
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
+const MAX_TURN_INDEX = 1_000_000;
 const APPEND_SYSTEM_PROMPT = [
   'CloudCrane agent constraints:',
   '- The working directory is the remote website workspace at /workspace.',
@@ -43,6 +44,8 @@ const APPEND_SYSTEM_PROMPT = [
   '- After page changes, use preview_refresh or preview_observe to verify the result when available.',
   '- If the Preview Client is unavailable, continue non-visual work without inventing page state.',
   '- preview_navigate only accepts Website-relative paths.',
+  '- User-facing text must use the language of the user request.',
+  '- Keep code identifiers, filenames, and commands exactly as provided.',
 ].join('\n');
 
 export const AGENT_RUN_STATUSES = [
@@ -123,6 +126,11 @@ export type WebsiteAgentMessage = {
   text: string;
   toolCallId?: string;
   toolName?: string;
+  input?: string;
+  output?: string;
+  isError?: boolean;
+  turnId?: string;
+  kind?: string;
   status?: 'running' | 'completed' | 'error';
 };
 
@@ -133,13 +141,20 @@ export type WebsiteAgentSessionSnapshot = {
 };
 
 export type WebsiteAgentLifecycleEvent =
-  | { type: 'run_started'; runId: string; traceId: string; previewClientId?: string }
+  | {
+      type: 'run_started';
+      runId: string;
+      traceId: string;
+      previewClientId?: string;
+      promptRequestId?: string;
+    }
   | {
       type: 'run_settled';
       runId: string;
       traceId: string;
       status: Extract<AgentRunStatus, 'COMPLETED' | 'FAILED' | 'ABORTED' | 'INTERRUPTED'>;
       error?: string;
+      finalMessageId?: string;
     };
 
 export type WebsiteAgentEvent = {
@@ -148,10 +163,17 @@ export type WebsiteAgentEvent = {
   piSessionId: string;
   runId?: string;
   traceId?: string;
+  turnIndex?: number;
+  turnId?: string;
   event: AgentSessionEvent | WebsiteAgentLifecycleEvent;
 };
 
-type RunContext = { runId: string; traceId: string; previewClientId?: string };
+type RunContext = {
+  runId: string;
+  traceId: string;
+  previewClientId?: string;
+  promptRequestId?: string;
+};
 type ActiveRun = RunContext & { aborted: boolean };
 
 export class WebsiteAgentRuntimeError extends Error {
@@ -207,6 +229,10 @@ function wrapMutationTool(
 
 class ManagedSession implements DisposableSession {
   private unsubscribe?: () => void;
+  private nextTurnIndex = 0;
+  private turnRunId?: string;
+  private currentTurnIndex?: number;
+  private currentTurnId?: string;
   activeRun?: ActiveRun;
 
   constructor(
@@ -215,14 +241,55 @@ class ManagedSession implements DisposableSession {
     readonly client: WorkspaceClient,
     public sessionManager: SessionManager,
     public piRuntime: AgentSessionRuntime,
-    private readonly onEvent: (session: ManagedSession, event: AgentSessionEvent) => void,
+    private readonly onEvent: (
+      session: ManagedSession,
+      event: AgentSessionEvent,
+      metadata: { turnIndex?: number; turnId?: string },
+    ) => void,
   ) {}
 
   bind(): void {
     this.unsubscribe?.();
     const session = this.piRuntime.session;
     this.sessionManager = session.sessionManager;
-    this.unsubscribe = session.subscribe((event) => this.onEvent(this, event));
+    this.unsubscribe = session.subscribe((event) => {
+      const metadata = this.trackTurn(event);
+      this.onEvent(this, event, metadata);
+      if (event.type === 'turn_end') {
+        this.nextTurnIndex = (metadata.turnIndex ?? this.nextTurnIndex) + 1;
+        this.currentTurnIndex = undefined;
+        this.currentTurnId = undefined;
+      } else if (event.type === 'agent_end') {
+        this.currentTurnIndex = undefined;
+        this.currentTurnId = undefined;
+      }
+    });
+  }
+
+  private trackTurn(event: AgentSessionEvent): { turnIndex?: number; turnId?: string } {
+    if (event.type === 'agent_start') {
+      if (this.turnRunId !== this.activeRun?.runId) {
+        this.turnRunId = this.activeRun?.runId;
+        this.nextTurnIndex = 0;
+        this.currentTurnIndex = undefined;
+        this.currentTurnId = undefined;
+      }
+      return {};
+    }
+    if (event.type === 'turn_start') {
+      this.currentTurnIndex = boundedTurnIndex(this.nextTurnIndex);
+      this.currentTurnId = this.createTurnId(this.currentTurnIndex);
+    } else if (event.type === 'turn_end' && this.currentTurnIndex === undefined) {
+      this.currentTurnIndex = boundedTurnIndex(this.nextTurnIndex);
+      this.currentTurnId = this.createTurnId(this.currentTurnIndex);
+    }
+    return { turnIndex: this.currentTurnIndex, turnId: this.currentTurnId };
+  }
+
+  private createTurnId(turnIndex: number | undefined): string | undefined {
+    return turnIndex === undefined
+      ? undefined
+      : `${this.activeRun?.runId ?? this.piRuntime.session.sessionId}:turn:${turnIndex}`;
   }
 
   async dispose(): Promise<void> {
@@ -324,6 +391,7 @@ export class WebsiteAgentRuntime {
             runId: managed.activeRun.runId,
             traceId: managed.activeRun.traceId,
             previewClientId: managed.activeRun.previewClientId,
+            promptRequestId: managed.activeRun.promptRequestId,
             status: 'RUNNING',
           }
         : null,
@@ -334,6 +402,7 @@ export class WebsiteAgentRuntime {
     websiteSessionId: string,
     text: string,
     previewClientId?: string,
+    promptRequestId?: string,
   ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
     if (managed.activeRun)
@@ -344,7 +413,13 @@ export class WebsiteAgentRuntime {
     const runId = randomUUID();
     const traceId = randomUUID();
     const startedAt = new Date().toISOString();
-    const activeRun: ActiveRun = { runId, traceId, previewClientId, aborted: false };
+    const activeRun: ActiveRun = {
+      runId,
+      traceId,
+      previewClientId,
+      promptRequestId,
+      aborted: false,
+    };
     managed.activeRun = activeRun;
     let run: AgentRunIndex | undefined;
     try {
@@ -362,7 +437,13 @@ export class WebsiteAgentRuntime {
         endedAt: null,
       });
       await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
-      this.emitLifecycle(managed, { type: 'run_started', runId, traceId, previewClientId });
+      this.emitLifecycle(managed, {
+        type: 'run_started',
+        runId,
+        traceId,
+        previewClientId,
+        ...(promptRequestId ? { promptRequestId } : {}),
+      });
     } catch (error) {
       if (run) {
         await this.options.store
@@ -402,7 +483,16 @@ export class WebsiteAgentRuntime {
         lastActiveAt: endedAt,
       });
       settledEventEmitted = true;
-      this.emitLifecycle(managed, { type: 'run_settled', runId, traceId, status });
+      const finalMessageId = getFinalAssistantMessageId(
+        managed.piRuntime.session.agent.state.messages,
+      );
+      this.emitLifecycle(managed, {
+        type: 'run_settled',
+        runId,
+        traceId,
+        status,
+        ...(finalMessageId ? { finalMessageId } : {}),
+      });
       return {
         runId,
         traceId,
@@ -596,8 +686,8 @@ export class WebsiteAgentRuntime {
       this.workspaceClient,
       sessionManager,
       piRuntime,
-      (current, event) => {
-        this.emitEvent(current, event);
+      (current, event, metadata) => {
+        this.emitEvent(current, event, metadata);
         if (event.type === 'session_info_changed') {
           void this.options.store.updateSession(current.websiteSessionId, {
             title: event.name ?? null,
@@ -633,7 +723,11 @@ export class WebsiteAgentRuntime {
     });
   }
 
-  private emitEvent(managed: ManagedSession, event: AgentSessionEvent): void {
+  private emitEvent(
+    managed: ManagedSession,
+    event: AgentSessionEvent,
+    metadata: { turnIndex?: number; turnId?: string },
+  ): void {
     const context = this.runContext.getStore();
     const payload: WebsiteAgentEvent = {
       websiteId: this.options.websiteId,
@@ -641,6 +735,7 @@ export class WebsiteAgentRuntime {
       piSessionId: managed.piRuntime.session.sessionId,
       runId: context?.runId ?? managed.activeRun?.runId,
       traceId: context?.traceId ?? managed.activeRun?.traceId,
+      ...metadata,
       event,
     };
     for (const listener of this.listeners) listener(payload);
@@ -797,46 +892,182 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
   };
 }
 
-function projectMessages(messages: readonly unknown[]): WebsiteAgentMessage[] {
+export function projectMessages(messages: readonly unknown[]): WebsiteAgentMessage[] {
   const projected: WebsiteAgentMessage[] = [];
+  const toolsByCallId = new Map<string, WebsiteAgentMessage>();
+  let turnIndex = 0;
+  let hasUserMessage = false;
+  let turnId = `turn-${turnIndex}`;
   messages.forEach((message, messageIndex) => {
     if (!message || typeof message !== 'object') return;
-    const value = message as { role?: unknown; content?: unknown };
+    const value = message as {
+      role?: unknown;
+      content?: unknown;
+      id?: unknown;
+      timestamp?: unknown;
+      turnId?: unknown;
+      kind?: unknown;
+      toolCallId?: unknown;
+      toolName?: unknown;
+      isError?: unknown;
+    };
     if (value.role !== 'user' && value.role !== 'assistant' && value.role !== 'toolResult') return;
+    if (value.role === 'user') {
+      if (hasUserMessage) turnIndex = Math.min(turnIndex + 1, MAX_TURN_INDEX);
+      hasUserMessage = true;
+      turnId = readString(value.turnId) ?? `turn-${turnIndex}`;
+    }
     const content = Array.isArray(value.content) ? value.content : [];
-    const text = content
-      .filter((part): part is { type: 'text'; text: string } => {
-        return Boolean(
-          part &&
-          typeof part === 'object' &&
-          (part as { type?: unknown }).type === 'text' &&
-          typeof (part as { text?: unknown }).text === 'string',
-        );
-      })
-      .map((part) => part.text)
-      .join('')
-      .slice(0, 32_000);
+    const text = extractMessageText(value.content);
+    const messageTurnId = readString(value.turnId) ?? turnId;
     if (value.role === 'toolResult') {
-      projected.push({ id: `message-${messageIndex}`, role: 'tool', text, status: 'completed' });
+      const toolCallId = readString(value.toolCallId);
+      const toolName = readString(value.toolName);
+      const isError = typeof value.isError === 'boolean' ? value.isError : false;
+      const output = summarizeText(text);
+      const existing = toolCallId ? toolsByCallId.get(toolCallId) : undefined;
+      if (existing) {
+        existing.output = output;
+        existing.text = output ?? '';
+        existing.isError = isError;
+        existing.status = isError ? 'error' : 'completed';
+        if (toolName && !existing.toolName) existing.toolName = toolName;
+      } else {
+        const tool: WebsiteAgentMessage = {
+          id: toolCallId ? `tool-${toolCallId}` : stableMessageId(value, messageIndex),
+          role: 'tool',
+          text: output ?? '',
+          ...(toolCallId ? { toolCallId } : {}),
+          ...(toolName ? { toolName } : {}),
+          ...(output ? { output } : {}),
+          isError,
+          turnId: messageTurnId,
+          kind: readString(value.kind) ?? 'tool_result',
+          status: isError ? 'error' : 'completed',
+        };
+        projected.push(tool);
+        if (toolCallId) toolsByCallId.set(toolCallId, tool);
+      }
       return;
     }
     if (text) {
       const role: 'user' | 'assistant' = value.role;
-      projected.push({ id: `message-${messageIndex}`, role, text });
+      projected.push({
+        id: stableMessageId(value, messageIndex),
+        role,
+        text,
+        turnId: messageTurnId,
+        kind: readString(value.kind) ?? 'message',
+      });
     }
     for (const [partIndex, part] of content.entries()) {
       if (!part || typeof part !== 'object' || (part as { type?: unknown }).type !== 'toolCall')
         continue;
-      const toolCall = part as { id?: unknown; name?: unknown };
-      projected.push({
-        id: `message-${messageIndex}-tool-${partIndex}`,
+      const toolCall = part as { id?: unknown; name?: unknown; arguments?: unknown };
+      const toolCallId = readString(toolCall.id);
+      const input = summarize(toolCall.arguments);
+      const tool: WebsiteAgentMessage = {
+        id: toolCallId ?? `${stableMessageId(value, messageIndex)}-tool-${partIndex}`,
         role: 'tool',
         text: '',
-        toolCallId: typeof toolCall.id === 'string' ? toolCall.id : undefined,
-        toolName: typeof toolCall.name === 'string' ? toolCall.name : undefined,
-        status: 'completed',
-      });
+        ...(toolCallId ? { toolCallId } : {}),
+        ...(readString(toolCall.name) ? { toolName: readString(toolCall.name) } : {}),
+        ...(input ? { input } : {}),
+        turnId: messageTurnId,
+        kind: 'tool_call',
+        status: 'running',
+      };
+      projected.push(tool);
+      if (toolCallId) toolsByCallId.set(toolCallId, tool);
     }
   });
   return projected;
+}
+
+function extractMessageText(content: unknown): string {
+  if (typeof content === 'string') return content.slice(0, 32_000);
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part): part is { type: 'text'; text: string } =>
+      Boolean(
+        part &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'text' &&
+        typeof (part as { text?: unknown }).text === 'string',
+      ),
+    )
+    .map((part) => part.text)
+    .join('')
+    .slice(0, 32_000);
+}
+
+function summarizeText(value: string): string | undefined {
+  return value ? redactSecrets(value).slice(0, 512) : undefined;
+}
+
+function summarize(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return summarizeText(text);
+  } catch {
+    return '[summary unavailable]';
+  }
+}
+
+function redactSecrets(value: string): string {
+  return value.replace(
+    /(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|authorization)(\s*[:=]\s*)(["']?)[^\s,"'}]+\3/gi,
+    '$1$2$3[redacted]$3',
+  );
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stableMessageId(
+  value: { id?: unknown; role?: unknown; timestamp?: unknown },
+  index: number,
+): string {
+  const sourceId = readString(value.id);
+  if (sourceId) return sourceId;
+  if (typeof value.timestamp === 'number' && Number.isFinite(value.timestamp))
+    return `pi:${readString(value.role) ?? 'message'}:${value.timestamp}`;
+  return `message-${index}`;
+}
+
+function getFinalAssistantMessageId(messages: readonly unknown[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const value = messages[index];
+    if (!value || typeof value !== 'object') continue;
+    const message = value as {
+      role?: unknown;
+      content?: unknown;
+      timestamp?: unknown;
+      id?: unknown;
+    };
+    if (message.role !== 'assistant' || hasToolCall(message)) continue;
+    if (!extractMessageText(message.content)) continue;
+    return stableMessageId(message, index);
+  }
+  return undefined;
+}
+
+function hasToolCall(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const content = (message as { content?: unknown }).content;
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (part) =>
+        Boolean(part) &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'toolCall',
+    )
+  );
+}
+
+function boundedTurnIndex(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 && value <= MAX_TURN_INDEX ? value : 0;
 }
