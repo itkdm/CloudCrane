@@ -4,6 +4,7 @@ import type { WebsiteAgentRuntime, WebsiteSessionIndex } from '@cloudcrane/websi
 import { buildAgentServiceApp } from '../app.js';
 import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
+import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const sessionId = '00000000-0000-4000-8000-000000000002';
@@ -37,6 +38,7 @@ describe('AgentSocketTransport', () => {
   let app: ReturnType<typeof buildAgentServiceApp>;
   let subscribeCount = 0;
   let unsubscribeCount = 0;
+  let previewClients: PreviewClientRegistry;
   const runtime = {
     openSession: async () => session,
     listSessions: async () => [session],
@@ -63,6 +65,7 @@ describe('AgentSocketTransport', () => {
   beforeEach(async () => {
     subscribeCount = 0;
     unsubscribeCount = 0;
+    previewClients = new PreviewClientRegistry({ observeMs: 1_000 });
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: {
         findWebsiteWorkspace: async () => ({
@@ -74,7 +77,7 @@ describe('AgentSocketTransport', () => {
       },
       createRuntime: () => runtime,
     });
-    app = buildAgentServiceApp({ config, registry });
+    app = buildAgentServiceApp({ config, registry, previewClientRegistry: previewClients });
     await app.listen({ host: '127.0.0.1', port: 0 });
   });
 
@@ -135,5 +138,95 @@ describe('AgentSocketTransport', () => {
       headers: { origin: 'https://untrusted.example' },
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+
+  it('keeps an in-flight preview request across same-client re-registration', async () => {
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const previewClientId = '00000000-0000-4000-8000-000000000011';
+    const preview = {
+      url: 'https://preview.example/',
+      path: '/',
+      title: 'Preview',
+      viewport: { width: 100, height: 100, devicePixelRatio: 1 },
+      scroll: { x: 0, y: 0 },
+      dom: [],
+      domTruncated: false,
+      visibleText: '',
+      consoleErrors: [],
+      windowErrors: [],
+      capturedAt: new Date().toISOString(),
+    };
+    const previewCapabilities = [
+      'DOM_SNAPSHOT',
+      'VISIBLE_TEXT',
+      'CONSOLE',
+      'WINDOW_ERRORS',
+      'VIEWPORT',
+      'CURRENT_URL',
+    ];
+    let previewRequestId: string | undefined;
+    const pending = new Promise<void>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as {
+          type: string;
+          requestId?: string;
+          payload?: { operation?: string };
+        };
+        if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'preview.client.register',
+              requestId: 'register-1',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { previewClientId, capabilities: previewCapabilities },
+            }),
+          );
+          return;
+        }
+        if (message.type === 'command.ack' && message.requestId === 'register-1') {
+          void previewClients
+            .observe({
+              websiteId,
+              websiteSessionId: sessionId,
+              runId: '00000000-0000-4000-8000-000000000003',
+              traceId: '00000000-0000-4000-8000-000000000004',
+              previewClientId,
+            })
+            .then(() => resolve(), reject);
+          return;
+        }
+        if (message.type === 'preview.request' && message.payload?.operation === 'observe') {
+          previewRequestId = message.requestId;
+          client.send(
+            JSON.stringify({
+              type: 'preview.client.register',
+              requestId: 'register-2',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { previewClientId, capabilities: previewCapabilities },
+            }),
+          );
+          return;
+        }
+        if (message.type === 'command.ack' && message.requestId === 'register-2') {
+          if (!previewRequestId) return reject(new Error('preview request was not captured'));
+          client.send(
+            JSON.stringify({
+              type: 'preview.response',
+              requestId: previewRequestId,
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { ok: true, observation: preview },
+            }),
+          );
+        }
+      });
+    });
+    await expect(pending).resolves.toBeUndefined();
+    client.close();
   });
 });

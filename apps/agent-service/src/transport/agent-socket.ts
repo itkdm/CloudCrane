@@ -144,7 +144,10 @@ class AgentSocketConnection {
       return;
     }
     if (command.type === 'preview.client.register') {
-      if (this.previewWebsiteId && this.previewClientId)
+      const isSameClient =
+        this.previewWebsiteId === command.websiteId &&
+        this.previewClientId === command.payload.previewClientId;
+      if (!isSameClient && this.previewWebsiteId && this.previewClientId)
         this.options.previewClients.unregister(
           this.previewWebsiteId,
           this.previewClientId,
