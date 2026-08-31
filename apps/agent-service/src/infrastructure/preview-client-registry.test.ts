@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentWireMessage } from '@cloudcrane/agent-protocol';
 import type { PreviewCapability, PreviewObservation } from '@cloudcrane/preview-protocol';
-import { PreviewClientError, PreviewClientRegistry } from './preview-client-registry.js';
+import { PreviewClientRegistry } from './preview-client-registry.js';
 
 const websiteA = '00000000-0000-4000-8000-000000000001';
 const websiteB = '00000000-0000-4000-8000-000000000002';
