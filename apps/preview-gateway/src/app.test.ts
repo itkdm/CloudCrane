@@ -140,6 +140,7 @@ describe('Preview Gateway', () => {
       headers: { host: `site-${websiteId}.localhost:4103` },
     });
     expect(response.headers['set-cookie']).toContain('Secure');
+    expect(response.headers['set-cookie']).toContain('SameSite=None');
     await app.close();
   });
 

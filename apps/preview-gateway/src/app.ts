@@ -149,7 +149,8 @@ function tokenFromCookie(request: FastifyRequest): string | undefined {
 }
 
 function serializePreviewCookie(token: string, expiresAt: number, secure: boolean): string {
-  return `${PREVIEW_AUTH_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.max(1, expiresAt - Math.floor(Date.now() / 1000))}${secure ? '; Secure' : ''}`;
+  const sameSite = secure ? 'None' : 'Lax';
+  return `${PREVIEW_AUTH_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=${sameSite}; Path=/; Max-Age=${Math.max(1, expiresAt - Math.floor(Date.now() / 1000))}${secure ? '; Secure' : ''}`;
 }
 
 function proxyRequest(
