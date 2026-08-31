@@ -1,4 +1,4 @@
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import type { PlatformDb } from '@cloudcrane/db';
 import { agentRun, websiteSession } from '@cloudcrane/db';
 import type {
@@ -54,6 +54,18 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
       .where(and(eq(websiteSession.id, websiteSessionId), eq(websiteSession.websiteId, websiteId)))
       .limit(1);
     return rows[0] ? mapSession(rows[0]) : null;
+  }
+
+  async listSessions(websiteId: string): Promise<WebsiteSessionIndex[]> {
+    const rows = await this.platform.db
+      .select()
+      .from(websiteSession)
+      .where(eq(websiteSession.websiteId, websiteId))
+      .orderBy(
+        sql`${websiteSession.lastActiveAt} desc nulls last`,
+        sql`${websiteSession.createdAt} desc`,
+      );
+    return rows.map(mapSession);
   }
 
   async createSession(input: CreateSessionIndex): Promise<WebsiteSessionIndex> {

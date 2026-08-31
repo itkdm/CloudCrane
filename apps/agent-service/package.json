@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
+    "@cloudcrane/agent-protocol": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/website-agent": "workspace:*",
@@ -19,6 +20,11 @@
     "@earendil-works/pi-coding-agent": "0.84.4",
     "drizzle-orm": "0.45.2",
     "fastify": "5.12.1",
-    "pino": "10.3.1"
+    "pino": "10.3.1",
+    "ws": "8.18.3",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
   }
 }

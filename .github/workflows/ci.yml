@@ -99,7 +99,7 @@ jobs:
         run: pnpm --filter @cloudcrane/workspace-gateway exec vitest run --exclude dist/** --exclude .next/** src/remote-execution.integration.test.ts
       - name: Run Pi remote tools integration test
         run: pnpm --filter @cloudcrane/pi-adapter exec vitest run --exclude dist/** --exclude .next/** src/remote-tools.integration.test.ts
-      - name: Run Agent Runtime integration test
+      - name: Run Agent Service transport integration test
         env:
           CLOUDCRANE_AGENT_RUNTIME_INTEGRATION: '1'
         run: pnpm --filter @cloudcrane/agent-service exec vitest run --exclude dist/** --exclude .next/** src/website-agent.integration.test.ts

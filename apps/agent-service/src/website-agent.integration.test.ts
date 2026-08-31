@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import { eq } from 'drizzle-orm';
 import {
   fauxAssistantMessage,
@@ -23,6 +24,8 @@ import {
 import { WorkspaceClient } from '@cloudcrane/workspace-client';
 import { WebsiteAgentRuntime, type WorkspaceClientFactory } from '@cloudcrane/website-agent';
 import { DrizzleWebsiteAgentStore } from './infrastructure/website-agent-store.js';
+import { buildAgentServiceApp } from './app.js';
+import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 
 const enabled = process.env.CLOUDCRANE_AGENT_RUNTIME_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000501';
@@ -499,5 +502,114 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       true,
     );
     await runtime.disposeAll();
+  }, 120_000);
+
+  it('drives a real WebsiteAgent through the Agent Service browser protocol', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-agent-transport-'));
+    agentDataRoots.push(dataRoot);
+    const faux = fauxProvider({
+      provider: 'cloudcrane-browser-protocol',
+      models: [{ id: 'deterministic' }],
+    });
+    faux.setResponses([
+      fauxAssistantMessage(
+        [fauxToolCall('write', { path: '/workspace/transport.txt', content: 'transport-ok' })],
+        { stopReason: 'toolUse' },
+      ),
+      fauxAssistantMessage('transport run completed'),
+    ]);
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
+      workspaceClientToken: clientToken,
+      agentDataRoot: dataRoot,
+      store: new DrizzleWebsiteAgentStore(platform!),
+      modelRuntime,
+      model: faux.getModel() as Model<'cloudcrane-browser-protocol'>,
+    });
+    const session = await runtime.createSession();
+    const registry = new WebsiteRuntimeRegistry({
+      bindingStore: {
+        findWebsiteWorkspace: async () => ({
+          websiteId,
+          workspaceId,
+          websiteStatus: 'active',
+          workspaceStatus: 'running',
+        }),
+      },
+      createRuntime: () => runtime,
+    });
+    const agentApp = buildAgentServiceApp({
+      config: {
+        port: 0,
+        webOrigin: 'http://localhost:3000',
+        workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
+        workspaceGatewayClientToken: clientToken,
+        agentDataRoot: dataRoot,
+        modelProvider: 'cloudcrane-browser-protocol',
+        modelId: 'deterministic',
+        modelAuthPath: undefined,
+        modelConfigured: true,
+      },
+      registry,
+    });
+    await agentApp.listen({ host: '127.0.0.1', port: 0 });
+    const address = agentApp.server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Agent Service did not bind a port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const events: string[] = [];
+    await new Promise<void>((resolve, reject) => {
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as {
+          type: string;
+          payload?: { runId?: string };
+        };
+        events.push(message.type);
+        if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'attach-transport',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId: session.id },
+            }),
+          );
+        }
+        if (message.type === 'session.snapshot') {
+          client.send(
+            JSON.stringify({
+              type: 'agent.prompt',
+              requestId: 'prompt-transport',
+              websiteId,
+              sessionId: session.id,
+              timestamp: new Date().toISOString(),
+              payload: { text: 'Create the transport file.' },
+            }),
+          );
+        }
+        if (message.type === 'run.settled' && message.payload?.runId) resolve();
+      });
+      client.on('error', reject);
+    });
+    expect(events).toContain('command.ack');
+    expect(events).toContain('run.started');
+    expect(events).toContain('tool.started');
+    expect(events).toContain('tool.completed');
+    expect(events).toContain('assistant.completed');
+    expect(events).toContain('run.settled');
+    await expect(probe!.fs.read({ path: '/workspace/transport.txt' })).resolves.toMatchObject({
+      content: 'transport-ok',
+    });
+    client.close();
+    await agentApp.close();
   }, 120_000);
 });

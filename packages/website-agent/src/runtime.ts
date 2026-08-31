@@ -76,6 +76,7 @@ export type CreateRunIndex = Omit<AgentRunIndex, 'id'> & { id?: string };
 
 export interface WebsiteAgentStore {
   findSession(websiteId: string, websiteSessionId: string): Promise<WebsiteSessionIndex | null>;
+  listSessions(websiteId: string): Promise<WebsiteSessionIndex[]>;
   createSession(input: CreateSessionIndex): Promise<WebsiteSessionIndex>;
   updateSession(websiteSessionId: string, patch: Partial<WebsiteSessionIndex>): Promise<void>;
   createRun(input: CreateRunIndex): Promise<AgentRunIndex>;
@@ -106,13 +107,38 @@ export type AgentRunResult = {
   finalText?: string;
 };
 
+export type WebsiteAgentMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  text: string;
+  toolCallId?: string;
+  toolName?: string;
+  status?: 'running' | 'completed' | 'error';
+};
+
+export type WebsiteAgentSessionSnapshot = {
+  session: WebsiteSessionIndex;
+  messages: WebsiteAgentMessage[];
+  activeRun: (RunContext & { status: 'RUNNING' }) | null;
+};
+
+export type WebsiteAgentLifecycleEvent =
+  | { type: 'run_started'; runId: string; traceId: string }
+  | {
+      type: 'run_settled';
+      runId: string;
+      traceId: string;
+      status: Extract<AgentRunStatus, 'COMPLETED' | 'FAILED' | 'ABORTED' | 'INTERRUPTED'>;
+      error?: string;
+    };
+
 export type WebsiteAgentEvent = {
   websiteId: string;
   websiteSessionId: string;
   piSessionId: string;
   runId?: string;
   traceId?: string;
-  event: AgentSessionEvent;
+  event: AgentSessionEvent | WebsiteAgentLifecycleEvent;
 };
 
 type RunContext = { runId: string; traceId: string };
@@ -274,6 +300,21 @@ export class WebsiteAgentRuntime {
     return record;
   }
 
+  async listSessions(): Promise<WebsiteSessionIndex[]> {
+    return this.options.store.listSessions(this.options.websiteId);
+  }
+
+  async getSessionSnapshot(websiteSessionId: string): Promise<WebsiteAgentSessionSnapshot> {
+    const managed = await this.getManaged(websiteSessionId);
+    return {
+      session: { ...managed.record },
+      messages: projectMessages(managed.piRuntime.session.agent.state.messages),
+      activeRun: managed.activeRun
+        ? { runId: managed.activeRun.runId, traceId: managed.activeRun.traceId, status: 'RUNNING' }
+        : null,
+    };
+  }
+
   async prompt(websiteSessionId: string, text: string): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
     if (managed.activeRun)
@@ -302,6 +343,7 @@ export class WebsiteAgentRuntime {
         endedAt: null,
       });
       await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+      this.emitLifecycle(managed, { type: 'run_started', runId, traceId });
     } catch (error) {
       if (run) {
         await this.options.store
@@ -316,6 +358,7 @@ export class WebsiteAgentRuntime {
       throw error;
     }
     let settled = false;
+    let settledEventEmitted = false;
     let resolveSettled!: () => void;
     const settledPromise = new Promise<void>((resolve) => {
       resolveSettled = resolve;
@@ -339,6 +382,8 @@ export class WebsiteAgentRuntime {
         status: sessionStatus,
         lastActiveAt: endedAt,
       });
+      settledEventEmitted = true;
+      this.emitLifecycle(managed, { type: 'run_settled', runId, traceId, status });
       return {
         runId,
         traceId,
@@ -353,6 +398,15 @@ export class WebsiteAgentRuntime {
         error: message,
         endedAt: new Date().toISOString(),
       });
+      if (!settledEventEmitted) {
+        this.emitLifecycle(managed, {
+          type: 'run_settled',
+          runId,
+          traceId,
+          status,
+          error: message,
+        });
+      }
       throw error;
     } finally {
       unsubscribe();
@@ -414,6 +468,14 @@ export class WebsiteAgentRuntime {
 
   get activeSessionCount(): number {
     return this.sessions.size;
+  }
+
+  get listenerCount(): number {
+    return this.listeners.size;
+  }
+
+  async hasActiveRun(websiteSessionId: string): Promise<boolean> {
+    return Boolean((await this.getManaged(websiteSessionId)).activeRun);
   }
 
   async getSystemPrompt(websiteSessionId: string): Promise<string> {
@@ -559,6 +621,18 @@ export class WebsiteAgentRuntime {
     for (const listener of this.listeners) listener(payload);
   }
 
+  private emitLifecycle(managed: ManagedSession, event: WebsiteAgentLifecycleEvent): void {
+    const payload: WebsiteAgentEvent = {
+      websiteId: this.options.websiteId,
+      websiteSessionId: managed.websiteSessionId,
+      piSessionId: managed.piRuntime.session.sessionId,
+      runId: event.runId,
+      traceId: event.traceId,
+      event,
+    };
+    for (const listener of this.listeners) listener(payload);
+  }
+
   private currentContext(): WorkspaceClientContext {
     const context = this.runContext.getStore();
     return context
@@ -578,7 +652,10 @@ export class WebsiteAgentRuntime {
     await mkdir(this.piCwd, { recursive: true });
   }
 
-  private getRunStatus(session: AgentSession, activeRun: ActiveRun): AgentRunStatus {
+  private getRunStatus(
+    session: AgentSession,
+    activeRun: ActiveRun,
+  ): Extract<AgentRunStatus, 'COMPLETED' | 'FAILED' | 'ABORTED' | 'INTERRUPTED'> {
     const lastAssistant = [...session.agent.state.messages]
       .reverse()
       .find((message) => message.role === 'assistant');
@@ -640,6 +717,12 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
       const session = sessions.get(websiteSessionId);
       return session?.websiteId === websiteId ? { ...session } : null;
     },
+    async listSessions(websiteId) {
+      return [...sessions.values()]
+        .filter((session) => session.websiteId === websiteId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .map((session) => ({ ...session }));
+    },
     async createSession(input) {
       const now = new Date().toISOString();
       const session: WebsiteSessionIndex = {
@@ -675,4 +758,48 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
       }
     },
   };
+}
+
+function projectMessages(messages: readonly unknown[]): WebsiteAgentMessage[] {
+  const projected: WebsiteAgentMessage[] = [];
+  messages.forEach((message, messageIndex) => {
+    if (!message || typeof message !== 'object') return;
+    const value = message as { role?: unknown; content?: unknown };
+    if (value.role !== 'user' && value.role !== 'assistant' && value.role !== 'toolResult') return;
+    const content = Array.isArray(value.content) ? value.content : [];
+    const text = content
+      .filter((part): part is { type: 'text'; text: string } => {
+        return Boolean(
+          part &&
+          typeof part === 'object' &&
+          (part as { type?: unknown }).type === 'text' &&
+          typeof (part as { text?: unknown }).text === 'string',
+        );
+      })
+      .map((part) => part.text)
+      .join('')
+      .slice(0, 32_000);
+    if (value.role === 'toolResult') {
+      projected.push({ id: `message-${messageIndex}`, role: 'tool', text, status: 'completed' });
+      return;
+    }
+    if (text) {
+      const role: 'user' | 'assistant' = value.role;
+      projected.push({ id: `message-${messageIndex}`, role, text });
+    }
+    for (const [partIndex, part] of content.entries()) {
+      if (!part || typeof part !== 'object' || (part as { type?: unknown }).type !== 'toolCall')
+        continue;
+      const toolCall = part as { id?: unknown; name?: unknown };
+      projected.push({
+        id: `message-${messageIndex}-tool-${partIndex}`,
+        role: 'tool',
+        text: '',
+        toolCallId: typeof toolCall.id === 'string' ? toolCall.id : undefined,
+        toolName: typeof toolCall.name === 'string' ? toolCall.name : undefined,
+        status: 'completed',
+      });
+    }
+  });
+  return projected;
 }

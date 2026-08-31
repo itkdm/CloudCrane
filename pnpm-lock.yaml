@@ -44,6 +44,9 @@ importers:
 
   apps/agent-service:
     dependencies:
+      '@cloudcrane/agent-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-protocol
       '@cloudcrane/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -71,6 +74,16 @@ importers:
       pino:
         specifier: 10.3.1
         version: 10.3.1
+      ws:
+        specifier: 8.18.3
+        version: 8.18.3
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
 
   apps/runner:
     dependencies:
@@ -102,6 +115,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@cloudcrane/agent-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-protocol
       next:
         specifier: 16.3.3
         version: 16.3.3(@babel/core@7.29.7)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -173,6 +189,12 @@ importers:
       '@types/ws':
         specifier: 8.18.1
         version: 8.18.1
+
+  packages/agent-protocol:
+    dependencies:
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
 
   packages/db:
     dependencies:

@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function Home() {
   return (
     <main className="shell">
@@ -19,13 +21,13 @@ export default function Home() {
           A Website Coding Agent for building and maintaining real websites inside a persistent
           workspace.
         </p>
-        <div className="status-card">
+        <Link className="status-card" href="/websites/00000000-0000-4000-8000-000000000101/agent">
           <span className="status-dot" aria-hidden="true" />
           <div>
             <strong>Foundation is taking shape</strong>
             <span>CloudCrane is in active MVP development.</span>
           </div>
-        </div>
+        </Link>
       </section>
 
       <footer>
