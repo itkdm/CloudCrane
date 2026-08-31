@@ -45,8 +45,8 @@ async function main() {
     const runtime = await client.runtime.create();
     const file = await client.fs.write({ path: '/workspace/index.php', content });
 
-    console.log(
-      JSON.stringify(
+    process.stdout.write(
+      `${JSON.stringify(
         {
           websiteId,
           workspaceId,
@@ -56,7 +56,7 @@ async function main() {
         },
         null,
         2,
-      ),
+      )}\n`,
     );
   } finally {
     await platform.pool.end();
@@ -64,6 +64,6 @@ async function main() {
 }
 
 void main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;
 });
