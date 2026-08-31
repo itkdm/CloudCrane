@@ -16,3 +16,5 @@ pnpm dev
 ```
 
 PostgreSQL 配置示例见 `.env.example`，数据库迁移可使用 `pnpm --filter @cloudcrane/db db:migrate`。
+
+当前 Preview Bridge 只注入开发 Preview；严格的 Website CSP 可能阻止 Bridge 执行，届时 Preview Observation 会报告不可用。CSP 策略后续单独处理。

@@ -84,8 +84,8 @@ function createPreviewTool<TSchema extends ReturnType<typeof Type.Object>>(
     description,
     promptSnippet: label,
     parameters,
-    execute: async () => {
-      const observation = await executeObservation({} as Static<TSchema>);
+    execute: async (_toolCallId, input) => {
+      const observation = await executeObservation(input);
       return {
         content: [{ type: 'text', text: JSON.stringify(observation) }],
         details: observation,

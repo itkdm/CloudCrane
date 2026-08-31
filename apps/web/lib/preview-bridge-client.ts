@@ -5,6 +5,9 @@ import {
   type PreviewObservation,
 } from '@cloudcrane/preview-protocol';
 
+export const PREVIEW_READY_TIMEOUT_MS = 10_000;
+const PREVIEW_OBSERVE_TIMEOUT_MS = 10_000;
+
 export class PreviewBridgeClientError extends Error {
   constructor(
     public readonly code: 'PREVIEW_PROTOCOL_ERROR' | 'CLIENT_PREVIEW_TIMEOUT' | 'INVALID_ARGUMENT',
@@ -25,6 +28,8 @@ export class PreviewBridgeClient {
   private ready: Promise<PreviewCapability[]>;
   private resolveReady!: (capabilities: PreviewCapability[]) => void;
   private rejectReady!: (error: PreviewBridgeClientError) => void;
+  private readyGeneration = 0;
+  private readyStartedAt = 0;
   private readonly pending = new Map<string, Pending>();
   private capabilities: PreviewCapability[] = [];
   private currentUrl: string;
@@ -54,6 +59,7 @@ export class PreviewBridgeClient {
   }
 
   async refresh(): Promise<PreviewObservation> {
+    await this.observe();
     this.invalidateReady();
     this.iframe.src = cleanPreviewUrl(this.currentUrl);
     await this.ready;
@@ -84,7 +90,7 @@ export class PreviewBridgeClient {
             reject(
               new PreviewBridgeClientError('CLIENT_PREVIEW_TIMEOUT', 'Preview Bridge timed out'),
             );
-          }, 10_000);
+          }, PREVIEW_OBSERVE_TIMEOUT_MS);
           this.pending.set(requestId, { timer, resolve, reject });
           this.iframe.contentWindow?.postMessage(
             {
@@ -104,6 +110,8 @@ export class PreviewBridgeClient {
     const parsed = bridgeMessageSchema.safeParse(event.data);
     if (!parsed.success) return;
     if (parsed.data.type === 'bridge.ready') {
+      const readyTimestamp = parseReadyTimestamp(parsed.data.requestId);
+      if (readyTimestamp !== undefined && readyTimestamp < this.readyStartedAt) return;
       this.capabilities = parsed.data.payload.capabilities;
       this.resolveReady(this.capabilities);
       this.onReady?.(this.capabilities);
@@ -133,14 +141,44 @@ export class PreviewBridgeClient {
     this.rejectAll(
       new PreviewBridgeClientError('PREVIEW_PROTOCOL_ERROR', 'Preview page reloading'),
     );
+    this.rejectReady(
+      new PreviewBridgeClientError('PREVIEW_PROTOCOL_ERROR', 'Preview page reloading'),
+    );
     this.ready = this.createReadyPromise();
   }
 
   private createReadyPromise(): Promise<PreviewCapability[]> {
-    return new Promise<PreviewCapability[]>((resolve, reject) => {
-      this.resolveReady = resolve;
-      this.rejectReady = reject;
+    const generation = ++this.readyGeneration;
+    this.readyStartedAt = Date.now();
+    const promise = new Promise<PreviewCapability[]>((resolve, reject) => {
+      let settled = false;
+      const settleResolve = (capabilities: PreviewCapability[]) => {
+        if (settled || generation !== this.readyGeneration) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(capabilities);
+      };
+      const settleReject = (error: PreviewBridgeClientError) => {
+        if (settled || generation !== this.readyGeneration) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+      const timer = setTimeout(
+        () =>
+          settleReject(
+            new PreviewBridgeClientError(
+              'CLIENT_PREVIEW_TIMEOUT',
+              'Preview Bridge did not become ready',
+            ),
+          ),
+        PREVIEW_READY_TIMEOUT_MS,
+      );
+      this.resolveReady = settleResolve;
+      this.rejectReady = settleReject;
     });
+    void promise.catch(() => undefined);
+    return promise;
   }
 
   private rejectAll(error: PreviewBridgeClientError): void {
@@ -160,4 +198,11 @@ function cleanPreviewUrl(value: string): string {
   const url = new URL(value);
   url.searchParams.delete('token');
   return url.toString();
+}
+
+function parseReadyTimestamp(requestId: string): number | undefined {
+  const match = /^bridge:(\d+)$/.exec(requestId);
+  if (!match) return undefined;
+  const timestamp = Number(match[1]);
+  return Number.isSafeInteger(timestamp) ? timestamp : undefined;
 }

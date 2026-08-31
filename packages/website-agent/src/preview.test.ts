@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PreviewObservation } from '@cloudcrane/preview-protocol';
+import type { PreviewObservationContext } from './preview.js';
 import { createPreviewTools } from './preview.js';
 
 const observation: PreviewObservation = {
@@ -47,7 +48,11 @@ describe('Preview Agent tools', () => {
   });
 
   it('rejects missing clients and arbitrary navigation before the provider', async () => {
-    const navigate = vi.fn(async () => observation);
+    const navigate = vi.fn(async (context: PreviewObservationContext, path: string) => {
+      void context;
+      void path;
+      return observation;
+    });
     const tools = createPreviewTools(
       { observe: vi.fn(), refresh: vi.fn(), navigate },
       () => undefined,
@@ -64,15 +69,66 @@ describe('Preview Agent tools', () => {
       traceId: '00000000-0000-4000-8000-000000000004',
       previewClientId: '00000000-0000-4000-8000-000000000005',
     }));
-    await expect(
-      available.preview_navigate.execute(
-        'call-2',
-        { path: 'https://evil.example/' },
+    for (const path of [
+      'https://evil.example',
+      '//evil.example',
+      'javascript:alert(1)',
+      'data:text/html,evil',
+      '\\\\evil',
+      '/bad\npath',
+    ]) {
+      await expect(
+        available.preview_navigate.execute(
+          'call-2',
+          { path },
+          undefined,
+          undefined,
+          undefined as never,
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    }
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid Website-relative path from Pi input to the provider', async () => {
+    const navigate = vi.fn(async (context: PreviewObservationContext, path: string) => {
+      void context;
+      void path;
+      return observation;
+    });
+    const context = {
+      websiteId: '00000000-0000-4000-8000-000000000001',
+      websiteSessionId: '00000000-0000-4000-8000-000000000002',
+      runId: '00000000-0000-4000-8000-000000000003',
+      traceId: '00000000-0000-4000-8000-000000000004',
+      previewClientId: '00000000-0000-4000-8000-000000000005',
+    };
+    const tools = createPreviewTools(
+      { observe: vi.fn(), refresh: vi.fn(), navigate },
+      () => context,
+    );
+
+    for (const [index, path] of [
+      '/about?from=agent',
+      '/',
+      '/products',
+      '/products?id=1',
+      '/path#section',
+    ].entries())
+      await tools.preview_navigate.execute(
+        `call-${index + 3}`,
+        { path },
         undefined,
         undefined,
         undefined as never,
-      ),
-    ).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
-    expect(navigate).not.toHaveBeenCalled();
+      );
+
+    expect(navigate).toHaveBeenCalledTimes(5);
+    expect(navigate.mock.calls.map(([receivedContext, path]) => [receivedContext, path])).toEqual(
+      ['/about?from=agent', '/', '/products', '/products?id=1', '/path#section'].map((path) => [
+        context,
+        path,
+      ]),
+    );
   });
 });

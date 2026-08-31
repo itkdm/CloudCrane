@@ -551,6 +551,9 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         { stopReason: 'toolUse' },
       ),
       fauxAssistantMessage([fauxToolCall('preview_refresh', {})], { stopReason: 'toolUse' }),
+      fauxAssistantMessage([fauxToolCall('preview_navigate', { path: '/about' })], {
+        stopReason: 'toolUse',
+      }),
       fauxAssistantMessage('transport run completed after Preview observation'),
     ]);
     const modelRuntime = await ModelRuntime.create({
@@ -620,6 +623,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       'CURRENT_URL',
     ];
     const observed: PreviewObservation[] = [];
+    const previewOperations: string[] = [];
     const clientBRequests: AgentWireMessage[] = [];
     const events: string[] = [];
     await new Promise<void>((resolve, reject) => {
@@ -643,7 +647,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         const message = JSON.parse(raw.toString()) as {
           type: string;
           requestId?: string;
-          payload?: { runId?: string; commandType?: string; operation?: string };
+          payload?: { runId?: string; commandType?: string; operation?: string; path?: string };
         };
         events.push(message.type);
         if (message.type === 'connection.ready') {
@@ -684,9 +688,12 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
           );
         }
         if (message.type === 'preview.request') {
+          const operation = message.payload?.operation ?? '';
+          previewOperations.push(operation);
+          const path = operation === 'navigate' ? (message.payload?.path ?? '/') : '/';
           const next: PreviewObservation = {
-            url: `http://site-${websiteId}.localhost:4103/`,
-            path: '/',
+            url: `http://site-${websiteId}.localhost:4103${path}`,
+            path,
             title: 'After',
             viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
             scroll: { x: 0, y: 0 },
@@ -727,6 +734,8 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     expect(events).toContain('tool.completed');
     expect(events).toContain('assistant.completed');
     expect(events).toContain('run.settled');
+    expect(previewOperations).toEqual(['refresh', 'navigate']);
+    expect(observed.some((item) => item.path === '/about')).toBe(true);
     expect(observed.at(-1)?.visibleText).toContain('After');
     expect(clientBRequests).toHaveLength(0);
     await expect(probe!.fs.read({ path: '/workspace/index.php' })).resolves.toMatchObject({

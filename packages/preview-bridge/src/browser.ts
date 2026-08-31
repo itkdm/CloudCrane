@@ -169,8 +169,7 @@ function captureDom(): { dom: DomNode[]; domTruncated: boolean } {
   if (!root) return { dom: [], domTruncated: false };
   const dom: DomNode[] = [];
   for (const child of Array.from(root.children)) {
-    const node = snapshotElement(child, 0, state);
-    if (node) dom.push(node);
+    dom.push(...snapshotElement(child, 0, state));
     if (state.truncated) break;
   }
   return { dom, domTruncated: state.truncated };
@@ -180,22 +179,22 @@ function snapshotElement(
   element: Element,
   depth: number,
   state: { count: number; chars: number; truncated: boolean; nextRef: number },
-): DomNode | null {
-  if (state.count >= MAX_DOM_NODES || depth > MAX_DOM_DEPTH || isHidden(element)) {
+): DomNode[] {
+  if (isEffectivelyHidden(element)) return [];
+  if (state.count >= MAX_DOM_NODES || depth > MAX_DOM_DEPTH) {
     state.truncated = true;
-    return null;
+    return [];
   }
   const tag = element.tagName.toLowerCase();
   const role = element.getAttribute('role');
   const children: DomNode[] = [];
   for (const child of Array.from(element.children)) {
-    const node = snapshotElement(child, depth + 1, state);
-    if (node) children.push(node);
+    children.push(...snapshotElement(child, depth + 1, state));
     if (state.truncated) break;
   }
   const text = directText(element);
-  const include = semanticTags.has(tag) || Boolean(role) || children.length > 0;
-  if (!include) return children.length ? children[0]! : null;
+  const include = semanticTags.has(tag) || Boolean(role);
+  if (!include) return children;
   const node: DomNode = {
     ref: `e${state.nextRef++}`,
     tag,
@@ -209,7 +208,7 @@ function snapshotElement(
     state.truncated = true;
     node.children = [];
   }
-  return node;
+  return [node];
 }
 
 function attributesFor(element: Element): Record<string, string> {
@@ -239,7 +238,11 @@ function captureVisibleText(): string {
   let current: Node | null;
   while ((current = walker.nextNode())) {
     const parent = current.parentElement;
-    if (!parent || isHidden(parent) || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName))
+    if (
+      !parent ||
+      isEffectivelyHidden(parent) ||
+      ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)
+    )
       continue;
     const text = (current.textContent ?? '').replace(/\s+/g, ' ').trim();
     if (!text) continue;
@@ -250,15 +253,24 @@ function captureVisibleText(): string {
   return result.slice(0, MAX_VISIBLE_TEXT_CHARS);
 }
 
-function isHidden(element: Element): boolean {
-  if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') return true;
-  const style = window.getComputedStyle(element);
-  return style.display === 'none' || style.visibility === 'hidden';
+function isEffectivelyHidden(element: Element): boolean {
+  let current: Element | null = element;
+  while (current) {
+    if (current.hasAttribute('hidden') || current.getAttribute('aria-hidden') === 'true')
+      return true;
+    const style = window.getComputedStyle(current);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+    if (current === document.body) break;
+    current = current.parentElement;
+  }
+  return false;
 }
 
 function sanitizeUrl(value: string): string {
   try {
     const parsed = new URL(value, location.href);
+    parsed.username = '';
+    parsed.password = '';
     for (const key of Array.from(parsed.searchParams.keys())) {
       if (sensitiveQueryNames.test(key)) parsed.searchParams.set(key, '[redacted]');
     }
@@ -294,8 +306,13 @@ function stringify(value: unknown): string {
 }
 
 function redact(value: string): string {
-  return value.replace(
-    /(token|secret|password|passwd|api[_-]?key|access[_-]?token|authorization)(\s*[:=]\s*)(["']?)[^\s,"'}]+\3/gi,
+  const bearerRedacted = value.replace(/\bBearer\s+[^\s,"'}]+/gi, 'Bearer [redacted]');
+  const quotedValuesRedacted = bearerRedacted.replace(
+    /(["'])(token|secret|password|passwd|api[_-]?key|access[_-]?token|authorization)\1(\s*:\s*)(["'])[^"']*\4/gi,
+    '$1$2$1$3$4[redacted]$4',
+  );
+  return quotedValuesRedacted.replace(
+    /\b(token|secret|password|passwd|api[_-]?key|access[_-]?token|authorization)(\s*[:=]\s*)(["']?)[^\s,"'}]+\3/gi,
     '$1$2$3[redacted]$3',
   );
 }
