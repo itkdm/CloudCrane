@@ -53,6 +53,9 @@ importers:
       '@cloudcrane/preview-access':
         specifier: workspace:*
         version: link:../../packages/preview-access
+      '@cloudcrane/preview-protocol':
+        specifier: workspace:*
+        version: link:../../packages/preview-protocol
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
