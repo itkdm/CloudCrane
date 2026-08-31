@@ -52,7 +52,7 @@ process.once('SIGINT', () => void close('SIGINT'));
 process.once('SIGTERM', () => void close('SIGTERM'));
 
 try {
-  await app.listen({ host: '0.0.0.0', port: config.port });
+  await app.listen({ host: '127.0.0.1', port: config.port });
   logger.info({ port: config.port }, 'agent service listening');
 } catch (error) {
   logger.error({ error }, 'agent service failed to start');

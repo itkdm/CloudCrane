@@ -10,7 +10,7 @@ const app = buildGatewayApp(config, new DrizzleControlPlaneStore(platform));
 const logger = createLogger('workspace-gateway');
 
 try {
-  await app.listen({ host: '0.0.0.0', port: config.port });
+  await app.listen({ host: '127.0.0.1', port: config.port });
   logger.info({ port: config.port }, 'workspace gateway listening');
 } catch (error) {
   logger.error({ error }, 'workspace gateway failed to start');

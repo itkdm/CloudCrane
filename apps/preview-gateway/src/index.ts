@@ -10,7 +10,7 @@ const app = buildPreviewGatewayApp(config, new DrizzlePreviewBindingStore(platfo
 const logger = createLogger('preview-gateway');
 
 try {
-  await app.listen({ host: '0.0.0.0', port: config.port });
+  await app.listen({ host: '127.0.0.1', port: config.port });
   logger.info({ port: config.port }, 'preview gateway listening');
 } catch (error) {
   logger.error({ error }, 'preview gateway failed to start');
