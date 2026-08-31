@@ -137,7 +137,7 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
           <strong>{label}</strong>
           <span className="tool-status-label">{statusLabels[status]}</span>
         </div>
-        <span className="tool-target">{target}</span>
+        {target ? <span className="tool-target">{target}</span> : null}
       </div>
       {(input || output) && (
         <details className="tool-details">
@@ -177,11 +177,11 @@ function normalizeStatus(value?: string): keyof typeof statusLabels {
   return 'completed';
 }
 
-function toolTarget(toolName: string, text = ''): string {
+function toolTarget(toolName: string, text = ''): string | undefined {
   if (toolName.startsWith('preview_')) {
     if (toolName !== 'preview_navigate') return '当前预览';
     const path = readInputValue(text, ['path', 'target', 'url']);
-    return path ? `打开页面 ${boundedPath(path)}` : '当前网站页面';
+    return path ? `打开页面 ${boundedPath(path)}` : undefined;
   }
   const path = text.match(/(?:\/workspace|workspace)[^\s"'`}\]]+/i)?.[0];
   if (path) return basename(path.replace(/^workspace/i, '/workspace'));
@@ -189,7 +189,7 @@ function toolTarget(toolName: string, text = ''): string {
   if (command) return command;
   const simpleTarget = text.trim();
   if (/^[\w./-]{1,120}$/.test(simpleTarget)) return simpleTarget;
-  return '当前工作区';
+  return undefined;
 }
 
 function readInputValue(text: string, keys: string[]): string {
@@ -234,7 +234,7 @@ function boundedPath(path: string): string {
 
 function boundedDetail(text = ''): string {
   const trimmed = sanitizeDetail(text.trim());
-  if (!trimmed || trimmed === '当前工作区') return '';
+  if (!trimmed) return '';
   return trimmed.length > 900 ? `${trimmed.slice(0, 900)}\n…` : trimmed;
 }
 

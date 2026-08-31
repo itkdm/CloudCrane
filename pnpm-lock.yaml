@@ -151,6 +151,9 @@ importers:
       '@cloudcrane/preview-protocol':
         specifier: workspace:*
         version: link:../../packages/preview-protocol
+      '@cloudcrane/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       lucide-react:
         specifier: ^1.38.0
         version: 1.38.0(react@19.2.8)
@@ -305,6 +308,9 @@ importers:
       '@cloudcrane/preview-protocol':
         specifier: workspace:*
         version: link:../preview-protocol
+      '@cloudcrane/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@cloudcrane/workspace-client':
         specifier: workspace:*
         version: link:../workspace-client

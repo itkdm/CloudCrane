@@ -19,6 +19,8 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
+import { createLogger } from '@cloudcrane/shared';
+import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   WorkspaceClient,
   WorkspaceClientError,
@@ -35,6 +37,7 @@ import {
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
 const MAX_TURN_INDEX = 1_000_000;
+const logger = createLogger('website-agent');
 const APPEND_SYSTEM_PROMPT = [
   'CloudCrane agent constraints:',
   '- The working directory is the remote website workspace at /workspace.',
@@ -410,6 +413,7 @@ export class WebsiteAgentRuntime {
         'SESSION_BUSY',
         'this WebsiteSession already has an active AgentRun; use steer or followUp',
       );
+    await this.ensureSessionTitle(managed, text);
     const runId = randomUUID();
     const traceId = randomUUID();
     const startedAt = new Date().toISOString();
@@ -689,8 +693,11 @@ export class WebsiteAgentRuntime {
       (current, event, metadata) => {
         this.emitEvent(current, event, metadata);
         if (event.type === 'session_info_changed') {
+          const title = event.name?.trim() || null;
+          if (current.record.title === title) return;
+          current.record.title = title;
           void this.options.store.updateSession(current.websiteSessionId, {
-            title: event.name ?? null,
+            title,
             updatedAt: new Date().toISOString(),
           });
         }
@@ -702,8 +709,72 @@ export class WebsiteAgentRuntime {
       await this.persistSessionBinding(managed);
     });
     managed.bind();
+    await this.synchronizeSessionName(managed);
     await this.persistSessionBinding(managed);
     return managed;
+  }
+
+  private async ensureSessionTitle(managed: ManagedSession, prompt: string): Promise<void> {
+    const existingTitle =
+      managed.record.title?.trim() || managed.piRuntime.session.sessionName?.trim();
+    if (existingTitle) {
+      if (managed.record.title !== existingTitle) {
+        managed.record.title = existingTitle;
+        await this.options.store.updateSession(managed.websiteSessionId, {
+          title: existingTitle,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
+
+    const title = deriveSessionTitle(prompt);
+    managed.record.title = title;
+    try {
+      managed.piRuntime.session.setSessionName(title);
+    } catch (error) {
+      logger.warn(
+        {
+          websiteId: this.options.websiteId,
+          websiteSessionId: managed.websiteSessionId,
+          error: error instanceof Error ? error.message : 'unknown error',
+        },
+        'pi session name unavailable; persisted WebsiteSession title',
+      );
+    }
+    await this.options.store.updateSession(managed.websiteSessionId, {
+      title,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  private async synchronizeSessionName(managed: ManagedSession): Promise<void> {
+    const websiteTitle = managed.record.title?.trim();
+    const piTitle = managed.piRuntime.session.sessionName?.trim();
+    if (!websiteTitle && !piTitle) return;
+    const title = websiteTitle ?? piTitle;
+    if (!title) return;
+
+    managed.record.title = title;
+    if (piTitle !== title) {
+      try {
+        managed.piRuntime.session.setSessionName(title);
+      } catch (error) {
+        logger.warn(
+          {
+            websiteId: this.options.websiteId,
+            websiteSessionId: managed.websiteSessionId,
+            error: error instanceof Error ? error.message : 'unknown error',
+          },
+          'pi session name could not be synchronized',
+        );
+      }
+    }
+    if (managed.record.title !== websiteTitle)
+      await this.options.store.updateSession(managed.websiteSessionId, {
+        title,
+        updatedAt: new Date().toISOString(),
+      });
   }
 
   private async persistSessionBinding(managed: ManagedSession): Promise<void> {

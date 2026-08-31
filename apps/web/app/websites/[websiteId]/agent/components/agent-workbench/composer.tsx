@@ -26,7 +26,7 @@ export function Composer({
     const textarea = textareaRef.current;
     if (!textarea) return;
     textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 52), 180)}px`;
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 28), 176)}px`;
   }, [draft]);
 
   return (

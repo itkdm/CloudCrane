@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cloudcrane/pi-adapter": "workspace:*",
+    "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",
     "@cloudcrane/workspace-client": "workspace:*",
     "@earendil-works/pi-ai": "0.84.4",

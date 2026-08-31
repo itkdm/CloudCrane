@@ -181,6 +181,9 @@ describe('WebsiteAgentRuntime', () => {
 
     expect(result.status).toBe('COMPLETED');
     expect(result.finalText).toBe('remote read completed');
+    await expect(store.findSession(websiteId, session.id)).resolves.toMatchObject({
+      title: 'Read index.php',
+    });
     expect(events).toContain('agent_settled');
     expect(lifecycleEvents.at(-1)).toMatchObject({
       type: 'run_settled',
@@ -194,6 +197,7 @@ describe('WebsiteAgentRuntime', () => {
     const sessionPath = path.join(dataRoot, session.sessionFile.split('/').join(path.sep));
     const jsonl = await readFile(sessionPath, 'utf8');
     expect(jsonl).toContain('remote read completed');
+    expect(jsonl).toContain('"type":"session_info"');
 
     await runtime.closeSession(session.id);
     expect(runtime.activeSessionCount).toBe(0);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
+import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
   command,
@@ -40,6 +41,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const previewUrlPromiseRef = useRef<Promise<string> | null>(null);
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
+  const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string>();
   const [conversation, dispatchConversation] = useReducer(
@@ -256,6 +258,20 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           projected.event.type !== 'run.started'
         )
           return;
+        if (
+          projected.event.type === 'session.attached' ||
+          projected.event.type === 'session.snapshot'
+        ) {
+          const nextSession = projected.event.payload.session;
+          setSessions((current) => {
+            const existing = current.some((session) => session.id === nextSession.id);
+            return existing
+              ? current.map((session) =>
+                  session.id === nextSession.id ? { ...session, ...nextSession } : session,
+                )
+              : [nextSession, ...current];
+          });
+        }
         if (projected.event.type === 'preview.request') {
           void requestPreview(projected.event.payload)
             .then((payload) => {
@@ -283,6 +299,21 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
             });
           return;
         }
+        if (projected.event.type === 'command.ack') {
+          const pendingTitle = pendingSessionTitlesRef.current.get(projected.envelope.requestId);
+          if (pendingTitle) {
+            pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
+            setSessions((current) =>
+              current.map((session) =>
+                session.id === pendingTitle.sessionId
+                  ? { ...session, title: pendingTitle.title }
+                  : session,
+              ),
+            );
+          }
+        }
+        if (projected.event.type === 'command.error')
+          pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
         handleEvent(
           projected.event,
           projected.envelope,
@@ -349,6 +380,12 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       true,
     );
     if (socket.current?.readyState === WebSocket.OPEN) {
+      const currentSession = sessions.find((session) => session.id === sessionId);
+      if (!currentSession?.title?.trim())
+        pendingSessionTitlesRef.current.set(requestId, {
+          sessionId,
+          title: deriveSessionTitle(text),
+        });
       socket.current.send(
         JSON.stringify({
           ...command({
@@ -361,6 +398,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
         }),
       );
     } else {
+      pendingSessionTitlesRef.current.delete(requestId);
       queueConversation({ type: 'message.status', payload: { requestId, status: 'failed' } }, true);
       setError('Agent 服务尚未连接');
     }

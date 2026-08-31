@@ -30,10 +30,6 @@ export function ChatPanel({
 }: ChatPanelProps) {
   return (
     <section className="chat-panel" aria-label="网站对话">
-      <header className="chat-header">
-        <span className="chat-session-label">当前对话</span>
-        {running ? <span className="chat-context">处理中</span> : null}
-      </header>
       {error ? (
         <div className="error-banner" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />

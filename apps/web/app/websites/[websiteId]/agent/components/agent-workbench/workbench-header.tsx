@@ -2,7 +2,6 @@ import { Circle } from 'lucide-react';
 
 type WorkbenchHeaderProps = {
   connection: string;
-  websiteName?: string;
 };
 
 const connectionLabels: Record<string, string> = {
@@ -12,9 +11,8 @@ const connectionLabels: Record<string, string> = {
   unavailable: '连接失败',
 };
 
-export function WorkbenchHeader({ connection, websiteName }: WorkbenchHeaderProps) {
+export function WorkbenchHeader({ connection }: WorkbenchHeaderProps) {
   const isConnected = connection === 'connected';
-  const displayWebsiteName = websiteName?.trim();
   const connectionLabel = connectionLabels[connection] ?? '连接状态异常';
 
   return (
@@ -25,13 +23,6 @@ export function WorkbenchHeader({ connection, websiteName }: WorkbenchHeaderProp
         </span>
         <span className="brand-name">筑云鹤</span>
         <span className="brand-english">CloudCrane</span>
-      </div>
-      <div
-        className="website-context"
-        aria-label={displayWebsiteName ? `当前网站：${displayWebsiteName}` : '当前网站'}
-      >
-        <span className="context-label">当前网站</span>
-        {displayWebsiteName ? <span className="context-name">{displayWebsiteName}</span> : null}
       </div>
       {!isConnected ? (
         <div
