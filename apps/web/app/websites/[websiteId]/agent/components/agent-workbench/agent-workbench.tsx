@@ -23,6 +23,7 @@ import {
   type ConversationEvent,
 } from './conversation-reducer';
 import { PreviewPane } from './preview-pane';
+import type { PreviewViewportMode } from './preview-viewport';
 import { SessionSidebar } from './session-sidebar';
 import type { PreviewState, Session } from './types';
 import { WorkbenchHeader } from './workbench-header';
@@ -58,6 +59,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const [bridgeStatus, setBridgeStatus] = useState('waiting');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarHydrated, setSidebarHydrated] = useState(false);
+  const [previewViewportMode, setPreviewViewportMode] = useState<PreviewViewportMode>('desktop');
 
   const flushConversation = useCallback(() => {
     if (conversationRafRef.current !== undefined) {
@@ -465,6 +467,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           onOpenPanel={() => setPreviewOpen(true)}
           onRefresh={refreshPreview}
           onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
+          previewViewportMode={previewViewportMode}
+          onPreviewViewportModeChange={setPreviewViewportMode}
         />
       </div>
     </main>

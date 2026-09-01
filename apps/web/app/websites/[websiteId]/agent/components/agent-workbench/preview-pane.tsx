@@ -1,5 +1,10 @@
 import { AlertTriangle, ExternalLink, Eye, LoaderCircle, RefreshCw, X } from 'lucide-react';
-import type { RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import {
+  calculatePreviewScale,
+  getPreviewViewport,
+  type PreviewViewportMode,
+} from './preview-viewport';
 import type { PreviewState } from './types';
 
 export type PreviewPaneProps = {
@@ -20,6 +25,9 @@ export type PreviewPaneProps = {
   currentPath?: string;
   /** Optional current page URL supplied by the parent. */
   currentUrl?: string;
+  /** Fixed logical viewport used by the embedded preview. */
+  previewViewportMode: PreviewViewportMode;
+  onPreviewViewportModeChange: (mode: PreviewViewportMode) => void;
 };
 
 export function PreviewPane({
@@ -34,10 +42,34 @@ export function PreviewPane({
   onClose,
   currentPath,
   currentUrl,
+  previewViewportMode,
+  onPreviewViewportModeChange,
 }: PreviewPaneProps) {
   const path = resolvePreviewPath(preview, currentPath, currentUrl);
   const isUnavailable = preview.status === 'unavailable' || preview.status === 'stopped';
   const bridgeIssue = bridgeIssueMessage(bridgeStatus);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const viewport = getPreviewViewport(previewViewportMode);
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const scale = calculatePreviewScale(stageSize.width, stageSize.height, viewport);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const updateSize = (width: number, height: number) => {
+      setStageSize((current) =>
+        current.width === width && current.height === height ? current : { width, height },
+      );
+    };
+    const initialSize = stage.getBoundingClientRect();
+    updateSize(initialSize.width, initialSize.height);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateSize(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [open]);
 
   if (open === false) {
     return (
@@ -72,6 +104,29 @@ export function PreviewPane({
           <span className="preview-path">{path}</span>
         </div>
         <div className="preview-actions">
+          <div className="preview-viewport-controls" aria-label="预览尺寸">
+            <button
+              type="button"
+              className={previewViewportMode === 'desktop' ? 'active' : ''}
+              aria-pressed={previewViewportMode === 'desktop'}
+              onClick={() => onPreviewViewportModeChange('desktop')}
+              title="桌面端 1440 × 900"
+            >
+              桌面
+            </button>
+            <button
+              type="button"
+              className={previewViewportMode === 'mobile' ? 'active' : ''}
+              aria-pressed={previewViewportMode === 'mobile'}
+              onClick={() => onPreviewViewportModeChange('mobile')}
+              title="移动端 390 × 844"
+            >
+              移动
+            </button>
+            <span className="preview-viewport-meta">
+              {viewport.width} × {viewport.height} · {Math.round(scale * 100)}%
+            </span>
+          </div>
           {onClose ? (
             <button type="button" onClick={onClose} aria-label="关闭预览" title="关闭预览">
               <X size={16} aria-hidden="true" />
@@ -97,15 +152,27 @@ export function PreviewPane({
           </button>
         </div>
       </header>
-      <div className="preview-stage">
+      <div ref={stageRef} className="preview-stage">
         {preview.status === 'ready' && preview.url ? (
-          <iframe
-            key={previewKey}
-            ref={frameRef}
-            title="网站实时预览"
-            src={preview.url}
-            sandbox="allow-scripts allow-forms allow-same-origin"
-          />
+          <div className="preview-canvas">
+            <div
+              className="preview-viewport-shell"
+              style={{
+                width: viewport.width,
+                height: viewport.height,
+                transform: `scale(${scale})`,
+              }}
+            >
+              <iframe
+                key={previewKey}
+                ref={frameRef}
+                title="网站实时预览"
+                src={preview.url}
+                sandbox="allow-scripts allow-forms allow-same-origin"
+                style={{ width: viewport.width, height: viewport.height }}
+              />
+            </div>
+          </div>
         ) : (
           <div className={`preview-empty ${isUnavailable ? 'unavailable' : ''}`}>
             {isUnavailable ? (

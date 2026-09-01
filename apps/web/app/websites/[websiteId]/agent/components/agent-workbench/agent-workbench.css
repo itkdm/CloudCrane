@@ -651,7 +651,12 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
   padding: 2px 2px 14px;
+}
+
+.preview-header > div:first-child {
+  min-width: 0;
 }
 
 .preview-title-row {
@@ -697,7 +702,11 @@
 
 .preview-actions {
   display: flex;
+  align-items: center;
   gap: 3px;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .preview-actions button {
@@ -709,6 +718,36 @@
   opacity: 0.35;
 }
 
+.preview-viewport-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 5px;
+}
+
+.preview-viewport-controls button {
+  width: auto;
+  height: 27px;
+  border: 1px solid var(--cc-line);
+  border-radius: 6px;
+  padding: 0 7px;
+  color: var(--cc-muted);
+  font-size: 10px;
+}
+
+.preview-viewport-controls button.active {
+  border-color: #9fcfc1;
+  background: var(--cc-accent-soft);
+  color: var(--cc-accent-dark);
+}
+
+.preview-viewport-meta {
+  color: var(--cc-faint);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
 .preview-stage {
   min-height: 0;
   overflow: hidden;
@@ -716,10 +755,21 @@
   background: white;
 }
 
-.preview-stage iframe {
+.preview-canvas {
   width: 100%;
   height: 100%;
-  min-height: 300px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.preview-viewport-shell {
+  flex: 0 0 auto;
+  transform-origin: center;
+  box-shadow: 0 10px 30px rgb(22 54 46 / 12%);
+}
+
+.preview-viewport-shell iframe {
   display: block;
   border: 0;
   background: white;
