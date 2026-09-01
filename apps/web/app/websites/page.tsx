@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
+import { copyTextWithFallback, PBOOT_AUTHORIZATION_URL } from '../../lib/website-authorization';
 
 type Website = {
   id: string;
@@ -31,6 +32,9 @@ export default function WebsitesPage() {
   const [authorizationWebsite, setAuthorizationWebsite] = useState<Website | null>(null);
   const [authorizationCode, setAuthorizationCode] = useState('');
   const [authorizing, setAuthorizing] = useState(false);
+  const [authorizationError, setAuthorizationError] = useState('');
+  const [authorizationSuccess, setAuthorizationSuccess] = useState('');
+  const [copiedPreviewUrl, setCopiedPreviewUrl] = useState(false);
 
   useEffect(() => {
     fetch('/api/websites')
@@ -62,6 +66,12 @@ export default function WebsitesPage() {
       setWebsites((current) => [payload, ...current]);
       setName('');
       setFormOpen(false);
+      if (payload.status === 'authorization_required') {
+        setAuthorizationWebsite(payload);
+        setAuthorizationCode('');
+        setAuthorizationError('');
+        setCopiedPreviewUrl(false);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '创建网站失败');
     } finally {
@@ -73,7 +83,8 @@ export default function WebsitesPage() {
     event.preventDefault();
     if (!authorizationWebsite) return;
     setAuthorizing(true);
-    setError('');
+    setAuthorizationError('');
+    setAuthorizationSuccess('');
     try {
       const response = await fetch(`/api/websites/${authorizationWebsite.id}/pboot-authorization`, {
         method: 'POST',
@@ -91,11 +102,38 @@ export default function WebsitesPage() {
       );
       setAuthorizationCode('');
       setAuthorizationWebsite(null);
+      setAuthorizationSuccess('PbootCMS 授权已验证，网站环境已准备。');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '授权验证失败');
+      setAuthorizationError(reason instanceof Error ? reason.message : '授权验证失败');
     } finally {
       setAuthorizing(false);
     }
+  }
+
+  function openAuthorization(website: Website) {
+    setAuthorizationWebsite(website);
+    setAuthorizationCode('');
+    setAuthorizationError('');
+    setCopiedPreviewUrl(false);
+  }
+
+  async function copyPreviewUrl() {
+    if (!authorizationWebsite?.previewUrl) return;
+    const copied = await copyTextWithFallback(authorizationWebsite.previewUrl);
+    if (copied) {
+      setCopiedPreviewUrl(true);
+      window.setTimeout(() => setCopiedPreviewUrl(false), 1600);
+    } else {
+      setAuthorizationError('复制失败，请手动选择并复制预览地址。');
+    }
+  }
+
+  function closeAuthorization() {
+    if (authorizing) return;
+    setAuthorizationWebsite(null);
+    setAuthorizationCode('');
+    setAuthorizationError('');
+    setCopiedPreviewUrl(false);
   }
 
   return (
@@ -148,6 +186,11 @@ export default function WebsitesPage() {
           {error}
         </p>
       ) : null}
+      {authorizationSuccess ? (
+        <p className="website-success" role="status">
+          {authorizationSuccess}
+        </p>
+      ) : null}
       {loading ? <p className="website-empty">正在加载…</p> : null}
       {!loading && websites.length === 0 ? (
         <p className="website-empty">还没有网站，创建你的第一个网站。</p>
@@ -174,7 +217,7 @@ export default function WebsitesPage() {
                 <button
                   className="website-workbench-link"
                   type="button"
-                  onClick={() => setAuthorizationWebsite(website)}
+                  onClick={() => openAuthorization(website)}
                 >
                   配置授权
                 </button>
@@ -189,43 +232,73 @@ export default function WebsitesPage() {
         ))}
       </section>
       {authorizationWebsite ? (
-        <div className="website-authorization-panel" role="dialog" aria-modal="true">
-          <h2>PbootCMS 授权</h2>
-          <p>当前预览地址：</p>
-          <code>{authorizationWebsite.previewUrl}</code>
-          <ol>
-            <li>复制上面的预览地址。</li>
-            <li>
-              到{' '}
-              <a href="http://www.pbootcms.com/freesn/" target="_blank" rel="noreferrer">
-                PbootCMS 官方免费授权页
-              </a>{' '}
-              获取授权码。
-            </li>
-            <li>将官方返回的全部授权码粘贴到下方。</li>
-          </ol>
-          <form onSubmit={submitAuthorization}>
-            <label htmlFor="pboot-authorization-code">授权码</label>
-            <textarea
-              id="pboot-authorization-code"
-              value={authorizationCode}
-              onChange={(event) => setAuthorizationCode(event.target.value)}
-              maxLength={2048}
-              disabled={authorizing}
-              required
-            />
-            <button className="primary-button" type="submit" disabled={authorizing}>
-              {authorizing ? '正在保存并验证…' : '保存并验证'}
-            </button>
+        <div className="website-authorization-backdrop">
+          <section
+            className="website-authorization-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pboot-authorization-title"
+          >
             <button
-              className="secondary-button"
+              className="website-authorization-close"
               type="button"
-              onClick={() => setAuthorizationWebsite(null)}
+              aria-label="关闭授权设置"
+              onClick={closeAuthorization}
               disabled={authorizing}
             >
-              取消
+              ×
             </button>
-          </form>
+            <h2 id="pboot-authorization-title">完成 PbootCMS 授权</h2>
+            <p>网站已创建，还需要完成 PbootCMS 官方免费授权后才能进入工作台。</p>
+            <div className="website-preview-url">
+              <span>当前预览地址</span>
+              <code>{authorizationWebsite.previewUrl}</code>
+              <button className="secondary-button" type="button" onClick={copyPreviewUrl}>
+                {copiedPreviewUrl ? '已复制 ✓' : '复制地址'}
+              </button>
+            </div>
+            <ol>
+              <li>复制当前预览地址。</li>
+              <li>
+                到{' '}
+                <a href={PBOOT_AUTHORIZATION_URL} target="_blank" rel="noopener noreferrer">
+                  PbootCMS 官方免费授权页
+                </a>{' '}
+                获取授权码。
+              </li>
+              <li>将官方返回的全部授权码粘贴到下方。</li>
+            </ol>
+            <form onSubmit={submitAuthorization}>
+              <label htmlFor="pboot-authorization-code">授权码</label>
+              <textarea
+                id="pboot-authorization-code"
+                value={authorizationCode}
+                onChange={(event) => setAuthorizationCode(event.target.value)}
+                placeholder="粘贴 PbootCMS 官方返回的全部授权码"
+                maxLength={2048}
+                disabled={authorizing}
+                required
+              />
+              {authorizationError ? (
+                <p className="website-modal-error" role="alert">
+                  {authorizationError}
+                </p>
+              ) : null}
+              <div className="website-authorization-actions">
+                <button className="primary-button" type="submit" disabled={authorizing}>
+                  {authorizing ? '正在验证…' : '保存并验证'}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={closeAuthorization}
+                  disabled={authorizing}
+                >
+                  稍后授权
+                </button>
+              </div>
+            </form>
+          </section>
         </div>
       ) : null}
     </main>
