@@ -9,7 +9,7 @@ import {
   type Model,
 } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import type { WorkspaceClientContext } from '@cloudcrane/workspace-client';
+import { WorkspaceClientError, type WorkspaceClientContext } from '@cloudcrane/workspace-client';
 import {
   createInMemoryWebsiteAgentStore,
   projectMessages,
@@ -20,6 +20,19 @@ import {
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const workspaceId = '00000000-0000-4000-8000-000000000002';
+const referenceRoot = '/workspace/.cloudcrane/references/template-source';
+
+async function missingReferenceStat({ path: remotePath }: { path: string }) {
+  if (remotePath === referenceRoot)
+    throw new WorkspaceClientError('FILE_NOT_FOUND', 'template reference is not mounted');
+  return {
+    path: remotePath,
+    type: 'file' as const,
+    size: 0,
+    mode: 0o644,
+    modifiedAt: new Date().toISOString(),
+  };
+}
 
 describe('WebsiteAgentRuntime', () => {
   it('rebuilds user, assistant, and paired tool messages from Pi AgentMessage history', () => {
@@ -139,13 +152,17 @@ describe('WebsiteAgentRuntime', () => {
             truncated: false,
           };
         }),
-        stat: vi.fn(async () => ({
-          path: '/workspace/index.php',
-          type: 'file' as const,
-          size: 15,
-          mode: 0o644,
-          modifiedAt: new Date().toISOString(),
-        })),
+        stat: vi.fn(async ({ path: remotePath }: { path: string }) => {
+          if (remotePath === referenceRoot)
+            throw new WorkspaceClientError('FILE_NOT_FOUND', 'template reference is not mounted');
+          return {
+            path: remotePath,
+            type: 'file' as const,
+            size: 15,
+            mode: 0o644,
+            modifiedAt: new Date().toISOString(),
+          };
+        }),
         write: vi.fn(),
         list: vi.fn(async () => ({ path: '/workspace', entries: [] })),
         mkdir: vi.fn(),
@@ -232,6 +249,7 @@ describe('WebsiteAgentRuntime', () => {
               truncated: false,
             })),
             list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
           },
         }) as never,
     });
@@ -270,6 +288,7 @@ describe('WebsiteAgentRuntime', () => {
               truncated: false,
             })),
             list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
           },
         }) as never,
     });
@@ -303,6 +322,7 @@ describe('WebsiteAgentRuntime', () => {
           truncated: false,
         })),
         list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+        stat: vi.fn(missingReferenceStat),
       },
     };
     const store = createInMemoryWebsiteAgentStore();
@@ -388,6 +408,17 @@ describe('WebsiteAgentRuntime', () => {
                   : [],
           };
         }),
+        stat: vi.fn(async ({ path: remotePath }: { path: string }) => {
+          if (remotePath === referenceRoot)
+            return {
+              path: remotePath,
+              type: 'directory' as const,
+              size: 0,
+              mode: 0o755,
+              modifiedAt: new Date().toISOString(),
+            };
+          return missingReferenceStat({ path: remotePath });
+        }),
       },
     };
     const runtime = new WebsiteAgentRuntime({
@@ -407,6 +438,9 @@ describe('WebsiteAgentRuntime', () => {
     const firstPrompt = await runtime.getSystemPrompt(session.id);
     expect(firstPrompt).toContain('Use dark green buttons and verify Preview.');
     expect(firstPrompt).toContain('/workspace/.agents/skills/frontend-design/SKILL.md');
+    expect(firstPrompt).toContain('Migration reference is available');
+    expect(firstPrompt).toContain(referenceRoot);
+    expect(firstPrompt).toContain('The writable target is `/workspace`.');
 
     description = 'Use dark blue buttons and verify Preview.';
     await runtime.prompt(session.id, 'design the page again');
@@ -442,6 +476,7 @@ describe('WebsiteAgentRuntime', () => {
           truncated: false,
         })),
         list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+        stat: vi.fn(missingReferenceStat),
       },
     };
     const makeRuntime = () =>
@@ -517,6 +552,7 @@ describe('WebsiteAgentRuntime', () => {
               truncated: false,
             })),
             list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
           },
           process: { exec: processExec, cancel: vi.fn() },
         }) as never,
@@ -553,6 +589,7 @@ describe('WebsiteAgentRuntime', () => {
           truncated: false,
         })),
         list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+        stat: vi.fn(missingReferenceStat),
       },
       process: { exec: processExec, cancel: vi.fn() },
     };
