@@ -44,28 +44,45 @@ printf '%s\n' 'not allowed' > "$source/static/misc/ignored.txt"
 printf '%s\n' 'K714 new asset' > "$source/static/assets/k714.css"
 
 before_db_sha="$(sha256sum /workspace/data/pbootcms.db | cut -d ' ' -f 1)"
-before_skin_sha="$(sha256sum /workspace/skin/css/site.css | cut -d ' ' -f 1)"
 before_sn="$(sqlite3 /workspace/data/pbootcms.db "SELECT value FROM ay_config WHERE name='sn';")"
 before_admin="$(sqlite3 /workspace/data/pbootcms.db "SELECT username FROM ay_user LIMIT 1;")"
 before_site_title="$(sqlite3 /workspace/data/pbootcms.db "SELECT title FROM ay_site LIMIT 1;")"
+test ! -e /workspace/skin/css/site.css
+test ! -e /workspace/template/dafeult/rollback.html
+test ! -e /workspace/static/assets/k714.css
 printf '%s\n' '<h1>rollback marker</h1>' > "$source/template/dafeult/rollback.html"
 printf '%s\n' 'K714 replacement' > "$source/skin/css/site.css"
-if CLOUDCRANE_K714_TEST_FAIL_AFTER_PROMOTE=1 cloudcrane-normalize-k714 "$source" >/tmp/cloudcrane-k714-rollback.out 2>/tmp/cloudcrane-k714-rollback.err; then
+if CLOUDCRANE_K714_TEST_FAIL_AFTER_DB_COMMIT=1 cloudcrane-normalize-k714 "$source" >/tmp/cloudcrane-k714-db-rollback.out 2>/tmp/cloudcrane-k714-db-rollback.err; then
   exit 12
 fi
-grep -qxF 'ERROR TEST_POST_PROMOTE_FAILURE: injected post-promote failure' /tmp/cloudcrane-k714-rollback.err
+grep -qxF 'ERROR TEST_POST_DB_COMMIT_FAILURE: injected post-commit failure' /tmp/cloudcrane-k714-db-rollback.err
 test "$(sha256sum /workspace/data/pbootcms.db | cut -d ' ' -f 1)" = "$before_db_sha"
-test "$(sha256sum /workspace/skin/css/site.css | cut -d ' ' -f 1)" = "$before_skin_sha"
 test "$(sqlite3 /workspace/data/pbootcms.db "SELECT value FROM ay_config WHERE name='sn';")" = "$before_sn"
 test "$(sqlite3 /workspace/data/pbootcms.db "SELECT username FROM ay_user LIMIT 1;")" = "$before_admin"
 test "$(sqlite3 /workspace/data/pbootcms.db "SELECT title FROM ay_site LIMIT 1;")" = "$before_site_title"
+test ! -e /workspace/skin/css/site.css
 test ! -e /workspace/template/dafeult/rollback.html
+test ! -e /workspace/static/assets/k714.css
+test ! -e /workspace/.cloudcrane/template-import.json
+
+if CLOUDCRANE_K714_TEST_FAIL_AFTER_PROMOTE=1 cloudcrane-normalize-k714 "$source" >/tmp/cloudcrane-k714-rollback.out 2>/tmp/cloudcrane-k714-rollback.err; then
+  exit 13
+fi
+grep -qxF 'ERROR TEST_POST_PROMOTE_FAILURE: injected post-promote failure' /tmp/cloudcrane-k714-rollback.err
+test "$(sha256sum /workspace/data/pbootcms.db | cut -d ' ' -f 1)" = "$before_db_sha"
+test "$(sqlite3 /workspace/data/pbootcms.db "SELECT value FROM ay_config WHERE name='sn';")" = "$before_sn"
+test "$(sqlite3 /workspace/data/pbootcms.db "SELECT username FROM ay_user LIMIT 1;")" = "$before_admin"
+test "$(sqlite3 /workspace/data/pbootcms.db "SELECT title FROM ay_site LIMIT 1;")" = "$before_site_title"
+test ! -e /workspace/skin/css/site.css
+test ! -e /workspace/template/dafeult/rollback.html
+test ! -e /workspace/static/assets/k714.css
+test ! -e /workspace/.cloudcrane/template-import.json
 
 multi_source="$(mktemp -d /tmp/cloudcrane-k714-multi.XXXXXX)"
 cp -a "$source/." "$multi_source/"
 php -r '$p=$argv[1]; $db=new PDO("sqlite:".$p); $cols=[]; foreach ($db->query("PRAGMA table_info(ay_site)") as $c) if ((int)$c["pk"] === 0) $cols[]=$c["name"]; $row=$db->query("SELECT ".implode(",", array_map(fn($c)=>"\"".str_replace("\"","\"\"",$c)."\"", $cols))." FROM ay_site LIMIT 1")->fetch(PDO::FETCH_ASSOC); $names=implode(",", array_map(fn($c)=>"\"".str_replace("\"","\"\"",$c)."\"", $cols)); $db->prepare("INSERT INTO ay_site ({$names}) VALUES (".implode(",", array_fill(0, count($cols), "?")).")")->execute(array_values($row));' "$multi_source/data/pbootcms.db"
 if cloudcrane-normalize-k714 "$multi_source" >/tmp/cloudcrane-k714-site.out 2>/tmp/cloudcrane-k714-site.err; then
-  exit 13
+  exit 14
 fi
 grep -qxF 'ERROR UNSUPPORTED_K714_SITE_LAYOUT: source ay_site must contain exactly one row' /tmp/cloudcrane-k714-site.err
 rm -rf "$multi_source"
