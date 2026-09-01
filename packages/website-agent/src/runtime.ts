@@ -933,8 +933,8 @@ export class WebsiteAgentRuntime {
             'The writable target is `/workspace`.',
           ].join('\n'),
         });
-    } catch {
-      // A Website without a reference keeps the existing agent context unchanged.
+    } catch (error: unknown) {
+      if (!(error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND')) throw error;
     }
     return files;
   }

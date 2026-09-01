@@ -13,7 +13,25 @@ if [ -f "$marker" ]; then
   exit 0
 fi
 
-if find "$workspace" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+if [ -e "$workspace/.cloudcrane" ]; then
+  test -d "$workspace/.cloudcrane"
+  if find "$workspace" -mindepth 1 -maxdepth 1 ! -name .cloudcrane -print -quit | grep -q .; then
+    echo 'workspace contains unexpected pre-existing content' >&2
+    exit 20
+  fi
+  if find "$workspace/.cloudcrane" -mindepth 1 -maxdepth 1 ! -name references -print -quit | grep -q .; then
+    echo 'workspace contains unexpected CloudCrane content' >&2
+    exit 20
+  fi
+  if [ -e "$workspace/.cloudcrane/references" ]; then
+    test -d "$workspace/.cloudcrane/references"
+    if find "$workspace/.cloudcrane/references" -mindepth 1 -maxdepth 1 ! -name template-source -print -quit | grep -q .; then
+      echo 'workspace contains unexpected reference content' >&2
+      exit 20
+    fi
+    test -d "$workspace/.cloudcrane/references/template-source"
+  fi
+elif find "$workspace" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   echo 'workspace is non-empty and has no CloudCrane initialization marker' >&2
   exit 20
 fi
@@ -43,8 +61,9 @@ EOF
 if [ -f "$workspace/.gitignore" ]; then
   grep -qxF 'data/*.db' "$workspace/.gitignore" || printf '%s\n' 'data/*.db' >> "$workspace/.gitignore"
   grep -qxF 'runtime/' "$workspace/.gitignore" || printf '%s\n' 'runtime/' >> "$workspace/.gitignore"
+  grep -qxF '.cloudcrane/references/' "$workspace/.gitignore" || printf '%s\n' '.cloudcrane/references/' >> "$workspace/.gitignore"
 else
-  printf '%s\n' 'data/*.db' 'runtime/' > "$workspace/.gitignore"
+  printf '%s\n' 'data/*.db' 'runtime/' '.cloudcrane/references/' > "$workspace/.gitignore"
 fi
 
 git -C "$workspace" init -b main >/dev/null
@@ -74,4 +93,8 @@ EOF
 git -C "$workspace" add -A
 git -C "$workspace" commit -m 'chore: initialize PbootCMS website' >/dev/null
 test -z "$(git -C "$workspace" status --porcelain)"
+if git -C "$workspace" ls-files | grep -q '^\.cloudcrane/references/'; then
+  echo 'reference content entered Website Git index' >&2
+  exit 21
+fi
 printf '%s\n' 'INITIALIZED'
