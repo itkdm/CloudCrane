@@ -1,6 +1,8 @@
 FROM node:22-bookworm-slim
 
-RUN apt-get update \
+ARG APT_MIRROR=deb.debian.org
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+  && apt-get update \
   && apt-get install --no-install-recommends -y php-cli php-sqlite3 git sqlite3 ripgrep curl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && groupmod --new-name workspace node \
