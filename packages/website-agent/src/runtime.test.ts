@@ -337,7 +337,11 @@ describe('WebsiteAgentRuntime', () => {
   it('loads website skills through Pi and refreshes their metadata without restarting the session', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-skills-'));
     const faux = fauxProvider({ provider: 'cloudcrane-skills', models: [{ id: 'deterministic' }] });
-    faux.setResponses([fauxAssistantMessage('first'), fauxAssistantMessage('second')]);
+    faux.setResponses([
+      fauxAssistantMessage('first'),
+      fauxAssistantMessage('second'),
+      fauxAssistantMessage('third'),
+    ]);
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
       allowModelNetwork: false,
@@ -345,6 +349,7 @@ describe('WebsiteAgentRuntime', () => {
     });
     modelRuntime.registerNativeProvider(faux.provider);
     let description = 'Use dark green buttons and verify Preview.';
+    let failSkillRefresh = false;
     const client = {
       fs: {
         read: vi.fn(async ({ path: remotePath }: { path: string }) => ({
@@ -355,31 +360,34 @@ describe('WebsiteAgentRuntime', () => {
           size: 128,
           truncated: false,
         })),
-        list: vi.fn(async ({ path: remotePath }: { path: string }) => ({
-          path: remotePath,
-          entries:
-            remotePath === '/workspace/.agents/skills'
-              ? [
-                  {
-                    path: '/workspace/.agents/skills/frontend-design',
-                    type: 'directory' as const,
-                    size: 0,
-                    mode: 0o755,
-                    modifiedAt: new Date().toISOString(),
-                  },
-                ]
-              : remotePath === '/workspace/.agents/skills/frontend-design'
+        list: vi.fn(async ({ path: remotePath }: { path: string }) => {
+          if (failSkillRefresh) throw new Error('temporary workspace listing failure');
+          return {
+            path: remotePath,
+            entries:
+              remotePath === '/workspace/.agents/skills'
                 ? [
                     {
-                      path: '/workspace/.agents/skills/frontend-design/SKILL.md',
-                      type: 'file' as const,
-                      size: 128,
-                      mode: 0o644,
+                      path: '/workspace/.agents/skills/frontend-design',
+                      type: 'directory' as const,
+                      size: 0,
+                      mode: 0o755,
                       modifiedAt: new Date().toISOString(),
                     },
                   ]
-                : [],
-        })),
+                : remotePath === '/workspace/.agents/skills/frontend-design'
+                  ? [
+                      {
+                        path: '/workspace/.agents/skills/frontend-design/SKILL.md',
+                        type: 'file' as const,
+                        size: 128,
+                        mode: 0o644,
+                        modifiedAt: new Date().toISOString(),
+                      },
+                    ]
+                  : [],
+          };
+        }),
       },
     };
     const runtime = new WebsiteAgentRuntime({
@@ -405,6 +413,15 @@ describe('WebsiteAgentRuntime', () => {
     const secondPrompt = await runtime.getSystemPrompt(session.id);
     expect(secondPrompt).toContain('Use dark blue buttons and verify Preview.');
     expect(secondPrompt).not.toContain('Use dark green buttons and verify Preview.');
+    failSkillRefresh = true;
+    await expect(
+      runtime.prompt(session.id, 'design the page despite a refresh issue'),
+    ).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+    expect(await runtime.getSystemPrompt(session.id)).toContain(
+      'Use dark blue buttons and verify Preview.',
+    );
     await runtime.disposeAll();
   });
 

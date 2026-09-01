@@ -923,9 +923,11 @@ export class WebsiteAgentRuntime {
 
   private async refreshRemoteSkills(targetDir: string, previousNames: string[]): Promise<void> {
     const stagingDir = `${targetDir}.staging-${randomUUID()}`;
+    const backupDir = `${targetDir}.backup-${randomUUID()}`;
     const files: Array<{ remotePath: string; relativePath: string; size: number }> = [];
     let totalBytes = 0;
     let skippedFiles = 0;
+    let incompleteRefresh = false;
     try {
       await this.collectRemoteSkillFiles(REMOTE_SKILLS_ROOT, '', files);
       const eligibleFiles: typeof files = [];
@@ -952,6 +954,7 @@ export class WebsiteAgentRuntime {
           });
         } catch {
           skippedFiles++;
+          incompleteRefresh = true;
           logger.warn(
             { websiteId: this.options.websiteId, path: file.relativePath },
             'remote skill file could not be read; skipping',
@@ -960,18 +963,32 @@ export class WebsiteAgentRuntime {
         }
         if (result.truncated) {
           skippedFiles++;
+          incompleteRefresh = true;
           continue;
         }
         const localPath = path.join(stagingDir, ...file.relativePath.split('/'));
         await mkdir(path.dirname(localPath), { recursive: true });
         await writeFile(localPath, result.content, 'utf8');
       }
-      await rm(targetDir, { recursive: true, force: true });
-      await rename(stagingDir, targetDir);
+      if (incompleteRefresh) throw new Error('remote skill mirror would be incomplete');
+      let hadPreviousMirror = false;
+      try {
+        await rename(targetDir, backupDir);
+        hadPreviousMirror = true;
+      } catch (error) {
+        if (!isFileNotFound(error)) throw error;
+      }
+      try {
+        await rename(stagingDir, targetDir);
+      } catch (error) {
+        if (hadPreviousMirror) await rename(backupDir, targetDir).catch(() => undefined);
+        throw error;
+      }
+      if (hadPreviousMirror) await rm(backupDir, { recursive: true, force: true });
       previousNames.splice(
         0,
         previousNames.length,
-        ...files.flatMap((file) => {
+        ...eligibleFiles.flatMap((file) => {
           if (!file.relativePath.endsWith('/SKILL.md')) return [];
           const [name] = file.relativePath.split('/');
           return name ? [name] : [];
@@ -995,7 +1012,13 @@ export class WebsiteAgentRuntime {
         previousNames.splice(0, previousNames.length);
         return;
       }
-      throw error;
+      logger.warn(
+        {
+          websiteId: this.options.websiteId,
+          error: error instanceof Error ? error.message.slice(0, 200) : 'unknown error',
+        },
+        'remote website skills refresh failed; retaining previous mirror',
+      );
     }
   }
 
