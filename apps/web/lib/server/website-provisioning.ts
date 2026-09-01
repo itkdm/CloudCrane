@@ -9,6 +9,8 @@ export const WORKSPACE_PROVIDER = 'docker';
 export const WEBSITE_PROVISIONING = 'provisioning';
 export const WEBSITE_READY = 'ready';
 export const WEBSITE_PROVISIONING_FAILED = 'provisioning_failed';
+export const WEBSITE_INITIALIZING = 'initializing';
+export const WEBSITE_INITIALIZATION_FAILED = 'initialization_failed';
 
 export type PublicWebsite = {
   id: string;
@@ -30,6 +32,8 @@ type WebsiteStore = {
 type RuntimeClient = {
   create(): Promise<{ status: string }>;
   status(): Promise<{ status: string }>;
+  bootstrap(): Promise<{ status: string }>;
+  reconcileBootstrap(): Promise<boolean>;
 };
 
 export class WebsiteProvisioningError extends Error {
@@ -56,6 +60,12 @@ export function publicWebsiteView(row: PublicWebsite): PublicWebsite {
   return { id: row.id, name: row.name, status: row.status, createdAt: row.createdAt };
 }
 
+export async function listWebsites(
+  store: Pick<WebsiteStore, 'listWebsites'>,
+): Promise<PublicWebsite[]> {
+  return (await store.listWebsites()).map(publicWebsiteView);
+}
+
 export async function createWebsite(
   value: unknown,
   dependencies: {
@@ -68,47 +78,65 @@ export async function createWebsite(
   const workspaceId = randomUUID();
   const logger = createLogger('web');
   const created = await dependencies.store.persistDesiredState({ websiteId, workspaceId, name });
-  let runtime: RuntimeClient | undefined;
-
-  try {
-    runtime = dependencies.runtime({ websiteId, workspaceId });
-    const result = await runtime.create();
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_READY);
-    return {
-      website: { ...created, status: WEBSITE_READY },
-      provisioned: result.status === 'running' || result.status === 'created',
-    };
-  } catch (error) {
-    if (error instanceof WorkspaceClientError && error.code === 'UNKNOWN_RESULT') {
-      try {
-        if (runtime) {
-          const status = await runtime.status();
-          if (status.status === 'running' || status.status === 'created') {
-            await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_READY);
-            return {
-              website: { ...created, status: WEBSITE_READY },
-              provisioned: true,
-            };
-          }
-        }
-      } catch {
-        // The record is retained and marked failed below when reconciliation is inconclusive.
-      }
-    }
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_PROVISIONING_FAILED);
+  const failed = async (status: string, error?: unknown) => {
+    await dependencies.store.updateWebsiteStatus(websiteId, status);
     logger.warn(
       {
         websiteId,
         workspaceId,
         errorCode: error instanceof WorkspaceClientError ? error.code : 'UNKNOWN',
+        status,
       },
-      'website workspace provisioning failed',
+      'website provisioning did not complete',
     );
-    return {
-      website: { ...created, status: WEBSITE_PROVISIONING_FAILED },
-      provisioned: false,
-    };
+    return { website: { ...created, status }, provisioned: false };
+  };
+
+  let runtime: RuntimeClient;
+  try {
+    runtime = dependencies.runtime({ websiteId, workspaceId });
+  } catch (error) {
+    return failed(WEBSITE_PROVISIONING_FAILED, error);
   }
+
+  let runtimeStatus: string;
+  try {
+    runtimeStatus = (await runtime.create()).status;
+  } catch (error) {
+    if (!(error instanceof WorkspaceClientError) || error.code !== 'UNKNOWN_RESULT')
+      return failed(WEBSITE_PROVISIONING_FAILED, error);
+    try {
+      runtimeStatus = (await runtime.status()).status;
+    } catch (reconciliationError) {
+      return failed(WEBSITE_PROVISIONING_FAILED, reconciliationError);
+    }
+  }
+  if (runtimeStatus !== 'running' && runtimeStatus !== 'created')
+    return failed(WEBSITE_PROVISIONING_FAILED);
+
+  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_INITIALIZING);
+  try {
+    let bootstrapStatus: string;
+    try {
+      bootstrapStatus = (await runtime.bootstrap()).status;
+    } catch (error) {
+      if (!(error instanceof WorkspaceClientError) || error.code !== 'UNKNOWN_RESULT')
+        return failed(WEBSITE_INITIALIZATION_FAILED, error);
+      if (!(await runtime.reconcileBootstrap()))
+        return failed(WEBSITE_INITIALIZATION_FAILED, error);
+      bootstrapStatus = 'RECONCILED';
+    }
+    if (
+      bootstrapStatus !== 'INITIALIZED' &&
+      bootstrapStatus !== 'ALREADY_INITIALIZED' &&
+      bootstrapStatus !== 'RECONCILED'
+    )
+      return failed(WEBSITE_INITIALIZATION_FAILED);
+  } catch (error) {
+    return failed(WEBSITE_INITIALIZATION_FAILED, error);
+  }
+  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_READY);
+  return { website: { ...created, status: WEBSITE_READY }, provisioned: true };
 }
 
 export function createProductionWebsiteStore() {
@@ -177,8 +205,46 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
   const token = process.env.WORKSPACE_GATEWAY_CLIENT_TOKEN;
   if (!endpoint || !token) throw new Error('workspace gateway configuration is required');
   const client = new WorkspaceClient(endpoint, token, { websiteId, workspaceId });
+  const exec = (command: string, args: string[], timeoutMs = 120_000) =>
+    client.process.exec({
+      command,
+      args,
+      cwd: '/workspace',
+      env: {},
+      timeoutMs,
+      maxOutputBytes: 8_192,
+      executionId: randomUUID(),
+    });
   return {
     create: () => client.runtime.create().then((result) => ({ status: result.status })),
     status: () => client.runtime.status().then((result) => ({ status: result.status })),
+    bootstrap: async () => {
+      const result = await exec('cloudcrane-init-pboot', []);
+      return { status: result.exitCode === 0 ? result.stdout.trim() : 'FAILED' };
+    },
+    reconcileBootstrap: async () => {
+      const marker = await client.fs.read({
+        path: '/workspace/.cloudcrane/bootstrap.json',
+        maxBytes: 2_048,
+      });
+      const required = [
+        '/workspace/index.php',
+        '/workspace/admin.php',
+        '/workspace/data/pbootcms.db',
+      ];
+      for (const path of required) await client.fs.stat({ path });
+      const verification = await exec(
+        'sh',
+        [
+          '-c',
+          'sqlite3 /workspace/data/pbootcms.db "PRAGMA integrity_check;" | grep -qxF ok && php -r \'$db = new PDO("sqlite:/workspace/data/pbootcms.db"); exit($db->query("PRAGMA integrity_check")->fetchColumn() === "ok" ? 0 : 1);\'',
+        ],
+        30_000,
+      );
+      return (
+        marker.content.includes('"sourceCommit": "29ff72ee5afc9c6553b949f04d3fc99443879f40"') &&
+        verification.exitCode === 0
+      );
+    },
   };
 }

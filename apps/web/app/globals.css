@@ -284,6 +284,13 @@ button:disabled {
   color: var(--cc-faint);
   font-size: 11px;
 }
+
+.website-workbench-link {
+  color: var(--cc-accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
 .website-empty {
   margin-top: 36px;
   color: var(--cc-muted);

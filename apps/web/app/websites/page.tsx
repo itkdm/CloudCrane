@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 
 type Website = { id: string; name: string; status: string; createdAt: string };
@@ -7,6 +8,8 @@ type Website = { id: string; name: string; status: string; createdAt: string };
 function statusLabel(status: string): string {
   if (status === 'ready') return '环境已准备';
   if (status === 'provisioning') return '正在创建网站环境…';
+  if (status === 'initializing') return '正在初始化网站…';
+  if (status === 'initialization_failed') return '网站初始化失败';
   if (status === 'provisioning_failed') return '创建失败';
   return '准备中';
 }
@@ -121,7 +124,16 @@ export default function WebsitesPage() {
               <span className={`website-status website-status-${website.status}`}>
                 {statusLabel(website.status)}
               </span>
-              <span className="website-next-step">网站初始化将在下一阶段完成</span>
+              <span className="website-next-step">
+                {website.status === 'ready'
+                  ? '网站已准备，可以进入工作台'
+                  : '网站初始化将在下一阶段完成'}
+              </span>
+              {website.status === 'ready' ? (
+                <Link className="website-workbench-link" href={`/websites/${website.id}/agent`}>
+                  进入工作台
+                </Link>
+              ) : null}
             </div>
           </article>
         ))}

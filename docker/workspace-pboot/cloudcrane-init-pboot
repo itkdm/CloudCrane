@@ -1,0 +1,68 @@
+#!/bin/sh
+set -eu
+
+workspace=/workspace
+base=/opt/cloudcrane/pbootcms-base
+marker="$workspace/.cloudcrane/bootstrap.json"
+
+if [ -f "$marker" ]; then
+  test -f "$workspace/index.php"
+  test -f "$workspace/data/pbootcms.db"
+  test -d "$workspace/.git"
+  printf '%s\n' 'ALREADY_INITIALIZED'
+  exit 0
+fi
+
+if find "$workspace" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+  echo 'workspace is non-empty and has no CloudCrane initialization marker' >&2
+  exit 20
+fi
+
+cp -a "$base"/. "$workspace"/
+rm -f "$workspace/.cloudcrane-base"
+mkdir -p "$workspace/.cloudcrane"
+cat > "$workspace/AGENTS.md" <<'EOF'
+# PbootCMS Website
+
+- 工作根目录是 `/workspace`，当前项目是 PbootCMS Website。
+- 优先修改 template、static、config 等业务区域；不要无理由修改 PbootCMS Core。
+- UI 修改完成后必须通过 Preview 验证。
+- 不绕过 PbootCMS 官方授权机制。
+- SQLite 是网站数据，不作为普通 Git Code Change 处理。
+EOF
+
+if [ -f "$workspace/.gitignore" ]; then
+  grep -qxF 'data/*.db' "$workspace/.gitignore" || printf '%s\n' 'data/*.db' >> "$workspace/.gitignore"
+  grep -qxF 'runtime/' "$workspace/.gitignore" || printf '%s\n' 'runtime/' >> "$workspace/.gitignore"
+else
+  printf '%s\n' 'data/*.db' 'runtime/' > "$workspace/.gitignore"
+fi
+
+git -C "$workspace" init -b main >/dev/null
+git -C "$workspace" config user.name 'CloudCrane Agent'
+git -C "$workspace" config user.email 'agent@cloudcrane.local'
+
+test -f "$workspace/index.php"
+test -f "$workspace/admin.php"
+test -d "$workspace/apps"
+test -d "$workspace/core"
+test -d "$workspace/config"
+test -f "$workspace/data/pbootcms.db"
+test -d "$workspace/template"
+test -d "$workspace/static"
+sqlite3 "$workspace/data/pbootcms.db" 'PRAGMA integrity_check;' | grep -qxF ok
+php -r '$db = new PDO("sqlite:/workspace/data/pbootcms.db"); if ($db->query("PRAGMA integrity_check")->fetchColumn() !== "ok") { exit(1); }'
+
+cat > "$marker" <<EOF
+{
+  "cms": "pbootcms",
+  "version": "3.2.24",
+  "sourceCommit": "29ff72ee5afc9c6553b949f04d3fc99443879f40",
+  "initializedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
+git -C "$workspace" add -A
+git -C "$workspace" commit -m 'chore: initialize PbootCMS website' >/dev/null
+test -z "$(git -C "$workspace" status --porcelain)"
+printf '%s\n' 'INITIALIZED'

@@ -4,6 +4,7 @@ import {
   createProductionRuntime,
   createProductionWebsiteStore,
   createWebsite,
+  listWebsites,
   publicWebsiteView,
   validateWebsiteName,
 } from '../../../lib/server/website-provisioning.js';
@@ -13,8 +14,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   const { platform, store } = createProductionWebsiteStore();
   try {
-    const websites = await store.listWebsites();
-    return NextResponse.json(websites.map(publicWebsiteView));
+    return NextResponse.json(await listWebsites(store));
   } finally {
     await platform.pool.end();
   }

@@ -37,6 +37,105 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       const info = await client.runtimeInfo();
       expect(info.uid).not.toBe(0);
       expect(info.preview).toMatchObject({ status: 'ready', port: 8080 });
+      const bootstrap = await client.exec({
+        command: 'cloudcrane-init-pboot',
+        args: [],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 120_000,
+        maxOutputBytes: 8_192,
+        executionId: '00000000-0000-4000-8000-000000000006',
+      });
+      expect(bootstrap).toMatchObject({ exitCode: 0, stdout: 'INITIALIZED\n' });
+      for (const path of [
+        '/workspace/index.php',
+        '/workspace/admin.php',
+        '/workspace/data/pbootcms.db',
+        '/workspace/AGENTS.md',
+      ])
+        await expect(client.stat({ path })).resolves.toMatchObject({ path });
+      for (const path of [
+        '/workspace/apps',
+        '/workspace/core',
+        '/workspace/config',
+        '/workspace/template',
+        '/workspace/static',
+      ])
+        await expect(client.stat({ path })).resolves.toMatchObject({ path, type: 'directory' });
+      expect((await client.stat({ path: '/workspace/.git' })).type).toBe('directory');
+      const marker = await client.read({ path: '/workspace/.cloudcrane/bootstrap.json' });
+      expect(marker.content).toContain('29ff72ee5afc9c6553b949f04d3fc99443879f40');
+      expect(
+        (
+          await client.exec({
+            command: 'sqlite3',
+            args: ['/workspace/data/pbootcms.db', 'PRAGMA integrity_check;'],
+            cwd: '/workspace',
+            env: {},
+            timeoutMs: 5_000,
+            maxOutputBytes: 1_000,
+            executionId: '00000000-0000-4000-8000-000000000007',
+          })
+        ).stdout.trim(),
+      ).toBe('ok');
+      await expect(
+        client.exec({
+          command: 'php',
+          args: [
+            '-r',
+            '$db = new PDO("sqlite:/workspace/data/pbootcms.db"); exit($db->query("PRAGMA integrity_check")->fetchColumn() === "ok" ? 0 : 1);',
+          ],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 5_000,
+          maxOutputBytes: 1_000,
+          executionId: '00000000-0000-4000-8000-000000000009',
+        }),
+      ).resolves.toMatchObject({ exitCode: 0 });
+      await expect(
+        client.exec({
+          command: 'curl',
+          args: ['-fsS', 'http://127.0.0.1:8080/'],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 10_000,
+          maxOutputBytes: 100_000,
+          executionId: '00000000-0000-4000-8000-00000000000a',
+        }),
+      ).resolves.toMatchObject({ exitCode: 0 });
+      await expect(
+        client.exec({
+          command: 'curl',
+          args: ['-fsS', 'http://127.0.0.1:8080/admin.php'],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 10_000,
+          maxOutputBytes: 100_000,
+          executionId: '00000000-0000-4000-8000-00000000000b',
+        }),
+      ).resolves.toMatchObject({ exitCode: 0 });
+      await expect(
+        client.exec({
+          command: 'git',
+          args: ['-C', '/workspace', 'status', '--porcelain'],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 5_000,
+          maxOutputBytes: 1_000,
+          executionId: '00000000-0000-4000-8000-00000000000c',
+        }),
+      ).resolves.toMatchObject({ exitCode: 0, stdout: '' });
+      await expect(
+        client.exec({
+          command: 'cloudcrane-init-pboot',
+          args: [],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 5_000,
+          maxOutputBytes: 1_000,
+          executionId: '00000000-0000-4000-8000-000000000008',
+        }),
+      ).resolves.toMatchObject({ exitCode: 0, stdout: 'ALREADY_INITIALIZED\n' });
       await client.write({
         path: '/workspace/persistence.txt',
         content: 'survives runtime recreation',
