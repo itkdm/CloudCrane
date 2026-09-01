@@ -231,6 +231,7 @@ describe('WebsiteAgentRuntime', () => {
               size: 0,
               truncated: false,
             })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
           },
         }) as never,
     });
@@ -268,6 +269,7 @@ describe('WebsiteAgentRuntime', () => {
               size: 0,
               truncated: false,
             })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
           },
         }) as never,
     });
@@ -300,6 +302,7 @@ describe('WebsiteAgentRuntime', () => {
           size: 4,
           truncated: false,
         })),
+        list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
       },
     };
     const store = createInMemoryWebsiteAgentStore();
@@ -327,7 +330,81 @@ describe('WebsiteAgentRuntime', () => {
     await runtime.prompt(second.id, 'hello again');
     systemPrompts.push(await runtime.getSystemPrompt(second.id));
     expect(systemPrompts.at(-1)).toContain('B');
-    expect(client.fs.read).toHaveBeenCalledTimes(2);
+    expect(client.fs.read).toHaveBeenCalledTimes(4);
+    await runtime.disposeAll();
+  });
+
+  it('loads website skills through Pi and refreshes their metadata without restarting the session', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-skills-'));
+    const faux = fauxProvider({ provider: 'cloudcrane-skills', models: [{ id: 'deterministic' }] });
+    faux.setResponses([fauxAssistantMessage('first'), fauxAssistantMessage('second')]);
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    let description = 'Use dark green buttons and verify Preview.';
+    const client = {
+      fs: {
+        read: vi.fn(async ({ path: remotePath }: { path: string }) => ({
+          content: remotePath.endsWith('AGENTS.md')
+            ? ''
+            : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
+          sha256: '1'.repeat(64),
+          size: 128,
+          truncated: false,
+        })),
+        list: vi.fn(async ({ path: remotePath }: { path: string }) => ({
+          path: remotePath,
+          entries:
+            remotePath === '/workspace/.agents/skills'
+              ? [
+                  {
+                    path: '/workspace/.agents/skills/frontend-design',
+                    type: 'directory' as const,
+                    size: 0,
+                    mode: 0o755,
+                    modifiedAt: new Date().toISOString(),
+                  },
+                ]
+              : remotePath === '/workspace/.agents/skills/frontend-design'
+                ? [
+                    {
+                      path: '/workspace/.agents/skills/frontend-design/SKILL.md',
+                      type: 'file' as const,
+                      size: 128,
+                      mode: 0o644,
+                      modifiedAt: new Date().toISOString(),
+                    },
+                  ]
+                : [],
+        })),
+      },
+    };
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store: createInMemoryWebsiteAgentStore(),
+      modelRuntime,
+      model: faux.getModel() as Model<'cloudcrane-skills'>,
+      workspaceClientFactory: () => client as never,
+    });
+
+    const session = await runtime.createSession();
+    await runtime.prompt(session.id, 'design the page');
+    const firstPrompt = await runtime.getSystemPrompt(session.id);
+    expect(firstPrompt).toContain('Use dark green buttons and verify Preview.');
+    expect(firstPrompt).toContain('/workspace/.agents/skills/frontend-design/SKILL.md');
+
+    description = 'Use dark blue buttons and verify Preview.';
+    await runtime.prompt(session.id, 'design the page again');
+    const secondPrompt = await runtime.getSystemPrompt(session.id);
+    expect(secondPrompt).toContain('Use dark blue buttons and verify Preview.');
+    expect(secondPrompt).not.toContain('Use dark green buttons and verify Preview.');
     await runtime.disposeAll();
   });
 
@@ -347,6 +424,7 @@ describe('WebsiteAgentRuntime', () => {
           size: 0,
           truncated: false,
         })),
+        list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
       },
     };
     const makeRuntime = () =>
@@ -421,6 +499,7 @@ describe('WebsiteAgentRuntime', () => {
               size: 0,
               truncated: false,
             })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
           },
           process: { exec: processExec, cancel: vi.fn() },
         }) as never,
@@ -456,6 +535,7 @@ describe('WebsiteAgentRuntime', () => {
           size: 0,
           truncated: false,
         })),
+        list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
       },
       process: { exec: processExec, cancel: vi.fn() },
     };

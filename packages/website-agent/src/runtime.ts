@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { access, mkdir } from 'node:fs/promises';
+import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AgentSession,
@@ -36,6 +36,9 @@ import {
 
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
+const REMOTE_SKILLS_ROOT = '/workspace/.agents/skills';
+const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
+const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
 const APPEND_SYSTEM_PROMPT = [
@@ -179,6 +182,12 @@ type RunContext = {
 };
 type ActiveRun = RunContext & { aborted: boolean };
 
+type RemoteAgentResources = {
+  agentsFiles: Array<{ path: string; content: string }>;
+  skillsDir: string;
+  skillNames: string[];
+};
+
 export class WebsiteAgentRuntimeError extends Error {
   constructor(
     public readonly code: 'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY',
@@ -244,12 +253,24 @@ class ManagedSession implements DisposableSession {
     readonly client: WorkspaceClient,
     public sessionManager: SessionManager,
     public piRuntime: AgentSessionRuntime,
+    private readonly refreshResources: () => Promise<void>,
     private readonly onEvent: (
       session: ManagedSession,
       event: AgentSessionEvent,
       metadata: { turnIndex?: number; turnId?: string },
     ) => void,
   ) {}
+
+  async reloadResources(): Promise<void> {
+    await this.refreshResources();
+    await this.piRuntime.session.reload();
+    const diagnostics = this.piRuntime.services.resourceLoader.getSkills().diagnostics;
+    if (diagnostics.length > 0)
+      logger.warn(
+        { websiteId: this.record.websiteId, diagnosticCount: diagnostics.length },
+        'remote website skills loaded with diagnostics',
+      );
+  }
 
   bind(): void {
     this.unsubscribe?.();
@@ -413,6 +434,7 @@ export class WebsiteAgentRuntime {
         'SESSION_BUSY',
         'this WebsiteSession already has an active AgentRun; use steer or followUp',
       );
+    await managed.reloadResources();
     await this.ensureSessionTitle(managed, text);
     const runId = randomUUID();
     const traceId = randomUUID();
@@ -641,9 +663,17 @@ export class WebsiteAgentRuntime {
       hidden: true,
       factory: (pi) => {
         pi.on('before_agent_start', ({ systemPrompt }) => ({
-          systemPrompt: replaceModelFacingCwd(systemPrompt, this.piCwd),
+          systemPrompt: replaceModelFacingCwd(
+            systemPrompt.replaceAll(remoteResources.skillsDir, REMOTE_SKILLS_ROOT),
+            this.piCwd,
+          ),
         }));
       },
+    };
+    const remoteResources: RemoteAgentResources = {
+      agentsFiles: [],
+      skillsDir: this.remoteSkillsDir(),
+      skillNames: [],
     };
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({
       cwd,
@@ -651,7 +681,8 @@ export class WebsiteAgentRuntime {
       sessionManager: nextSessionManager,
       sessionStartEvent,
     }) => {
-      const agentsFiles = await this.loadRemoteAgents();
+      remoteResources.agentsFiles = await this.loadRemoteAgents();
+      await this.refreshRemoteSkills(remoteResources.skillsDir, remoteResources.skillNames);
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
@@ -660,12 +691,13 @@ export class WebsiteAgentRuntime {
         resourceLoaderOptions: {
           noExtensions: true,
           noSkills: true,
+          additionalSkillPaths: [remoteResources.skillsDir],
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
           appendSystemPrompt: [APPEND_SYSTEM_PROMPT],
           extensionFactories: [modelFacingCwdExtension],
-          agentsFilesOverride: () => ({ agentsFiles }),
+          agentsFilesOverride: () => ({ agentsFiles: remoteResources.agentsFiles }),
         },
       });
       const result = await createAgentSessionFromServices({
@@ -690,6 +722,10 @@ export class WebsiteAgentRuntime {
       this.workspaceClient,
       sessionManager,
       piRuntime,
+      async () => {
+        remoteResources.agentsFiles = await this.loadRemoteAgents();
+        await this.refreshRemoteSkills(remoteResources.skillsDir, remoteResources.skillNames);
+      },
       (current, event, metadata) => {
         this.emitEvent(current, event, metadata);
         if (event.type === 'session_info_changed') {
@@ -878,6 +914,107 @@ export class WebsiteAgentRuntime {
     } catch (error: unknown) {
       if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') return [];
       throw error;
+    }
+  }
+
+  private remoteSkillsDir(): string {
+    return path.join(this.layout.root, this.options.websiteId, 'agent', 'remote-skills');
+  }
+
+  private async refreshRemoteSkills(targetDir: string, previousNames: string[]): Promise<void> {
+    const stagingDir = `${targetDir}.staging-${randomUUID()}`;
+    const files: Array<{ remotePath: string; relativePath: string; size: number }> = [];
+    let totalBytes = 0;
+    let skippedFiles = 0;
+    try {
+      await this.collectRemoteSkillFiles(REMOTE_SKILLS_ROOT, '', files);
+      const eligibleFiles: typeof files = [];
+      for (const file of files) {
+        if (file.size > REMOTE_SKILL_FILE_MAX_BYTES) {
+          skippedFiles++;
+          continue;
+        }
+        totalBytes += file.size;
+        if (totalBytes > REMOTE_SKILLS_TOTAL_MAX_BYTES) {
+          totalBytes -= file.size;
+          skippedFiles++;
+          continue;
+        }
+        eligibleFiles.push(file);
+      }
+      await mkdir(stagingDir, { recursive: true });
+      for (const file of eligibleFiles) {
+        let result;
+        try {
+          result = await this.workspaceClient.fs.read({
+            path: file.remotePath,
+            maxBytes: REMOTE_SKILL_FILE_MAX_BYTES,
+          });
+        } catch {
+          skippedFiles++;
+          logger.warn(
+            { websiteId: this.options.websiteId, path: file.relativePath },
+            'remote skill file could not be read; skipping',
+          );
+          continue;
+        }
+        if (result.truncated) {
+          skippedFiles++;
+          continue;
+        }
+        const localPath = path.join(stagingDir, ...file.relativePath.split('/'));
+        await mkdir(path.dirname(localPath), { recursive: true });
+        await writeFile(localPath, result.content, 'utf8');
+      }
+      await rm(targetDir, { recursive: true, force: true });
+      await rename(stagingDir, targetDir);
+      previousNames.splice(
+        0,
+        previousNames.length,
+        ...files.flatMap((file) => {
+          if (!file.relativePath.endsWith('/SKILL.md')) return [];
+          const [name] = file.relativePath.split('/');
+          return name ? [name] : [];
+        }),
+      );
+      logger.info(
+        {
+          websiteId: this.options.websiteId,
+          skillCount: previousNames.length,
+          skillNames: previousNames,
+          totalBytes,
+          skippedFiles,
+        },
+        'remote website skills refreshed',
+      );
+    } catch (error) {
+      await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+      if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') {
+        await rm(targetDir, { recursive: true, force: true });
+        await mkdir(targetDir, { recursive: true });
+        previousNames.splice(0, previousNames.length);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async collectRemoteSkillFiles(
+    remoteDir: string,
+    relativeDir: string,
+    files: Array<{ remotePath: string; relativePath: string; size: number }>,
+  ): Promise<void> {
+    const result = await this.workspaceClient.fs.list({ path: remoteDir });
+    for (const entry of result.entries) {
+      const name = entry.path.slice(remoteDir.length).replace(/^\/+/, '');
+      if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..')
+        throw new Error(`invalid remote skill path: ${entry.path}`);
+      const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
+      if (entry.type === 'directory') {
+        await this.collectRemoteSkillFiles(entry.path, relativePath, files);
+      } else if (entry.type === 'file') {
+        files.push({ remotePath: entry.path, relativePath, size: entry.size });
+      }
     }
   }
 
