@@ -50,6 +50,12 @@ const APPEND_SYSTEM_PROMPT = [
   '- After page changes, use preview_refresh or preview_observe to verify the result when available.',
   '- If the Preview Client is unavailable, continue non-visual work without inventing page state.',
   '- preview_navigate only accepts Website-relative paths.',
+  '- The Website workspace uses its local Git repository at /workspace/.git; use bash and git there for history.',
+  '- Before editing, inspect git status --porcelain; after editing, inspect git diff --check and git diff before committing.',
+  '- Never overwrite or absorb pre-existing uncommitted changes. If the run starts dirty, do not auto-commit.',
+  "- Commit only this run's intended Website changes with explicit paths; never use git add -A, git add ., or git commit -a.",
+  '- Do not use git reset --hard, git clean -fd, git checkout -- ., git restore ., git rebase, git push --force, git filter-branch, or git push.',
+  '- Use repository-local identity only: CloudCrane Agent <agent@cloudcrane.local>; never change global Git config.',
   '- User-facing text must use the language of the user request.',
   '- Keep code identifiers, filenames, and commands exactly as provided.',
 ].join('\n');
