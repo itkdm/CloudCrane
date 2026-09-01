@@ -4,6 +4,8 @@ CloudCrane（筑云鹤）是一个面向个人与企业用户的自助式 Websit
 
 项目目前处于早期开发阶段，核心架构已基本确定，正在进入 MVP 实现。当前产品定义与技术方案请参阅 [docs/](docs/) 中的架构基线文档。
 
+Preview 子域、TLS、Nginx、ECS 环境与日常部署操作请参阅 [CloudCrane Preview 运维手册](docs/cloudcrane-operations-preview.md)。
+
 ## 本地开发要求
 
 - Node.js 22+
