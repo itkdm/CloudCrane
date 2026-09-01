@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 ARG APT_MIRROR=deb.debian.org
 RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
   && apt-get update \
-  && apt-get install --no-install-recommends -y php-cli php-gd php-mbstring php-sqlite3 git sqlite3 ripgrep curl ca-certificates \
+  && apt-get install --no-install-recommends -y php-cli php-curl php-gd php-mbstring php-sqlite3 git sqlite3 ripgrep curl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && groupmod --new-name workspace node \
   && usermod --login workspace --home /home/workspace --move-home node
