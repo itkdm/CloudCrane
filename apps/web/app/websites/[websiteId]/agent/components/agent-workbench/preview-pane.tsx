@@ -1,7 +1,7 @@
 import { AlertTriangle, ExternalLink, Eye, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
-  calculatePreviewScale,
+  calculatePreviewViewportLayout,
   getPreviewViewport,
   type PreviewViewportMode,
 } from './preview-viewport';
@@ -48,26 +48,33 @@ export function PreviewPane({
   const path = resolvePreviewPath(preview, currentPath, currentUrl);
   const isUnavailable = preview.status === 'unavailable' || preview.status === 'stopped';
   const bridgeIssue = bridgeIssueMessage(bridgeStatus);
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const viewport = getPreviewViewport(previewViewportMode);
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const scale = calculatePreviewScale(stageSize.width, stageSize.height, viewport);
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const viewportLayout = calculatePreviewViewportLayout(
+    canvasSize.width,
+    canvasSize.height,
+    viewport,
+  );
 
   useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
     const updateSize = (width: number, height: number) => {
-      setStageSize((current) =>
+      setCanvasSize((current) =>
         current.width === width && current.height === height ? current : { width, height },
       );
     };
-    const initialSize = stage.getBoundingClientRect();
-    updateSize(initialSize.width, initialSize.height);
+    const initialSize = canvas.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(canvas);
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(computedStyle.paddingBottom) || 0;
+    updateSize(initialSize.width, initialSize.height - paddingTop - paddingBottom);
     const observer = new ResizeObserver(([entry]) => {
       if (entry) updateSize(entry.contentRect.width, entry.contentRect.height);
     });
-    observer.observe(stage);
+    observer.observe(canvas);
     return () => observer.disconnect();
   }, [open]);
 
@@ -110,7 +117,7 @@ export function PreviewPane({
               className={previewViewportMode === 'desktop' ? 'active' : ''}
               aria-pressed={previewViewportMode === 'desktop'}
               onClick={() => onPreviewViewportModeChange('desktop')}
-              title="桌面端 1440 × 900"
+              title="桌面端 1440 像素宽"
             >
               桌面
             </button>
@@ -119,19 +126,15 @@ export function PreviewPane({
               className={previewViewportMode === 'mobile' ? 'active' : ''}
               aria-pressed={previewViewportMode === 'mobile'}
               onClick={() => onPreviewViewportModeChange('mobile')}
-              title="移动端 390 × 844"
+              title="移动端 390 像素宽"
             >
               移动
             </button>
             <span className="preview-viewport-meta">
-              {viewport.width} × {viewport.height} · {Math.round(scale * 100)}%
+              {viewport.width} × {viewportLayout.logicalHeight} ·{' '}
+              {Math.round(viewportLayout.scale * 100)}%
             </span>
           </div>
-          {onClose ? (
-            <button type="button" onClick={onClose} aria-label="关闭预览" title="关闭预览">
-              <X size={16} aria-hidden="true" />
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={onRefresh}
@@ -150,40 +153,52 @@ export function PreviewPane({
           >
             <ExternalLink size={16} aria-hidden="true" />
           </button>
+          {onClose ? (
+            <button type="button" onClick={onClose} aria-label="关闭预览" title="关闭预览">
+              <X size={16} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </header>
-      <div ref={stageRef} className="preview-stage">
-        {preview.status === 'ready' && preview.url ? (
-          <div className="preview-canvas">
+      <div className="preview-stage">
+        <div ref={canvasRef} className="preview-canvas">
+          {preview.status === 'ready' && preview.url ? (
             <div
               className="preview-viewport-shell"
               style={{
-                width: viewport.width,
-                height: viewport.height,
-                transform: `scale(${scale})`,
+                width: viewportLayout.visualWidth,
+                height: viewportLayout.visualHeight,
               }}
             >
-              <iframe
-                key={previewKey}
-                ref={frameRef}
-                title="网站实时预览"
-                src={preview.url}
-                sandbox="allow-scripts allow-forms allow-same-origin"
-                style={{ width: viewport.width, height: viewport.height }}
-              />
+              <div
+                className="preview-viewport-inner"
+                style={{
+                  width: viewportLayout.logicalWidth,
+                  height: viewportLayout.logicalHeight,
+                  transform: `scale(${viewportLayout.scale})`,
+                }}
+              >
+                <iframe
+                  key={previewKey}
+                  ref={frameRef}
+                  title="网站实时预览"
+                  src={preview.url}
+                  sandbox="allow-scripts allow-forms allow-same-origin"
+                />
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className={`preview-empty ${isUnavailable ? 'unavailable' : ''}`}>
-            {isUnavailable ? (
-              <AlertTriangle size={24} aria-hidden="true" />
-            ) : (
-              <LoaderCircle className="spin" size={24} aria-hidden="true" />
-            )}
-            <strong>{preview.status === 'loading' ? '正在加载预览' : '预览暂不可用'}</strong>
-            <p>{previewMessage(preview.status)}</p>
-          </div>
-        )}
+          ) : (
+            <div className={`preview-empty ${isUnavailable ? 'unavailable' : ''}`}>
+              {isUnavailable ? (
+                <AlertTriangle size={24} aria-hidden="true" />
+              ) : (
+                <LoaderCircle className="spin" size={24} aria-hidden="true" />
+              )}
+              <strong>{preview.status === 'loading' ? '正在加载预览' : '预览暂不可用'}</strong>
+              <p>{previewMessage(preview.status)}</p>
+            </div>
+          )}
+        </div>
       </div>
       {bridgeIssue ? (
         <div className="bridge-hint error" role="status" aria-live="polite">
