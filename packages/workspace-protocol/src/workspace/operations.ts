@@ -60,6 +60,7 @@ export const runtimeOperationResponseSchema = z.object({
   workspaceId: z.string().uuid(),
   status: z.enum(['created', 'running', 'stopped', 'missing', 'error']),
   containerRef: z.string().optional(),
+  workspacePath: z.string().optional(),
   endpoint: z.string().optional(),
   previewPort: z.number().int().positive().optional(),
 });

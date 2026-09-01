@@ -161,3 +161,147 @@ button:disabled {
     padding: 15vh 0 18vh;
   }
 }
+
+/* Website creation foundation */
+.websites-page {
+  min-height: 100vh;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 56px 28px 80px;
+}
+
+.websites-header,
+.website-create-row,
+.website-card,
+.website-card-status {
+  display: flex;
+  align-items: center;
+}
+
+.websites-header,
+.website-card {
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.websites-eyebrow {
+  margin: 0 0 10px;
+  color: var(--cc-accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.websites-page h1 {
+  margin: 0;
+  font-size: clamp(36px, 6vw, 64px);
+  letter-spacing: -0.06em;
+}
+
+.websites-header p:last-child {
+  margin: 10px 0 0;
+  color: var(--cc-muted);
+}
+
+.primary-button,
+.secondary-button {
+  border: 0;
+  padding: 11px 16px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: var(--cc-accent-dark);
+  color: white;
+}
+.secondary-button {
+  border: 1px solid var(--cc-line);
+  background: white;
+  color: var(--cc-ink);
+}
+
+.website-create-form,
+.website-card {
+  border: 1px solid var(--cc-line);
+  background: var(--cc-surface);
+}
+
+.website-create-form {
+  margin-top: 36px;
+  padding: 18px;
+}
+
+.website-create-form label {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.website-create-row {
+  gap: 10px;
+}
+.website-create-row input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--cc-line);
+  padding: 11px 12px;
+  color: var(--cc-ink);
+}
+
+.website-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 36px;
+}
+.website-card {
+  padding: 19px 20px;
+}
+.website-card h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.website-card p {
+  margin: 6px 0 0;
+  color: var(--cc-muted);
+  font-size: 12px;
+}
+.website-card-status {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+.website-status {
+  color: var(--cc-accent-dark);
+  font-size: 13px;
+  font-weight: 700;
+}
+.website-status-provisioning_failed {
+  color: var(--cc-danger);
+}
+.website-next-step {
+  color: var(--cc-faint);
+  font-size: 11px;
+}
+.website-empty {
+  margin-top: 36px;
+  color: var(--cc-muted);
+}
+.website-error {
+  margin: 24px 0 -18px;
+  color: var(--cc-danger);
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .websites-header,
+  .website-card,
+  .website-create-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .website-card-status {
+    align-items: flex-start;
+  }
+}

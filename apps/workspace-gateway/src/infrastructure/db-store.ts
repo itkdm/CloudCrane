@@ -18,6 +18,7 @@ export class DrizzleControlPlaneStore implements ControlPlaneStore {
         runnerId: workspace.runnerId,
         status: workspace.status,
         containerRef: workspace.containerRef,
+        workspacePath: workspace.workspacePath,
         previewPort: workspace.previewPort,
       })
       .from(workspace)
@@ -90,7 +91,12 @@ export class DrizzleControlPlaneStore implements ControlPlaneStore {
   }
   async updateWorkspace(
     workspaceId: string,
-    patch: Partial<Pick<WorkspaceBinding, 'runnerId' | 'status' | 'containerRef' | 'previewPort'>>,
+    patch: Partial<
+      Pick<
+        WorkspaceBinding,
+        'runnerId' | 'status' | 'containerRef' | 'workspacePath' | 'previewPort'
+      >
+    >,
   ) {
     await this.platform.db
       .update(workspace)

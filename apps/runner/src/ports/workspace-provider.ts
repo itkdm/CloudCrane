@@ -4,6 +4,7 @@ export type WorkspaceRuntime = {
   workspaceId: string;
   status: WorkspaceRuntimeStatus;
   containerRef?: string;
+  workspacePath?: string;
   endpoint?: string;
   previewPort?: number;
 };

@@ -20,11 +20,11 @@ export default function Home() {
         <p className="intro">
           连接网站后，只要描述你想改什么，Agent 就会读取代码、修改网站，并检查实际页面。
         </p>
-        <Link className="status-card" href="/websites/00000000-0000-4000-8000-000000000101/agent">
+        <Link className="status-card" href="/websites">
           <span className="status-dot" aria-hidden="true" />
           <div>
-            <strong>从一个网站开始</strong>
-            <span>进入后，描述你想做的改动。</span>
+            <strong>进入我的网站</strong>
+            <span>创建并管理你正在建设的网站。</span>
           </div>
         </Link>
       </section>

@@ -148,12 +148,21 @@ importers:
       '@cloudcrane/agent-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-protocol
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@cloudcrane/preview-protocol':
         specifier: workspace:*
         version: link:../../packages/preview-protocol
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@cloudcrane/workspace-client':
+        specifier: workspace:*
+        version: link:../../packages/workspace-client
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(pg@8.23.0)
       lucide-react:
         specifier: ^1.38.0
         version: 1.38.0(react@19.2.8)

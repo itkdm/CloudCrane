@@ -114,6 +114,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     return {
       workspaceId,
       containerRef,
+      workspacePath: this.persistentPath(workspaceId),
       status,
       endpoint: await this.getEndpoint(workspaceId),
       previewPort: await this.getPreviewPort(workspaceId),

@@ -62,6 +62,7 @@ export class WorkspaceDispatchService {
         runnerId,
         status: String(runtime.status ?? 'created'),
         containerRef: typeof runtime.containerRef === 'string' ? runtime.containerRef : null,
+        workspacePath: typeof runtime.workspacePath === 'string' ? runtime.workspacePath : null,
         previewPort: typeof runtime.previewPort === 'number' ? runtime.previewPort : null,
       });
     if (
@@ -85,6 +86,7 @@ export class WorkspaceDispatchService {
         runnerId: null,
         status: 'missing',
         containerRef: null,
+        workspacePath: null,
         previewPort: null,
       });
   }
