@@ -33,6 +33,8 @@ function jsonFile(string $path): array
 
 function q(string $name): string { return '"' . str_replace('"', '""', $name) . '"'; }
 
+function sqliteLiteral(string $value): string { return "'" . str_replace("'", "''", $value) . "'"; }
+
 function tableInfo(PDO $db, string $table): array
 {
     $result = [];
@@ -136,6 +138,10 @@ function promote(string $staging, string $destination, array $tracked, array &$c
         $relative = str_replace('\\', '/', substr($item->getPathname(), strlen($staging) + 1));
         $target = $destination . '/' . $relative;
         $targetRelative = ltrim(str_replace('\\', '/', substr($target, strlen($destination))), '/');
+        $isStatic = str_starts_with($targetRelative, 'static/');
+        if ($isStatic && in_array($targetRelative, $tracked, true)) {
+            failImport('MANAGED_RUNTIME_CONFLICT', 'source static asset would overwrite managed runtime file');
+        }
         if (file_exists($target) && !in_array($targetRelative, $tracked, true)) failImport('TARGET_CONFLICT', 'destination contains non-base target');
         if (is_link($target)) failImport('TARGET_CONFLICT', 'destination symlink conflict');
         if (is_file($target)) {
@@ -146,6 +152,22 @@ function promote(string $staging, string $destination, array $tracked, array &$c
         if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0775, true)) failImport('COPY_FAILED', 'cannot create target directory');
         if (!copy($item->getPathname(), $target)) failImport('COPY_FAILED', 'cannot promote staged asset');
     }
+}
+
+function snapshotDatabase(PDO $db, string $backup): void
+{
+    if (file_exists($backup)) failImport('BACKUP_FAILED', 'database snapshot path already exists');
+    $db->exec('VACUUM INTO ' . sqliteLiteral($backup));
+    if (!is_file($backup)) failImport('BACKUP_FAILED', 'database snapshot was not created');
+}
+
+function restoreDatabase(?PDO &$db, string $backup, string $destination): void
+{
+    $db = null;
+    foreach ([$destination, $destination . '-wal', $destination . '-shm'] as $path) {
+        if (is_file($path) && !unlink($path)) failImport('RESTORE_FAILED', 'cannot clear destination database state');
+    }
+    if (!copy($backup, $destination)) failImport('RESTORE_FAILED', 'cannot restore destination database snapshot');
 }
 
 function cleanupDirectoryContents(string $directory): void
@@ -197,7 +219,7 @@ $sourceDb->exec('PRAGMA query_only = ON');
 $destinationDb = new PDO('sqlite:' . $destination . '/data/pbootcms.db', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 if ((string)$sourceDb->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') failImport('DB_INTEGRITY', 'source database integrity check failed');
 if ((string)$destinationDb->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') failImport('DB_INTEGRITY', 'destination database integrity check failed');
-$dbBackup = tempnam(sys_get_temp_dir(), 'cloudcrane-k714-db-');
+$dbBackup = sys_get_temp_dir() . '/cloudcrane-k714-db-' . bin2hex(random_bytes(8));
 $staging = $destination . '/.cloudcrane/.k714-staging-' . bin2hex(random_bytes(8));
 $created = [];
 $backups = [];
@@ -205,7 +227,7 @@ $manifest = $destination . '/.cloudcrane/template-import.json';
 if (file_exists($manifest)) failImport('TARGET_CONFLICT', 'import manifest already exists');
 
 try {
-    if (!$dbBackup || !copy($destination . '/data/pbootcms.db', $dbBackup)) failImport('BACKUP_FAILED', 'cannot back up destination database');
+    snapshotDatabase($destinationDb, $dbBackup);
     if (!mkdir($staging, 0775, true) && !is_dir($staging)) failImport('STAGING_FAILED', 'cannot create staging directory');
     [$templateCount] = collectAssets($source, 'template/' . THEME, $staging, false);
     [$skinCount] = collectAssets($source, 'skin', $staging, false);
@@ -227,23 +249,25 @@ try {
     $siteSource = tableInfo($sourceDb, 'ay_site');
     $siteDestination = tableInfo($destinationDb, 'ay_site');
     if (!$siteSource || !$siteDestination) failImport('SCHEMA_INCOMPATIBLE', 'ay_site table missing');
+    if ((int)$sourceDb->query('SELECT COUNT(*) FROM ' . q('ay_site'))->fetchColumn() !== 1) {
+        failImport('UNSUPPORTED_K714_SITE_LAYOUT', 'source ay_site must contain exactly one row');
+    }
+    if ((int)$destinationDb->query('SELECT COUNT(*) FROM ' . q('ay_site'))->fetchColumn() !== 1) {
+        failImport('SCHEMA_INCOMPATIBLE', 'destination ay_site must contain exactly one row');
+    }
     $siteFields = ['title', 'subtitle', 'logo', 'keywords', 'description', 'icp', 'statistical', 'copyright'];
     $siteColumns = array_values(array_intersect($siteFields, array_keys($siteSource), array_keys($siteDestination)));
     $siteColumns = array_merge($siteColumns, array_intersect(['theme'], array_keys($siteDestination)));
     if (in_array('theme', $siteColumns, true)) { /* forced below */ }
     $sites = rows($sourceDb, 'ay_site');
     $existingSite = $destinationDb->query('SELECT * FROM ' . q('ay_site') . ' LIMIT 1')->fetch(PDO::FETCH_ASSOC);
-    foreach ($sites as $site) {
-        $values = [];
-        foreach ($siteColumns as $column) $values[$column] = $column === 'theme' ? THEME : $site[$column];
-        if ($existingSite && isset($existingSite['id'])) {
-            $sets = implode(',', array_map(static fn(string $column): string => q($column) . ' = ?', array_keys($values)));
-            $statement = $destinationDb->prepare('UPDATE ' . q('ay_site') . " SET {$sets} WHERE " . q('id') . ' = ?');
-            $statement->execute([...array_values($values), $existingSite['id']]);
-        } else {
-            insertRows($destinationDb, 'ay_site', array_keys($values), [$values]);
-        }
-    }
+    $site = $sites[0];
+    $values = [];
+    foreach ($siteColumns as $column) $values[$column] = $column === 'theme' ? THEME : $site[$column];
+    if (!$existingSite || !isset($existingSite['id'])) failImport('SCHEMA_INCOMPATIBLE', 'destination ay_site id missing');
+    $sets = implode(',', array_map(static fn(string $column): string => q($column) . ' = ?', array_keys($values)));
+    $statement = $destinationDb->prepare('UPDATE ' . q('ay_site') . " SET {$sets} WHERE " . q('id') . ' = ?');
+    $statement->execute([...array_values($values), $existingSite['id']]);
     if (isset($siteDestination['theme'])) $destinationDb->exec('UPDATE ' . q('ay_site') . ' SET ' . q('theme') . " = '" . THEME . "'");
     $configSource = tableInfo($sourceDb, 'ay_config');
     $configDestination = tableInfo($destinationDb, 'ay_config');
@@ -251,7 +275,13 @@ try {
     if ((int)$destinationDb->query('SELECT COUNT(*) FROM ' . q('ay_config') . " WHERE " . q('name') . " = 'tpl_html_dir'")->fetchColumn() === 0) failImport('SCHEMA_INCOMPATIBLE', 'destination tpl_html_dir setting missing');
     $destinationDb->exec('UPDATE ' . q('ay_config') . ' SET ' . q('value') . " = '' WHERE " . q('name') . " = 'tpl_html_dir'");
     $destinationDb->commit();
+    if (getenv('CLOUDCRANE_K714_TEST_FAIL_AFTER_DB_COMMIT') === '1') {
+        failImport('TEST_POST_DB_COMMIT_FAILURE', 'injected post-commit failure');
+    }
     promote($staging, $destination, trackedFiles($destination), $created, $backups);
+    if (getenv('CLOUDCRANE_K714_TEST_FAIL_AFTER_PROMOTE') === '1') {
+        failImport('TEST_POST_PROMOTE_FAILURE', 'injected post-promote failure');
+    }
     cleanupDirectoryContents($destination . '/runtime/config');
     cleanupDirectoryContents($destination . '/runtime/cache');
     cleanupDirectoryContents($destination . '/runtime/complile');
@@ -267,7 +297,7 @@ try {
     echo json_encode(['status' => 'NORMALIZED', 'templateFiles' => $templateCount, 'skinFiles' => $skinCount, 'staticFiles' => $staticCount, 'staticSkipped' => $staticSkipped, 'rootAssets' => $rootCount, 'tables' => $migrated], JSON_UNESCAPED_SLASHES) . "\n";
 } catch (Throwable $error) {
     if ($destinationDb?->inTransaction()) $destinationDb->rollBack();
-    if ($dbBackup && is_file($dbBackup)) @copy($dbBackup, $destination . '/data/pbootcms.db');
+    if ($dbBackup && is_file($dbBackup)) restoreDatabase($destinationDb, $dbBackup, $destination . '/data/pbootcms.db');
     foreach ($backups as $target => $backup) if (is_file($backup)) @copy($backup, $target);
     foreach ($created as $target) if (is_file($target)) @unlink($target);
     if (is_file($manifest)) @unlink($manifest);
