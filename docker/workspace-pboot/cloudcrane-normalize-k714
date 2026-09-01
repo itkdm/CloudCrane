@@ -1,0 +1,281 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+const DESTINATION_VERSION = '3.2.24';
+const DESTINATION_COMMIT = '29ff72ee5afc9c6553b949f04d3fc99443879f40';
+const SOURCE_VERSION = '3.2.12';
+const SOURCE_ARCHIVE_SHA256 = '79109485682D7BE90BC91A1251A5AC561229E527EDBD6404473E7FAEEAE9B594';
+const THEME = 'dafeult';
+
+final class ImportFailure extends RuntimeException
+{
+    public function __construct(public readonly string $failureCode, string $message) { parent::__construct($message); }
+}
+
+function failImport(string $code, string $message): never
+{
+    throw new ImportFailure($code, $message);
+}
+
+function requirePath(string $path, string $kind): void
+{
+    if ($kind === 'directory' && !is_dir($path)) failImport('PRECHECK_FAILED', "missing {$kind}");
+    if ($kind === 'file' && !is_file($path)) failImport('PRECHECK_FAILED', "missing {$kind}");
+}
+
+function jsonFile(string $path): array
+{
+    $value = json_decode((string)file_get_contents($path), true);
+    if (!is_array($value)) failImport('PRECHECK_FAILED', 'invalid bootstrap marker');
+    return $value;
+}
+
+function q(string $name): string { return '"' . str_replace('"', '""', $name) . '"'; }
+
+function tableInfo(PDO $db, string $table): array
+{
+    $result = [];
+    foreach ($db->query('PRAGMA table_info(' . q($table) . ')') as $column) {
+        $result[(string)$column['name']] = $column;
+    }
+    return $result;
+}
+
+function requireCompatibleColumns(array $source, array $destination): array
+{
+    foreach ($destination as $name => $column) {
+        if (!isset($source[$name]) && (int)$column['notnull'] === 1 && $column['dflt_value'] === null && (int)$column['pk'] === 0) {
+            failImport('SCHEMA_INCOMPATIBLE', "required destination column missing: {$name}");
+        }
+    }
+    return array_values(array_intersect(array_keys($source), array_keys($destination)));
+}
+
+function rows(PDO $db, string $table): array
+{
+    return $db->query('SELECT * FROM ' . q($table))->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function insertRows(PDO $db, string $table, array $columns, array $rows): int
+{
+    if (!$rows) return 0;
+    $names = implode(',', array_map('q', $columns));
+    $marks = implode(',', array_fill(0, count($columns), '?'));
+    $statement = $db->prepare('INSERT INTO ' . q($table) . " ({$names}) VALUES ({$marks})");
+    foreach ($rows as $row) {
+        $statement->execute(array_map(static fn(string $column): mixed => $row[$column], $columns));
+    }
+    return count($rows);
+}
+
+function copyFile(string $from, string $to): void
+{
+    if (!is_dir(dirname($to)) && !mkdir(dirname($to), 0775, true)) failImport('COPY_FAILED', 'cannot create staging directory');
+    if (!copy($from, $to)) failImport('COPY_FAILED', 'cannot stage asset');
+}
+
+function dangerous(string $path): bool
+{
+    $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+    if (in_array($extension, ['php', 'phtml', 'phar', 'sh', 'exe', 'bat', 'cmd', 'dll'], true)) return true;
+    $handle = @fopen($path, 'rb');
+    $prefix = $handle ? (string)fread($handle, 2) : '';
+    if ($handle) fclose($handle);
+    return $prefix === '#!';
+}
+
+function collectAssets(string $source, string $relative, string $staging, bool $skipUnsafe): array
+{
+    $root = $source . '/' . $relative;
+    if (is_link($root)) failImport('UNSAFE_SOURCE', 'symlink is not allowed');
+    requirePath($root, 'directory');
+    $copied = 0;
+    $skipped = 0;
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $item) {
+        $relativePath = str_replace('\\', '/', substr($item->getPathname(), strlen($source) + 1));
+        if ($item->isLink()) failImport('UNSAFE_SOURCE', 'symlink is not allowed');
+        if (!$item->isFile()) continue;
+        if (dangerous($item->getPathname())) {
+            if ($skipUnsafe) { $skipped++; continue; }
+            failImport('UNSAFE_SOURCE', 'executable asset is not allowed');
+        }
+        if ($skipUnsafe) {
+            $top = explode('/', substr($relativePath, strlen('static/')))[0] ?? '';
+            if (!in_array($top, ['css', 'js', 'images', 'fonts', 'media', 'uploads', 'assets'], true)) { $skipped++; continue; }
+        }
+        copyFile($item->getPathname(), $staging . '/' . $relativePath);
+        $copied++;
+    }
+    return [$copied, $skipped];
+}
+
+function copyRootAsset(string $source, string $staging, string $name): int
+{
+    $path = $source . '/' . $name;
+    if (!is_file($path)) return 0;
+    if (is_link($path) || dangerous($path)) failImport('UNSAFE_SOURCE', 'unsafe root asset');
+    copyFile($path, $staging . '/' . $name);
+    return 1;
+}
+
+function trackedFiles(string $destination): array
+{
+    $output = [];
+    exec('git -C ' . escapeshellarg($destination) . ' ls-files -z', $lines, $status);
+    if ($status !== 0) failImport('PRECHECK_FAILED', 'cannot inspect destination Git baseline');
+    return $lines ? array_values(array_filter(explode("\0", implode('', $lines)))) : [];
+}
+
+function promote(string $staging, string $destination, array $tracked, array &$created, array &$backups): void
+{
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($staging, FilesystemIterator::SKIP_DOTS));
+    foreach ($iterator as $item) {
+        if (!$item->isFile()) continue;
+        $relative = str_replace('\\', '/', substr($item->getPathname(), strlen($staging) + 1));
+        $target = $destination . '/' . $relative;
+        $targetRelative = ltrim(str_replace('\\', '/', substr($target, strlen($destination))), '/');
+        if (file_exists($target) && !in_array($targetRelative, $tracked, true)) failImport('TARGET_CONFLICT', 'destination contains non-base target');
+        if (is_link($target)) failImport('TARGET_CONFLICT', 'destination symlink conflict');
+        if (is_file($target)) {
+            $backup = tempnam(sys_get_temp_dir(), 'cloudcrane-k714-file-');
+            if ($backup === false || !copy($target, $backup)) failImport('BACKUP_FAILED', 'cannot back up target file');
+            $backups[$target] = $backup;
+        } else $created[] = $target;
+        if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0775, true)) failImport('COPY_FAILED', 'cannot create target directory');
+        if (!copy($item->getPathname(), $target)) failImport('COPY_FAILED', 'cannot promote staged asset');
+    }
+}
+
+function cleanupDirectoryContents(string $directory): void
+{
+    if (!is_dir($directory)) return;
+    foreach (new FilesystemIterator($directory, FilesystemIterator::SKIP_DOTS) as $item) {
+        $path = $item->getPathname();
+        if ($item->isLink() || $item->isFile()) { unlink($path); continue; }
+        cleanupDirectoryContents($path);
+        rmdir($path);
+    }
+}
+
+set_exception_handler(static function (Throwable $error): never {
+    $code = $error instanceof ImportFailure ? $error->failureCode : 'IMPORT_FAILED';
+    $message = $error instanceof ImportFailure ? $error->getMessage() : 'normalization failed';
+    fwrite(STDERR, "ERROR {$code}: {$message}\n");
+    exit(1);
+});
+
+if ($argc !== 2) failImport('INVALID_ARGUMENT', 'usage: cloudcrane-normalize-k714 SOURCE_DIRECTORY');
+$source = realpath($argv[1]);
+$destination = realpath('/workspace');
+if ($source === false || $destination === false || !is_dir($source) || $source === $destination) failImport('INVALID_ARGUMENT', 'source must be a separate directory');
+
+requirePath($destination . '/.cloudcrane/bootstrap.json', 'file');
+requirePath($destination . '/.git', 'directory');
+requirePath($destination . '/data/pbootcms.db', 'file');
+$marker = jsonFile($destination . '/.cloudcrane/bootstrap.json');
+if (($marker['version'] ?? null) !== DESTINATION_VERSION || ($marker['sourceCommit'] ?? null) !== DESTINATION_COMMIT) failImport('PRECHECK_FAILED', 'destination is not the managed PbootCMS base');
+exec('git -C ' . escapeshellarg($destination) . ' status --porcelain', $statusLines, $statusCode);
+if ($statusCode !== 0 || $statusLines) failImport('DIRTY_DESTINATION', 'destination Git status is not clean');
+
+requirePath($source . '/data/pbootcms.db', 'file');
+requirePath($source . '/template/' . THEME, 'directory');
+requirePath($source . '/skin', 'directory');
+requirePath($source . '/static', 'directory');
+if (is_link($source . '/template/' . THEME) || is_link($source . '/skin') || is_link($source . '/static')) failImport('UNSAFE_SOURCE', 'symlink is not allowed');
+requirePath($source . '/template/' . THEME . '/index.html', 'file');
+requirePath($source . '/apps/common/version.php', 'file');
+if (is_link($source . '/data/pbootcms.db') || is_link($source . '/apps/common/version.php')) failImport('UNSAFE_SOURCE', 'symlink is not allowed');
+if (!str_contains((string)file_get_contents($source . '/apps/common/version.php'), SOURCE_VERSION)) failImport('SOURCE_VERSION_MISMATCH', 'source is not K714 PbootCMS 3.2.12');
+
+$sourceDb = new PDO('sqlite:' . $source . '/data/pbootcms.db', null, null, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::SQLITE_ATTR_OPEN_FLAGS => PDO::SQLITE_OPEN_READONLY,
+]);
+$sourceDb->exec('PRAGMA query_only = ON');
+$destinationDb = new PDO('sqlite:' . $destination . '/data/pbootcms.db', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+if ((string)$sourceDb->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') failImport('DB_INTEGRITY', 'source database integrity check failed');
+if ((string)$destinationDb->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') failImport('DB_INTEGRITY', 'destination database integrity check failed');
+$dbBackup = tempnam(sys_get_temp_dir(), 'cloudcrane-k714-db-');
+$staging = $destination . '/.cloudcrane/.k714-staging-' . bin2hex(random_bytes(8));
+$created = [];
+$backups = [];
+$manifest = $destination . '/.cloudcrane/template-import.json';
+if (file_exists($manifest)) failImport('TARGET_CONFLICT', 'import manifest already exists');
+
+try {
+    if (!$dbBackup || !copy($destination . '/data/pbootcms.db', $dbBackup)) failImport('BACKUP_FAILED', 'cannot back up destination database');
+    if (!mkdir($staging, 0775, true) && !is_dir($staging)) failImport('STAGING_FAILED', 'cannot create staging directory');
+    [$templateCount] = collectAssets($source, 'template/' . THEME, $staging, false);
+    [$skinCount] = collectAssets($source, 'skin', $staging, false);
+    [$staticCount, $staticSkipped] = collectAssets($source, 'static', $staging, true);
+    $rootCount = copyRootAsset($source, $staging, 'favicon.ico') + copyRootAsset($source, $staging, 'robots.txt');
+
+    $destinationDb->exec('PRAGMA foreign_keys = OFF');
+    $destinationDb->beginTransaction();
+    $migrated = [];
+    foreach (['ay_content_ext', 'ay_content', 'ay_content_sort', 'ay_slide', 'ay_company', 'ay_link'] as $table) {
+        if ($table === 'ay_content_ext' && !tableInfo($sourceDb, $table)) continue;
+        if (!tableInfo($sourceDb, $table) || !tableInfo($destinationDb, $table)) failImport('SCHEMA_INCOMPATIBLE', "required table missing: {$table}");
+        $sourceColumns = tableInfo($sourceDb, $table);
+        $destinationColumns = tableInfo($destinationDb, $table);
+        $columns = requireCompatibleColumns($sourceColumns, $destinationColumns);
+        $destinationDb->exec('DELETE FROM ' . q($table));
+        $migrated[$table] = insertRows($destinationDb, $table, $columns, rows($sourceDb, $table));
+    }
+    $siteSource = tableInfo($sourceDb, 'ay_site');
+    $siteDestination = tableInfo($destinationDb, 'ay_site');
+    if (!$siteSource || !$siteDestination) failImport('SCHEMA_INCOMPATIBLE', 'ay_site table missing');
+    $siteFields = ['title', 'subtitle', 'logo', 'keywords', 'description', 'icp', 'statistical', 'copyright'];
+    $siteColumns = array_values(array_intersect($siteFields, array_keys($siteSource), array_keys($siteDestination)));
+    $siteColumns = array_merge($siteColumns, array_intersect(['theme'], array_keys($siteDestination)));
+    if (in_array('theme', $siteColumns, true)) { /* forced below */ }
+    $sites = rows($sourceDb, 'ay_site');
+    $existingSite = $destinationDb->query('SELECT * FROM ' . q('ay_site') . ' LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+    foreach ($sites as $site) {
+        $values = [];
+        foreach ($siteColumns as $column) $values[$column] = $column === 'theme' ? THEME : $site[$column];
+        if ($existingSite && isset($existingSite['id'])) {
+            $sets = implode(',', array_map(static fn(string $column): string => q($column) . ' = ?', array_keys($values)));
+            $statement = $destinationDb->prepare('UPDATE ' . q('ay_site') . " SET {$sets} WHERE " . q('id') . ' = ?');
+            $statement->execute([...array_values($values), $existingSite['id']]);
+        } else {
+            insertRows($destinationDb, 'ay_site', array_keys($values), [$values]);
+        }
+    }
+    if (isset($siteDestination['theme'])) $destinationDb->exec('UPDATE ' . q('ay_site') . ' SET ' . q('theme') . " = '" . THEME . "'");
+    $configSource = tableInfo($sourceDb, 'ay_config');
+    $configDestination = tableInfo($destinationDb, 'ay_config');
+    if (!$configSource || !$configDestination || !isset($configDestination['name'], $configDestination['value'])) failImport('SCHEMA_INCOMPATIBLE', 'ay_config schema missing');
+    if ((int)$destinationDb->query('SELECT COUNT(*) FROM ' . q('ay_config') . " WHERE " . q('name') . " = 'tpl_html_dir'")->fetchColumn() === 0) failImport('SCHEMA_INCOMPATIBLE', 'destination tpl_html_dir setting missing');
+    $destinationDb->exec('UPDATE ' . q('ay_config') . ' SET ' . q('value') . " = '' WHERE " . q('name') . " = 'tpl_html_dir'");
+    $destinationDb->commit();
+    promote($staging, $destination, trackedFiles($destination), $created, $backups);
+    cleanupDirectoryContents($destination . '/runtime/config');
+    cleanupDirectoryContents($destination . '/runtime/cache');
+    cleanupDirectoryContents($destination . '/runtime/complile');
+    $manifestContent = json_encode([
+        'type' => 'pboot-full-site-normalized', 'profile' => 'k714-v0', 'sourceVersion' => SOURCE_VERSION,
+        'destinationVersion' => DESTINATION_VERSION, 'sourceArchiveSha256' => SOURCE_ARCHIVE_SHA256,
+        'theme' => THEME, 'normalizerVersion' => 1, 'importedAt' => gmdate('c'),
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    if (file_put_contents($manifest, $manifestContent, LOCK_EX) === false) failImport('MANIFEST_FAILED', 'cannot write import manifest');
+    if (is_dir($staging)) { cleanupDirectoryContents($staging); rmdir($staging); }
+    if ($dbBackup) @unlink($dbBackup);
+    foreach ($backups as $backup) @unlink($backup);
+    echo json_encode(['status' => 'NORMALIZED', 'templateFiles' => $templateCount, 'skinFiles' => $skinCount, 'staticFiles' => $staticCount, 'staticSkipped' => $staticSkipped, 'rootAssets' => $rootCount, 'tables' => $migrated], JSON_UNESCAPED_SLASHES) . "\n";
+} catch (Throwable $error) {
+    if ($destinationDb?->inTransaction()) $destinationDb->rollBack();
+    if ($dbBackup && is_file($dbBackup)) @copy($dbBackup, $destination . '/data/pbootcms.db');
+    foreach ($backups as $target => $backup) if (is_file($backup)) @copy($backup, $target);
+    foreach ($created as $target) if (is_file($target)) @unlink($target);
+    if (is_file($manifest)) @unlink($manifest);
+    if (is_dir($staging)) { cleanupDirectoryContents($staging); @rmdir($staging); }
+    foreach ($backups as $backup) @unlink($backup);
+    if ($dbBackup) @unlink($dbBackup);
+    $code = $error instanceof ImportFailure ? $error->failureCode : 'IMPORT_FAILED';
+    $message = $error instanceof ImportFailure ? $error->getMessage() : 'normalization failed';
+    fwrite(STDERR, "ERROR {$code}: {$message}\n");
+    exit(1);
+}

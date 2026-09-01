@@ -22,7 +22,8 @@ RUN git init /tmp/pbootcms-base \
 
 COPY docker/workspace-pboot/cloudcrane-init-pboot /usr/local/bin/cloudcrane-init-pboot
 COPY docker/workspace-pboot/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-license
-RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license
+COPY docker/workspace-pboot/cloudcrane-normalize-k714 /usr/local/bin/cloudcrane-normalize-k714
+RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-normalize-k714
 
 RUN npm install --global pnpm@10.11.0 \
   && pnpm install --frozen-lockfile --filter @cloudcrane/workspace-daemon...
