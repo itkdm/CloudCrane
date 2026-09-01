@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { lstat, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import Docker from 'dockerode';
 import { z } from 'zod';
@@ -17,6 +17,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     const persistentPath = this.persistentPath(workspaceId);
     await mkdir(persistentPath, { recursive: true });
     await this.provisionWorkspaceOwnership(persistentPath, workspaceId);
+    const referencePath = await this.referencePath(workspaceId);
     const network = await this.docker.createNetwork({
       Name: `cloudcrane-workspace-${workspaceId}`,
       Driver: 'bridge',
@@ -36,7 +37,12 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         ],
         ExposedPorts: { '7070/tcp': {}, '8080/tcp': {} },
         HostConfig: {
-          Binds: [`${persistentPath}:/workspace`],
+          Binds: [
+            `${persistentPath}:/workspace`,
+            ...(referencePath
+              ? [`${referencePath}:/workspace/.cloudcrane/references/template-source:ro`]
+              : []),
+          ],
           NetworkMode: network.id,
           PortBindings: {
             '7070/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
@@ -151,6 +157,19 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
   private persistentPath(workspaceId: string): string {
     return `${this.config.workspaceRoot}/${workspaceId}/workspace`;
+  }
+  private async referencePath(workspaceId: string): Promise<string | undefined> {
+    if (!this.config.referenceRoot) return undefined;
+    const referencePath = `${this.config.referenceRoot}/${workspaceId}`;
+    try {
+      const info = await lstat(referencePath);
+      if (!info.isDirectory() || info.isSymbolicLink())
+        throw new Error('workspace reference must be a real directory');
+      return referencePath;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+      throw error;
+    }
   }
   private async provisionWorkspaceOwnership(
     persistentPath: string,

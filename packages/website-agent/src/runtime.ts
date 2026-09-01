@@ -37,6 +37,7 @@ import {
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
 const REMOTE_SKILLS_ROOT = '/workspace/.agents/skills';
+const REMOTE_REFERENCE_ROOT = '/workspace/.cloudcrane/references/template-source';
 const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const MAX_TURN_INDEX = 1_000_000;
@@ -910,17 +911,32 @@ export class WebsiteAgentRuntime {
   }
 
   private async loadRemoteAgents(): Promise<Array<{ path: string; content: string }>> {
+    const files: Array<{ path: string; content: string }> = [];
     try {
       const result = await this.workspaceClient.fs.read({
         path: '/workspace/AGENTS.md',
         maxBytes: REMOTE_AGENTS_MAX_BYTES,
       });
       if (result.truncated) throw new Error('remote AGENTS.md exceeds the allowed context size');
-      return [{ path: '/workspace/AGENTS.md', content: result.content }];
+      files.push({ path: '/workspace/AGENTS.md', content: result.content });
     } catch (error: unknown) {
-      if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') return [];
-      throw error;
+      if (!(error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND')) throw error;
     }
+    try {
+      const reference = await this.workspaceClient.fs.stat({ path: REMOTE_REFERENCE_ROOT });
+      if (reference.type === 'directory')
+        files.push({
+          path: `${REMOTE_REFERENCE_ROOT}/README.md`,
+          content: [
+            'Migration reference is available at `/workspace/.cloudcrane/references/template-source`.',
+            'It is a read-only source snapshot. Analyze it with read-only tools; never write, delete, execute, or deploy it.',
+            'The writable target is `/workspace`.',
+          ].join('\n'),
+        });
+    } catch {
+      // A Website without a reference keeps the existing agent context unchanged.
+    }
+    return files;
   }
 
   private remoteSkillsDir(): string {

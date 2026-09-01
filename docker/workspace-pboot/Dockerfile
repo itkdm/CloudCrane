@@ -23,6 +23,7 @@ RUN git init /tmp/pbootcms-base \
 COPY docker/workspace-pboot/cloudcrane-init-pboot /usr/local/bin/cloudcrane-init-pboot
 COPY docker/workspace-pboot/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-license
 COPY docker/workspace-pboot/cloudcrane-normalize-k714 /usr/local/bin/cloudcrane-normalize-k714
+COPY .agents/skills/pboot-template-migration /opt/cloudcrane/skills/pboot-template-migration
 RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-normalize-k714
 
 RUN npm install --global pnpm@10.11.0 \

@@ -3,6 +3,7 @@ import { z } from 'zod';
 export type RunnerConfig = {
   runnerId: string;
   workspaceRoot: string;
+  referenceRoot?: string;
   workspaceImage: string;
   daemonPort: number;
   cpuLimit: number;
@@ -18,6 +19,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
+    referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
     workspaceImage: env.WORKSPACE_IMAGE ?? 'website-workspace-pboot:v1',
     daemonPort: 7070,
     cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),

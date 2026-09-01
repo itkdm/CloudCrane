@@ -21,6 +21,10 @@ fi
 cp -a "$base"/. "$workspace"/
 rm -f "$workspace/.cloudcrane-base"
 mkdir -p "$workspace/.cloudcrane"
+if [ -d /opt/cloudcrane/skills/pboot-template-migration ]; then
+  mkdir -p "$workspace/.agents/skills"
+  cp -a /opt/cloudcrane/skills/pboot-template-migration "$workspace/.agents/skills/"
+fi
 cat > "$workspace/AGENTS.md" <<'EOF'
 # PbootCMS Website
 
@@ -31,7 +35,9 @@ cat > "$workspace/AGENTS.md" <<'EOF'
    - PbootCMS authorization must only be configured through official authorization codes.
    - Never modify or bypass PbootCMS authorization code or authorization verification.
    - If authorization is missing, use the CloudCrane authorization flow.
-   - SQLite 是网站数据，不作为普通 Git Code Change 处理。
+- SQLite 是网站数据，不作为普通 Git Code Change 处理。
+- If `/workspace/.cloudcrane/references/template-source` exists, it is a READ-ONLY reference snapshot. Analyze it with read, ls, find, rg, cat, and read-only SQLite inspection; never write, delete, execute, or deploy it. `/workspace` remains the only writable target.
+- Treat the reference as a source to understand and rebuild the site in the managed PbootCMS runtime; never copy its core, apps, authorization, administrator, runtime, or system state wholesale.
 EOF
 
 if [ -f "$workspace/.gitignore" ]; then
