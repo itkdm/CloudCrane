@@ -8,13 +8,17 @@ import {
   publicWebsiteView,
   validateWebsiteName,
 } from '../../../lib/server/website-provisioning.js';
+import { previewUrlForWebsite } from '../../../lib/server/pboot-authorization.js';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
   const { platform, store } = createProductionWebsiteStore();
   try {
-    return NextResponse.json(await listWebsites(store));
+    const websites = await listWebsites(store);
+    return NextResponse.json(
+      websites.map((website) => ({ ...website, previewUrl: previewUrlForWebsite(website.id) })),
+    );
   } finally {
     await platform.pool.end();
   }
@@ -52,9 +56,12 @@ export async function POST(request: Request) {
       store,
       runtime: ({ websiteId, workspaceId }) => createProductionRuntime(websiteId, workspaceId),
     });
-    return NextResponse.json(publicWebsiteView(result.website), {
-      status: result.provisioned ? 201 : 502,
-    });
+    return NextResponse.json(
+      { ...publicWebsiteView(result.website), previewUrl: previewUrlForWebsite(result.website.id) },
+      {
+        status: result.provisioned ? 201 : 502,
+      },
+    );
   } catch (error) {
     if (error instanceof WebsiteProvisioningError)
       return NextResponse.json(

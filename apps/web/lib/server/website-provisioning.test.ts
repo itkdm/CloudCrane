@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceClientError } from '@cloudcrane/workspace-client';
 import {
   WEBSITE_PROVISIONING_FAILED,
-  WEBSITE_READY,
+  WEBSITE_AUTHORIZATION_REQUIRED,
   createWebsite,
   listWebsites,
   validateWebsiteName,
@@ -40,6 +40,8 @@ describe('website provisioning foundation', () => {
       status: vi.fn(),
       bootstrap: vi.fn(),
       reconcileBootstrap: vi.fn(),
+      configureAuthorization: vi.fn(),
+      verifyAuthorization: vi.fn(),
     }));
     await expect(
       createWebsite('站点', { store: store({ persistDesiredState: persist }), runtime }),
@@ -47,7 +49,7 @@ describe('website provisioning foundation', () => {
     expect(runtime).not.toHaveBeenCalled();
   });
 
-  it('marks the website ready after runtime creation', async () => {
+  it('marks the website authorization_required after bootstrap', async () => {
     const update = vi.fn(async () => undefined);
     const result = await createWebsite('站点', {
       store: store({ updateWebsiteStatus: update }),
@@ -56,10 +58,12 @@ describe('website provisioning foundation', () => {
         status: vi.fn(),
         bootstrap: vi.fn(async () => ({ status: 'INITIALIZED' })),
         reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
-    expect(result.website.status).toBe(WEBSITE_READY);
-    expect(update).toHaveBeenCalledWith(expect.any(String), WEBSITE_READY);
+    expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
+    expect(update).toHaveBeenCalledWith(expect.any(String), WEBSITE_AUTHORIZATION_REQUIRED);
   });
 
   it('retains records and marks a definite runtime failure', async () => {
@@ -73,6 +77,8 @@ describe('website provisioning foundation', () => {
         status: vi.fn(),
         bootstrap: vi.fn(),
         reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
     expect(result.website.status).toBe(WEBSITE_PROVISIONING_FAILED);
@@ -91,10 +97,12 @@ describe('website provisioning foundation', () => {
         status,
         bootstrap: vi.fn(async () => ({ status: 'INITIALIZED' })),
         reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
     expect(status).toHaveBeenCalledOnce();
-    expect(result.website.status).toBe(WEBSITE_READY);
+    expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
   });
 
   it('marks bootstrap failure as initialization_failed without retrying', async () => {
@@ -107,6 +115,8 @@ describe('website provisioning foundation', () => {
         status: vi.fn(),
         bootstrap,
         reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
     expect(result.website.status).toBe('initialization_failed');
@@ -125,9 +135,11 @@ describe('website provisioning foundation', () => {
         status: vi.fn(),
         bootstrap,
         reconcileBootstrap,
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
-    expect(result.website.status).toBe(WEBSITE_READY);
+    expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
     expect(bootstrap).toHaveBeenCalledOnce();
     expect(reconcileBootstrap).toHaveBeenCalledOnce();
   });
@@ -140,6 +152,8 @@ describe('website provisioning foundation', () => {
         status: vi.fn(),
         bootstrap: vi.fn(async () => ({ status: 'INITIALIZED' })),
         reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
       }),
     });
     expect(result.website).toEqual(expect.objectContaining({ id: created.id, name: '测试网站' }));

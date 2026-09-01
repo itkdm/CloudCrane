@@ -26,9 +26,12 @@ cat > "$workspace/AGENTS.md" <<'EOF'
 
 - 工作根目录是 `/workspace`，当前项目是 PbootCMS Website。
 - 优先修改 template、static、config 等业务区域；不要无理由修改 PbootCMS Core。
-- UI 修改完成后必须通过 Preview 验证。
-- 不绕过 PbootCMS 官方授权机制。
-- SQLite 是网站数据，不作为普通 Git Code Change 处理。
+   - UI 修改完成后必须通过 Preview 验证。
+   - 不绕过 PbootCMS 官方授权机制。
+   - PbootCMS authorization must only be configured through official authorization codes.
+   - Never modify or bypass PbootCMS authorization code or authorization verification.
+   - If authorization is missing, use the CloudCrane authorization flow.
+   - SQLite 是网站数据，不作为普通 Git Code Change 处理。
 EOF
 
 if [ -f "$workspace/.gitignore" ]; then

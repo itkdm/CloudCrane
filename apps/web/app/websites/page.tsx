@@ -3,13 +3,20 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 
-type Website = { id: string; name: string; status: string; createdAt: string };
+type Website = {
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  previewUrl?: string;
+};
 
 function statusLabel(status: string): string {
   if (status === 'ready') return '环境已准备';
   if (status === 'provisioning') return '正在创建网站环境…';
   if (status === 'initializing') return '正在初始化网站…';
   if (status === 'initialization_failed') return '网站初始化失败';
+  if (status === 'authorization_required') return 'PbootCMS 待授权';
   if (status === 'provisioning_failed') return '创建失败';
   return '准备中';
 }
@@ -21,6 +28,9 @@ export default function WebsitesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const [authorizationWebsite, setAuthorizationWebsite] = useState<Website | null>(null);
+  const [authorizationCode, setAuthorizationCode] = useState('');
+  const [authorizing, setAuthorizing] = useState(false);
 
   useEffect(() => {
     fetch('/api/websites')
@@ -56,6 +66,35 @@ export default function WebsitesPage() {
       setError(reason instanceof Error ? reason.message : '创建网站失败');
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function submitAuthorization(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!authorizationWebsite) return;
+    setAuthorizing(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/websites/${authorizationWebsite.id}/pboot-authorization`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sn: authorizationCode }),
+      });
+      const payload = (await response.json()) as { status?: string; error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || '授权验证失败');
+      setWebsites((current) =>
+        current.map((website) =>
+          website.id === authorizationWebsite.id
+            ? { ...website, status: payload.status ?? 'ready' }
+            : website,
+        ),
+      );
+      setAuthorizationCode('');
+      setAuthorizationWebsite(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '授权验证失败');
+    } finally {
+      setAuthorizing(false);
     }
   }
 
@@ -127,17 +166,68 @@ export default function WebsitesPage() {
               <span className="website-next-step">
                 {website.status === 'ready'
                   ? '网站已准备，可以进入工作台'
-                  : '网站初始化将在下一阶段完成'}
+                  : website.status === 'authorization_required'
+                    ? '请先完成 PbootCMS 官方授权'
+                    : '网站初始化将在下一阶段完成'}
               </span>
-              {website.status === 'ready' ? (
+              {website.status === 'authorization_required' ? (
+                <button
+                  className="website-workbench-link"
+                  type="button"
+                  onClick={() => setAuthorizationWebsite(website)}
+                >
+                  配置授权
+                </button>
+              ) : null}
+              {website.status === 'ready' || website.status === 'authorization_required' ? (
                 <Link className="website-workbench-link" href={`/websites/${website.id}/agent`}>
-                  进入工作台
+                  {website.status === 'ready' ? '进入工作台' : '打开预览'}
                 </Link>
               ) : null}
             </div>
           </article>
         ))}
       </section>
+      {authorizationWebsite ? (
+        <div className="website-authorization-panel" role="dialog" aria-modal="true">
+          <h2>PbootCMS 授权</h2>
+          <p>当前预览地址：</p>
+          <code>{authorizationWebsite.previewUrl}</code>
+          <ol>
+            <li>复制上面的预览地址。</li>
+            <li>
+              到{' '}
+              <a href="http://www.pbootcms.com/freesn/" target="_blank" rel="noreferrer">
+                PbootCMS 官方免费授权页
+              </a>{' '}
+              获取授权码。
+            </li>
+            <li>将官方返回的全部授权码粘贴到下方。</li>
+          </ol>
+          <form onSubmit={submitAuthorization}>
+            <label htmlFor="pboot-authorization-code">授权码</label>
+            <textarea
+              id="pboot-authorization-code"
+              value={authorizationCode}
+              onChange={(event) => setAuthorizationCode(event.target.value)}
+              maxLength={2048}
+              disabled={authorizing}
+              required
+            />
+            <button className="primary-button" type="submit" disabled={authorizing}>
+              {authorizing ? '正在保存并验证…' : '保存并验证'}
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setAuthorizationWebsite(null)}
+              disabled={authorizing}
+            >
+              取消
+            </button>
+          </form>
+        </div>
+      ) : null}
     </main>
   );
 }

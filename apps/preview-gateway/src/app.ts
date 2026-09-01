@@ -11,6 +11,7 @@ const MAX_HTML_INJECTION_BYTES = 2 * 1024 * 1024;
 const allowedWebsiteStatuses = new Set([
   'active',
   'ready',
+  'authorization_required',
   'running',
   'ACTIVE',
   'READY',

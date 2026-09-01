@@ -72,7 +72,15 @@ export class WebsiteRuntimeRegistry {
   ): asserts binding is WebsiteRuntimeBinding {
     if (!binding) throw new AgentServiceError('WEBSITE_NOT_FOUND', 'website was not found', 404);
     if (
-      !['active', 'ready', 'running', 'ACTIVE', 'READY', 'RUNNING'].includes(binding.websiteStatus)
+      ![
+        'active',
+        'ready',
+        'authorization_required',
+        'running',
+        'ACTIVE',
+        'READY',
+        'RUNNING',
+      ].includes(binding.websiteStatus)
     )
       throw new AgentServiceError('WEBSITE_NOT_FOUND', 'website is not available', 404);
     if (binding.workspaceStatus === 'missing')

@@ -1,0 +1,102 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$sn = getenv('PBOOT_SN');
+$snUser = getenv('PBOOT_SN_USER');
+if (!is_string($sn) || $sn === '' || strlen($sn) > 2048) {
+    fwrite(STDERR, "PBOOT_SN is required\n");
+    exit(20);
+}
+if (!is_string($snUser)) {
+    $snUser = '';
+}
+
+$database = '/workspace/data/pbootcms.db';
+if (!is_file($database)) {
+    fwrite(STDERR, "PbootCMS database is missing\n");
+    exit(21);
+}
+
+$licensecode = base64_encode($sn . '/' . $snUser) . substr($sn, 1, 1);
+$db = new PDO('sqlite:' . $database, null, null, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+]);
+$db->beginTransaction();
+try {
+    $select = $db->prepare('SELECT id FROM ay_config WHERE name = :name LIMIT 1');
+    $values = [
+        'sn' => $sn,
+        'sn_user' => $snUser,
+        'licensecode' => $licensecode,
+    ];
+    foreach ($values as $name => $value) {
+        $select->execute([':name' => $name]);
+        $id = $select->fetchColumn();
+        if ($id !== false) {
+            $update = $db->prepare('UPDATE ay_config SET value = :value WHERE id = :id');
+            $update->execute([':value' => $value, ':id' => $id]);
+            continue;
+        }
+        $insert = $db->prepare(
+            'INSERT INTO ay_config (name, value, type, sorting, description) VALUES (:name, :value, :type, :sorting, :description)',
+        );
+        $insert->execute([
+            ':name' => $name,
+            ':value' => $value,
+            ':type' => '2',
+            ':sorting' => 255,
+            ':description' => '',
+        ]);
+    }
+    $db->commit();
+} catch (Throwable $error) {
+    if ($db->inTransaction()) {
+        $db->rollBack();
+    }
+    fwrite(STDERR, "PbootCMS authorization update failed\n");
+    exit(22);
+}
+
+$cache = '/workspace/runtime/config';
+if (is_dir($cache)) {
+    $entries = scandir($cache);
+    if ($entries === false) {
+        fwrite(STDERR, "PbootCMS config cache could not be read\n");
+        exit(23);
+    }
+    foreach ($entries as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        $path = $cache . '/' . $entry;
+        if (is_dir($path) && !is_link($path)) {
+            removeTree($path);
+        } else {
+            @unlink($path);
+        }
+    }
+}
+
+fwrite(STDOUT, "AUTHORIZED\n");
+exit(0);
+
+function removeTree(string $path): void
+{
+    $entries = scandir($path);
+    if ($entries === false) {
+        return;
+    }
+    foreach ($entries as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        $child = $path . '/' . $entry;
+        if (is_dir($child) && !is_link($child)) {
+            removeTree($child);
+        } else {
+            @unlink($child);
+        }
+    }
+    @rmdir($path);
+}

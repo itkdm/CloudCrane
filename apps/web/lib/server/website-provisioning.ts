@@ -11,12 +11,14 @@ export const WEBSITE_READY = 'ready';
 export const WEBSITE_PROVISIONING_FAILED = 'provisioning_failed';
 export const WEBSITE_INITIALIZING = 'initializing';
 export const WEBSITE_INITIALIZATION_FAILED = 'initialization_failed';
+export const WEBSITE_AUTHORIZATION_REQUIRED = 'authorization_required';
 
 export type PublicWebsite = {
   id: string;
   name: string;
   status: string;
   createdAt: Date;
+  previewUrl?: string;
 };
 
 type WebsiteStore = {
@@ -27,6 +29,7 @@ type WebsiteStore = {
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
   listWebsites(): Promise<PublicWebsite[]>;
+  findWorkspaceId?(websiteId: string): Promise<string | null>;
 };
 
 type RuntimeClient = {
@@ -34,6 +37,8 @@ type RuntimeClient = {
   status(): Promise<{ status: string }>;
   bootstrap(): Promise<{ status: string }>;
   reconcileBootstrap(): Promise<boolean>;
+  configureAuthorization(sn: string): Promise<{ status: string }>;
+  verifyAuthorization(canonicalHost: string): Promise<boolean>;
 };
 
 export class WebsiteProvisioningError extends Error {
@@ -57,7 +62,13 @@ export function validateWebsiteName(value: unknown): string {
 }
 
 export function publicWebsiteView(row: PublicWebsite): PublicWebsite {
-  return { id: row.id, name: row.name, status: row.status, createdAt: row.createdAt };
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    createdAt: row.createdAt,
+    ...(row.previewUrl ? { previewUrl: row.previewUrl } : {}),
+  };
 }
 
 export async function listWebsites(
@@ -135,8 +146,11 @@ export async function createWebsite(
   } catch (error) {
     return failed(WEBSITE_INITIALIZATION_FAILED, error);
   }
-  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_READY);
-  return { website: { ...created, status: WEBSITE_READY }, provisioned: true };
+  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+  return {
+    website: { ...created, status: WEBSITE_AUTHORIZATION_REQUIRED },
+    provisioned: true,
+  };
 }
 
 export function createProductionWebsiteStore() {
@@ -196,6 +210,16 @@ export function createProductionWebsiteStore() {
         .from(website)
         .orderBy(desc(website.createdAt as never));
     },
+    async findWorkspaceId(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const rows = await db
+        .select({ id: workspace.id })
+        .from(workspace)
+        .where(eq(workspace.websiteId as never, websiteId))
+        .limit(1);
+      return rows[0]?.id ?? null;
+    },
   };
   return { platform, store };
 }
@@ -205,12 +229,17 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
   const token = process.env.WORKSPACE_GATEWAY_CLIENT_TOKEN;
   if (!endpoint || !token) throw new Error('workspace gateway configuration is required');
   const client = new WorkspaceClient(endpoint, token, { websiteId, workspaceId });
-  const exec = (command: string, args: string[], timeoutMs = 120_000) =>
+  const exec = (
+    command: string,
+    args: string[],
+    timeoutMs = 120_000,
+    env: Record<string, string> = {},
+  ) =>
     client.process.exec({
       command,
       args,
       cwd: '/workspace',
-      env: {},
+      env,
       timeoutMs,
       maxOutputBytes: 8_192,
       executionId: randomUUID(),
@@ -245,6 +274,34 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
         marker.content.includes('"sourceCommit": "29ff72ee5afc9c6553b949f04d3fc99443879f40"') &&
         verification.exitCode === 0
       );
+    },
+    configureAuthorization: async (sn: string) => {
+      const result = await exec('cloudcrane-pboot-license', [], 30_000, {
+        PBOOT_SN: sn,
+        PBOOT_SN_USER: '',
+      });
+      return { status: result.exitCode === 0 ? result.stdout.trim() : 'FAILED' };
+    },
+    verifyAuthorization: async (canonicalHost: string) => {
+      const result = await exec(
+        'curl',
+        [
+          '--fail',
+          '--silent',
+          '--show-error',
+          '--max-time',
+          '20',
+          '--header',
+          `Host: ${canonicalHost}`,
+          '--header',
+          `X-Forwarded-Host: ${canonicalHost}`,
+          '--header',
+          'X-Forwarded-Proto: https',
+          'http://127.0.0.1:8080/',
+        ],
+        30_000,
+      );
+      return result.exitCode === 0;
     },
   };
 }
