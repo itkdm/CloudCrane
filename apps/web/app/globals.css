@@ -130,7 +130,6 @@
   border-color: var(--cc-brand);
   box-shadow: 0 0 0 3px var(--cc-brand-soft);
 }
-.marketing-header,
 .app-header {
   display: flex;
   align-items: center;
@@ -140,14 +139,11 @@
   border-bottom: 1px solid var(--cc-border);
   background: rgb(255 255 255 / 82%);
 }
-.marketing-header nav,
-.marketing-header-actions,
 .app-sidebar nav {
   display: flex;
   align-items: center;
   gap: 18px;
 }
-.marketing-header a,
 .app-header a,
 .app-sidebar a {
   color: inherit;
@@ -164,11 +160,6 @@
   color: var(--cc-text-muted);
   font-size: 11px;
   font-weight: 500;
-}
-.marketing-footer {
-  padding: 28px 32px;
-  color: var(--cc-text-muted);
-  font-size: 13px;
 }
 .app-shell {
   display: flex;
@@ -265,15 +256,6 @@
   text-decoration: none;
 }
 @media (max-width: 700px) {
-  .marketing-header {
-    flex-wrap: wrap;
-    padding: 16px 20px;
-  }
-  .marketing-header nav {
-    order: 3;
-    width: 100%;
-    justify-content: space-between;
-  }
   .app-sidebar {
     width: 72px;
     padding-inline: 8px;
