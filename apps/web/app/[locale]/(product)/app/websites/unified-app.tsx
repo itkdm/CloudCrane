@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
-import { WebsitesView } from './components/websites-view';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
 import { TemplatesView } from './components/templates-view';
+import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-create-dialog';
+import { WebsiteAuthorizationDialog } from './components/website-authorization-dialog';
 import './websites.css';
 
 export type WorkspaceView = 'websites' | 'templates';
@@ -17,13 +18,7 @@ export type WorkspaceInitialState = {
   sessionId?: string | null;
 };
 
-type Website = {
-  id: string;
-  name: string;
-  status: string;
-  createdAt: string;
-  previewUrl?: string;
-};
+type Website = CreatedWebsite;
 
 type Session = {
   id: string;
@@ -45,6 +40,8 @@ type SessionChange =
 type GroupedSessions = {
   websiteId: string;
   websiteName: string;
+  status: string;
+  previewUrl?: string;
   sessions: Session[];
 };
 
@@ -60,6 +57,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [createSessionRequest, setCreateSessionRequest] = useState(0);
+  const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
+  const [authorizationWebsiteId, setAuthorizationWebsiteId] = useState<string | null>(null);
   useEffect(() => {
     async function loadData() {
       try {
@@ -101,6 +100,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       websites.map((website) => ({
         websiteId: website.id,
         websiteName: website.name,
+        status: website.status,
+        previewUrl: website.previewUrl,
         sessions: sessions
           .filter((s) => s.websiteId === website.id)
           .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
@@ -108,19 +109,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     [sessions, websites],
   );
 
-  function handleWebsiteSelect(websiteId: string) {
-    setCreateSessionRequest(0);
-    setSelectedWebsite(websiteId);
-    setSelectedSession(null);
-    setView('websites');
-  }
-
   function handleViewChange(nextView: WorkspaceView) {
     setView(nextView);
-    if (nextView === 'websites') {
-      setSelectedWebsite(null);
-      setSelectedSession(null);
-    }
     setCreateSessionRequest(0);
   }
 
@@ -137,6 +127,46 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setView('websites');
     setCreateSessionRequest((current) => current + 1);
   }
+
+  function handleWebsiteCreated(website: Website) {
+    setWebsites((current) => [...current, website]);
+    setCreateWebsiteOpen(false);
+    setSelectedSession(null);
+    setView('websites');
+    if (website.status === 'authorization_required') {
+      setSelectedWebsite(null);
+      setAuthorizationWebsiteId(website.id);
+      return;
+    }
+    if (website.status === 'ready') {
+      setSelectedWebsite(website.id);
+      setCreateSessionRequest((current) => current + 1);
+      return;
+    }
+    setSelectedWebsite(null);
+  }
+
+  function handleAuthorizeWebsite(websiteId: string) {
+    setAuthorizationWebsiteId(websiteId);
+  }
+
+  function handleAuthorizationComplete() {
+    if (!authorizationWebsiteId) return;
+    const websiteId = authorizationWebsiteId;
+    setWebsites((current) =>
+      current.map((website) =>
+        website.id === websiteId ? { ...website, status: 'ready' } : website,
+      ),
+    );
+    setAuthorizationWebsiteId(null);
+    setSelectedWebsite(websiteId);
+    setSelectedSession(null);
+    setView('websites');
+    setCreateSessionRequest((current) => current + 1);
+  }
+
+  const authorizationWebsite =
+    websites.find((website) => website.id === authorizationWebsiteId) ?? null;
 
   const handleSessionChange = useCallback(
     (change: SessionChange) => {
@@ -179,6 +209,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onViewChange={handleViewChange}
         onSessionSelect={handleSessionSelect}
         onNewSession={handleNewSession}
+        onCreateWebsite={() => setCreateWebsiteOpen(true)}
+        onAuthorizeWebsite={handleAuthorizeWebsite}
       />
       <div className="unified-content">
         {view === 'templates' ? (
@@ -190,10 +222,49 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             onSessionChange={handleSessionChange}
             createSessionRequest={createSessionRequest}
           />
+        ) : websites.length === 0 ? (
+          <main className="workspace-empty-state">
+            <div className="workspace-empty-state-inner">
+              <span className="workspace-empty-state-eyebrow">CloudCrane</span>
+              <h1>{t('onboardingTitle')}</h1>
+              <p>{t('onboardingDescription')}</p>
+              <div className="workspace-empty-state-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => setCreateWebsiteOpen(true)}
+                >
+                  {t('create')}
+                </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => handleViewChange('templates')}
+                >
+                  {t('browseTemplates')}
+                </button>
+              </div>
+            </div>
+          </main>
         ) : (
-          <WebsitesView websites={websites} onWebsiteSelect={handleWebsiteSelect} />
+          <main className="workspace-empty-state">
+            <div className="workspace-empty-state-inner">
+              <h1>{t('selectWorkspaceTitle')}</h1>
+              <p>{t('selectWorkspaceDescription')}</p>
+            </div>
+          </main>
         )}
       </div>
+      <WebsiteCreateDialog
+        open={createWebsiteOpen}
+        onClose={() => setCreateWebsiteOpen(false)}
+        onCreated={handleWebsiteCreated}
+      />
+      <WebsiteAuthorizationDialog
+        website={authorizationWebsite}
+        onClose={() => setAuthorizationWebsiteId(null)}
+        onAuthorized={handleAuthorizationComplete}
+      />
     </div>
   );
 }

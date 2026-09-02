@@ -19,6 +19,8 @@ type Session = {
 type GroupedSessions = {
   websiteId: string;
   websiteName: string;
+  status: string;
+  previewUrl?: string;
   sessions: Session[];
 };
 
@@ -29,6 +31,8 @@ type UnifiedSidebarProps = {
   onViewChange: (view: WorkspaceView) => void;
   onSessionSelect: (websiteId: string, sessionId: string) => void;
   onNewSession: (websiteId: string) => void;
+  onCreateWebsite: () => void;
+  onAuthorizeWebsite: (websiteId: string) => void;
 };
 
 export function UnifiedSidebar({
@@ -38,9 +42,12 @@ export function UnifiedSidebar({
   onViewChange,
   onSessionSelect,
   onNewSession,
+  onCreateWebsite,
+  onAuthorizeWebsite,
 }: UnifiedSidebarProps) {
   const t = useTranslations('navigation');
-  const wt = useTranslations('workbench');
+  const websiteT = useTranslations('websites');
+  const workbenchT = useTranslations('workbench');
   const [collapsed, setCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
@@ -105,8 +112,10 @@ export function UnifiedSidebar({
       <div className="unified-sidebar-content">
         <nav className="unified-sidebar-nav">
           <button
-            className={`unified-sidebar-link ${view === 'websites' ? 'active' : ''}`}
-            onClick={() => onViewChange('websites')}
+            type="button"
+            className="unified-sidebar-link"
+            onClick={onCreateWebsite}
+            title={websiteT('create')}
           >
             <svg
               width="16"
@@ -116,11 +125,9 @@ export function UnifiedSidebar({
               stroke="currentColor"
               strokeWidth="2"
             >
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
+              <path d="M12 5v14M5 12h14" />
             </svg>
-            <span>{t('websites')}</span>
+            <span>{websiteT('create')}</span>
           </button>
           <button
             type="button"
@@ -188,12 +195,33 @@ export function UnifiedSidebar({
                     </svg>
                     <span className="session-group-title">{group.websiteName}</span>
                   </button>
+                  {group.status === 'authorization_required' ? (
+                    <button
+                      type="button"
+                      className="session-settings-button"
+                      onClick={() => onAuthorizeWebsite(group.websiteId)}
+                      title={websiteT('authorizationSetup')}
+                      aria-label={`${websiteT('authorizationSetup')}: ${group.websiteName}`}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                        <path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 4.4 11H4.2a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.8 3.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.2V2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 23.6 10h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-1.4 3.4Z" />
+                      </svg>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="session-new-button"
                     onClick={() => onNewSession(group.websiteId)}
-                    title={wt('newSession')}
-                    aria-label={`${wt('newSession')}: ${group.websiteName}`}
+                    title={workbenchT('newSession')}
+                    aria-label={`${workbenchT('newSession')}: ${group.websiteName}`}
                   >
                     <svg
                       width="14"
@@ -210,7 +238,7 @@ export function UnifiedSidebar({
                 </div>
                 {expanded ? (
                   group.sessions.length === 0 ? (
-                    <div className="session-empty">{wt('noSessions')}</div>
+                    <div className="session-empty">{workbenchT('noSessions')}</div>
                   ) : (
                     <div className="session-list">
                       {visibleSessions.map((session) => (
@@ -220,7 +248,7 @@ export function UnifiedSidebar({
                           onClick={() => onSessionSelect(group.websiteId, session.id)}
                         >
                           <span className="session-title">
-                            {session.title || wt('newSessionTitle')}
+                            {session.title || workbenchT('newSessionTitle')}
                           </span>
                         </button>
                       ))}
@@ -230,7 +258,9 @@ export function UnifiedSidebar({
                           className="session-list-toggle"
                           onClick={() => toggleSessionList(group.websiteId)}
                         >
-                          {hasMoreSessions ? wt('showMoreSessions') : wt('showFewerSessions')}
+                          {hasMoreSessions
+                            ? workbenchT('showMoreSessions')
+                            : workbenchT('showFewerSessions')}
                         </button>
                       ) : null}
                     </div>
