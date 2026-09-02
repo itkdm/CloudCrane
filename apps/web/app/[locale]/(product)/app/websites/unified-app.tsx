@@ -323,13 +323,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         )}
       </div>
       <WebsiteCreateDialog
-        key={createWebsiteOpen ? 'open' : 'closed'}
+        key={`website-create-${createWebsiteOpen ? 'open' : 'closed'}`}
         open={createWebsiteOpen}
         onClose={() => setCreateWebsiteOpen(false)}
         onCreated={handleWebsiteCreated}
       />
       <WebsiteSettingsDialog
-        key={settingsWebsiteId ?? 'closed'}
+        key={`website-settings-${settingsWebsiteId ?? 'closed'}`}
         website={settingsWebsite}
         onClose={() => {
           setSettingsWebsiteId(null);
