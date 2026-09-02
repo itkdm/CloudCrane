@@ -1,6 +1,7 @@
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/navigation';
 import { LanguageSwitcher } from './language-switcher';
+import { Brand } from './brand';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations('navigation');
@@ -8,8 +9,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="app-sidebar">
         <Link className="cc-brand" href="/">
-          <span>CloudCrane</span>
-          <small>筑云鹤</small>
+          <Brand />
         </Link>
         <nav aria-label={t('home')}>
           <Link href="/app">{t('home')}</Link>

@@ -1,6 +1,7 @@
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/navigation';
 import { LanguageSwitcher } from './language-switcher';
+import { Brand } from './brand';
 
 export function MarketingLayout({ children }: { children: React.ReactNode }) {
   const t = useTranslations('navigation');
@@ -8,8 +9,7 @@ export function MarketingLayout({ children }: { children: React.ReactNode }) {
     <div className="marketing-layout">
       <header className="marketing-header">
         <Link className="cc-brand" href="/">
-          <span>CloudCrane</span>
-          <small>筑云鹤</small>
+          <Brand />
         </Link>
         <nav aria-label={t('product')}>
           <Link href="/">{t('product')}</Link>
@@ -24,7 +24,9 @@ export function MarketingLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main>{children}</main>
-      <footer className="marketing-footer">{t('product')} · CloudCrane</footer>
+      <footer className="marketing-footer">
+        {t('product')} · <Brand />
+      </footer>
     </div>
   );
 }
