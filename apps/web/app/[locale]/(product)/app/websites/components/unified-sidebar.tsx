@@ -6,14 +6,7 @@ import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
 import { LanguageSwitcher } from '../../../../../../components/layout/language-switcher';
 import { ThemeSwitcher } from '../../../../../../components/theme-switcher';
-
-type Website = {
-  id: string;
-  name: string;
-  status: string;
-  createdAt: string;
-  previewUrl?: string;
-};
+import type { WorkspaceView } from '../unified-app';
 
 type Session = {
   id: string;
@@ -30,25 +23,19 @@ type GroupedSessions = {
 };
 
 type UnifiedSidebarProps = {
-  view: 'websites' | 'conversations';
-  websites: Website[];
+  view: WorkspaceView;
   groupedSessions: GroupedSessions[];
-  selectedWebsite: string | null;
   selectedSession: string | null;
-  onViewChange: (view: 'websites' | 'conversations') => void;
-  onWebsiteSelect: (websiteId: string) => void;
+  onViewChange: (view: WorkspaceView) => void;
   onSessionSelect: (websiteId: string, sessionId: string) => void;
   onNewSession: (websiteId: string) => void;
 };
 
 export function UnifiedSidebar({
   view,
-  websites,
   groupedSessions,
-  selectedWebsite,
   selectedSession,
   onViewChange,
-  onWebsiteSelect,
   onSessionSelect,
   onNewSession,
 }: UnifiedSidebarProps) {
@@ -100,10 +87,9 @@ export function UnifiedSidebar({
             </svg>
             <span>{t('websites')}</span>
           </button>
-          <a
-            href="https://muban.itkdm.com"
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={() => onViewChange('templates')}
             className="unified-sidebar-link"
           >
             <svg
@@ -120,7 +106,7 @@ export function UnifiedSidebar({
               <rect x="3" y="14" width="7" height="7" />
             </svg>
             <span>{t('templates')}</span>
-          </a>
+          </button>
           <button
             className={`unified-sidebar-link ${view === 'conversations' ? 'active' : ''}`}
             onClick={() => onViewChange('conversations')}
@@ -150,7 +136,14 @@ export function UnifiedSidebar({
                     onClick={() => onNewSession(group.websiteId)}
                     title={wt('newSession')}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>

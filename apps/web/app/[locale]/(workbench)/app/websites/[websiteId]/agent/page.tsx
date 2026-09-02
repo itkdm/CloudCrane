@@ -1,7 +1,10 @@
-import { use } from 'react';
-import { AgentWorkbench } from './components/agent-workbench/agent-workbench';
+import { redirect } from 'next/navigation';
 
-export default function AgentWorkbenchPage({ params }: { params: Promise<{ websiteId: string }> }) {
-  const { websiteId } = use(params);
-  return <AgentWorkbench websiteId={websiteId} />;
+export default async function AgentWorkbenchPage({
+  params,
+}: {
+  params: Promise<{ locale: string; websiteId: string }>;
+}) {
+  const { locale, websiteId } = await params;
+  redirect(`/${locale}/app/websites?view=conversations&websiteId=${encodeURIComponent(websiteId)}`);
 }

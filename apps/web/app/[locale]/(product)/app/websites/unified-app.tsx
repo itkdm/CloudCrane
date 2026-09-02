@@ -1,11 +1,21 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { UnifiedSidebar } from './components/unified-sidebar';
 import { WebsitesView } from './components/websites-view';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
+import { ConversationsView } from './components/conversations-view';
+import { TemplatesView } from './components/templates-view';
 import './websites.css';
+
+export type WorkspaceView = 'websites' | 'templates' | 'conversations';
+
+export type WorkspaceInitialState = {
+  view?: WorkspaceView;
+  websiteId?: string | null;
+  sessionId?: string | null;
+};
 
 type Website = {
   id: string;
@@ -29,40 +39,44 @@ type GroupedSessions = {
   sessions: Session[];
 };
 
-export function UnifiedApp() {
+export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialState }) {
   const t = useTranslations('websites');
-  const [view, setView] = useState<'websites' | 'conversations'>('websites');
-  const [selectedWebsite, setSelectedWebsite] = useState<string | null>(null);
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [view, setView] = useState<WorkspaceView>(initialState?.view ?? 'websites');
+  const [selectedWebsite, setSelectedWebsite] = useState<string | null>(
+    initialState?.view === 'conversations' ? (initialState.websiteId ?? null) : null,
+  );
+  const [selectedSession, setSelectedSession] = useState<string | null>(
+    initialState?.view === 'conversations' ? (initialState.sessionId ?? null) : null,
+  );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     async function loadData() {
       try {
         const websitesRes = await fetch('/api/websites');
-        console.log('Websites response status:', websitesRes.status);
-        const websitesText = await websitesRes.text();
-        console.log('Websites raw response:', websitesText);
-        const websitesData = JSON.parse(websitesText) as Website[];
-
+        if (!websitesRes.ok) throw new Error(t('loadError'));
+        const websitesData = (await websitesRes.json()) as Website[];
         const sessionsRes = await fetch('/api/sessions');
-        console.log('Sessions response status:', sessionsRes.status);
-        const sessionsText = await sessionsRes.text();
-        console.log('Sessions raw response:', sessionsText);
-        const sessionsData = JSON.parse(sessionsText) as Session[];
+        if (!sessionsRes.ok) throw new Error(t('loadError'));
+        const sessionsData = (await sessionsRes.json()) as Session[];
 
         setWebsites(websitesData);
         setSessions(sessionsData);
       } catch (error) {
         console.error('Failed to load data:', error);
-      } finally {
-        setLoading(false);
       }
     }
     void loadData();
-  }, []);
+  }, [t]);
+
+  useEffect(() => {
+    const query = new URLSearchParams();
+    if (view !== 'websites') query.set('view', view);
+    if (selectedWebsite) query.set('websiteId', selectedWebsite);
+    if (selectedSession) query.set('sessionId', selectedSession);
+    const nextUrl = `${window.location.pathname}${query.toString() ? `?${query}` : ''}`;
+    window.history.replaceState(null, '', nextUrl);
+  }, [view, selectedWebsite, selectedSession]);
 
   const groupedSessions: GroupedSessions[] = websites.map((website) => ({
     websiteId: website.id,
@@ -78,55 +92,71 @@ export function UnifiedApp() {
     setView('conversations');
   }
 
+  function handleViewChange(nextView: WorkspaceView) {
+    setView(nextView);
+    if (nextView === 'websites') {
+      setSelectedWebsite(null);
+      setSelectedSession(null);
+    }
+  }
+
   function handleSessionSelect(websiteId: string, sessionId: string) {
     setSelectedWebsite(websiteId);
     setSelectedSession(sessionId);
+    setView('conversations');
   }
 
   function handleNewSession(websiteId: string) {
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
+    setView('conversations');
   }
+
+  const handleSessionChange = useCallback(
+    (newSessionId: string) => {
+      setSelectedSession(newSessionId);
+      setSessions((current) =>
+        current.some((s) => s.id === newSessionId)
+          ? current
+          : [
+              ...current,
+              {
+                id: newSessionId,
+                websiteId: selectedWebsite ?? '',
+                title: '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+            ],
+      );
+    },
+    [selectedWebsite],
+  );
 
   return (
     <div className="unified-app">
       <UnifiedSidebar
         view={view}
-        websites={websites}
         groupedSessions={groupedSessions}
-        selectedWebsite={selectedWebsite}
         selectedSession={selectedSession}
-        onViewChange={setView}
-        onWebsiteSelect={handleWebsiteSelect}
+        onViewChange={handleViewChange}
         onSessionSelect={handleSessionSelect}
         onNewSession={handleNewSession}
       />
       <div className="unified-content">
-        {view === 'websites' && !selectedWebsite ? (
+        {view === 'websites' ? (
           <WebsitesView websites={websites} onWebsiteSelect={handleWebsiteSelect} />
+        ) : view === 'templates' ? (
+          <TemplatesView />
         ) : selectedWebsite ? (
           <AgentWorkbenchContent
             websiteId={selectedWebsite}
             sessionId={selectedSession || undefined}
-            onSessionChange={(newSessionId) => {
-              setSelectedSession(newSessionId);
-              setSessions((current) =>
-                current.some((s) => s.id === newSessionId)
-                  ? current
-                  : [
-                      ...current,
-                      {
-                        id: newSessionId,
-                        websiteId: selectedWebsite,
-                        title: '',
-                        createdAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                      },
-                    ],
-              );
-            }}
+            onSessionChange={handleSessionChange}
           />
-        ) : null}
+        ) : (
+          <ConversationsView />
+        )}
       </div>
     </div>
   );

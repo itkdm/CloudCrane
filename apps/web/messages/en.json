@@ -202,5 +202,12 @@
     "openPage": "Open page {path}",
     "sending": "Sending",
     "sendFailed": "Send failed"
+  },
+  "workspace": {
+    "templatesTitle": "Templates",
+    "templatesDescription": "The template workspace is ready. Open the template library to choose a reusable starting point.",
+    "openTemplateLibrary": "Open template library",
+    "conversationsTitle": "Conversations",
+    "conversationsDescription": "Enter a website from the Websites view or choose an existing conversation from the sidebar."
   }
 }

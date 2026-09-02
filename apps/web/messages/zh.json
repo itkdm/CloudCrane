@@ -202,5 +202,12 @@
     "openPage": "打开页面 {path}",
     "sending": "正在发送",
     "sendFailed": "发送失败"
+  },
+  "workspace": {
+    "templatesTitle": "模板",
+    "templatesDescription": "模板工作台已就绪，打开模板库开始选择可复用的网站起点。",
+    "openTemplateLibrary": "打开模板库",
+    "conversationsTitle": "对话",
+    "conversationsDescription": "请先从网站列表进入一个网站，或从左侧选择已有对话。"
   }
 }
