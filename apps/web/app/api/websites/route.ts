@@ -13,33 +13,22 @@ import { previewUrlForWebsite } from '../../../lib/server/pboot-authorization.js
 export const runtime = 'nodejs';
 
 export async function GET() {
+  const { platform, store } = createProductionWebsiteStore();
   try {
-    // TODO: 实际应该从数据库获取网站列表
-    // 临时返回模拟数据以便测试统一界面
-    const websites = [
-      {
-        id: 'website-1',
-        name: '测试网站 1',
-        status: 'active',
-        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
-        previewUrl: 'http://localhost:8080',
-      },
-      {
-        id: 'website-2',
-        name: '测试网站 2',
-        status: 'active',
-        createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-        previewUrl: 'http://localhost:8081',
-      },
-    ];
-    console.log('Returning mock websites:', websites);
-    return NextResponse.json(websites);
-  } catch (error) {
-    console.error('GET /api/websites error:', error);
+    const websites = await listWebsites(store);
+    return NextResponse.json(
+      websites.map((website) => ({
+        ...website,
+        previewUrl: previewUrlForWebsite(website.id),
+      })),
+    );
+  } catch {
     return NextResponse.json(
       { error: { message: '获取网站列表失败' } },
       { status: 500 }
     );
+  } finally {
+    await platform.pool.end();
   }
 }
 
