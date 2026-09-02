@@ -5,7 +5,7 @@
 }
 
 .workbench-body.no-session-sidebar.preview-open {
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, var(--preview-chat-fr, 0.45fr)) 8px minmax(0, var(--preview-pane-fr, 0.55fr));
 }
 
 .workbench-body.no-session-sidebar .assistant-message {
@@ -17,8 +17,37 @@
 }
 
 .chat-toolbar {
+  display: flex;
+  justify-content: flex-end;
   flex: 0 0 auto;
   padding: 10px clamp(22px, 4vw, 48px) 0;
+}
+
+.workspace-resize-handle {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  min-width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.workspace-resize-handle::after {
+  position: absolute;
+  inset: 0 3px;
+  background: var(--cc-border);
+  content: '';
+  transition: background 160ms ease;
+}
+
+.workspace-resize-handle:hover::after,
+.workspace-resize-handle.dragging::after {
+  background: var(--cc-border-hover);
+}
+
+.workbench-body.preview-resizing {
+  user-select: none;
 }
 
 .preview-toggle-button {
@@ -61,5 +90,9 @@
 @media (max-width: 900px) {
   .workbench-body.no-session-sidebar.preview-open {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-resize-handle {
+    display: none;
   }
 }

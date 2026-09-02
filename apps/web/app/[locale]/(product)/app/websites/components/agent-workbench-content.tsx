@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
 import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
@@ -45,12 +53,14 @@ export function AgentWorkbenchContent({
   onSessionChange,
   onSettingsOpen,
   createSessionRequest = 0,
+  onPreviewOpenChange,
 }: {
   websiteId: string;
   sessionId?: string;
   onSessionChange?: (change: SessionChange) => void;
   onSettingsOpen?: () => void;
   createSessionRequest?: number;
+  onPreviewOpenChange?: (open: boolean) => void;
 }) {
   const t = useTranslations('workbench');
   const [conversation, dispatchConversation] = useReducer(
@@ -69,6 +79,8 @@ export function AgentWorkbenchContent({
     'unavailable' | 'attached' | 'detached' | 'error'
   >('unavailable');
   const [previewViewportMode, setPreviewViewportMode] = useState<PreviewViewportMode>('desktop');
+  const [previewSplitRatio, setPreviewSplitRatio] = useState(0.45);
+  const [isResizingPreview, setIsResizingPreview] = useState(false);
 
   const socket = useRef<WebSocket | null>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
@@ -83,6 +95,7 @@ export function AgentWorkbenchContent({
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const previewUrlPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
+  const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
 
   activeRunRef.current = runId;
 
@@ -180,6 +193,14 @@ export function AgentWorkbenchContent({
     }
     return previewReadyRef.current.promise;
   }, [loadPreviewUrl, preview.status, preview.url]);
+
+  useEffect(() => {
+    onPreviewOpenChange?.(previewOpen);
+  }, [onPreviewOpenChange, previewOpen]);
+
+  useEffect(() => {
+    if (!previewOpen) setIsResizingPreview(false);
+  }, [previewOpen]);
 
   useEffect(() => {
     loadPreviewUrl()
@@ -488,7 +509,16 @@ export function AgentWorkbenchContent({
   return (
     <main className="workbench">
       <div
-        className={`workbench-body no-session-sidebar ${previewOpen ? 'preview-open' : 'preview-closed'}`}
+        ref={workbenchBodyRef}
+        className={`workbench-body no-session-sidebar ${previewOpen ? 'preview-open' : 'preview-closed'} ${isResizingPreview ? 'preview-resizing' : ''}`}
+        style={
+          previewOpen
+            ? ({
+                '--preview-chat-fr': `${previewSplitRatio}fr`,
+                '--preview-pane-fr': `${1 - previewSplitRatio}fr`,
+              } as CSSProperties)
+            : undefined
+        }
       >
         <ChatPanel
           turns={conversation.turns}
@@ -505,6 +535,15 @@ export function AgentWorkbenchContent({
           onPreviewToggle={() => setPreviewOpen((current) => !current)}
           onSettingsOpen={onSettingsOpen}
         />
+        {previewOpen ? (
+          <WorkspaceResizeHandle
+            containerRef={workbenchBodyRef}
+            dragging={isResizingPreview}
+            onDragStart={() => setIsResizingPreview(true)}
+            onDragEnd={() => setIsResizingPreview(false)}
+            onRatioChange={setPreviewSplitRatio}
+          />
+        ) : null}
         <PreviewPane
           preview={preview}
           open={previewOpen}
@@ -519,6 +558,73 @@ export function AgentWorkbenchContent({
         />
       </div>
     </main>
+  );
+}
+
+const PREVIEW_RESIZE_HANDLE_WIDTH = 8;
+const MIN_CHAT_WIDTH = 380;
+const MIN_PREVIEW_WIDTH = 460;
+
+function WorkspaceResizeHandle({
+  containerRef,
+  dragging,
+  onDragStart,
+  onDragEnd,
+  onRatioChange,
+}: {
+  containerRef: RefObject<HTMLDivElement | null>;
+  dragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onRatioChange: (ratio: number) => void;
+}) {
+  const updateRatio = (clientX: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const availableWidth = container.clientWidth - PREVIEW_RESIZE_HANDLE_WIDTH;
+    if (availableWidth <= 0) return;
+    const minimumsFit = availableWidth >= MIN_CHAT_WIDTH + MIN_PREVIEW_WIDTH;
+    const rawChatWidth = clientX - container.getBoundingClientRect().left;
+    const chatWidth = minimumsFit
+      ? Math.min(
+          Math.max(rawChatWidth, MIN_CHAT_WIDTH),
+          availableWidth - MIN_PREVIEW_WIDTH,
+        )
+      : Math.max(0, Math.min(rawChatWidth, availableWidth));
+    onRatioChange(Math.min(0.8, Math.max(0.2, chatWidth / availableWidth)));
+  };
+
+  return (
+    <div
+      className={`workspace-resize-handle ${dragging ? 'dragging' : ''}`}
+      role="separator"
+      aria-label="Resize chat and preview"
+      aria-orientation="vertical"
+      onPointerDown={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        onDragStart();
+        updateRatio(event.clientX);
+      }}
+      onPointerMove={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) updateRatio(event.clientX);
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          onDragEnd();
+        }
+      }}
+      onPointerCancel={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          onDragEnd();
+        }
+      }}
+      onLostPointerCapture={() => {
+        if (dragging) onDragEnd();
+      }}
+    />
   );
 }
 

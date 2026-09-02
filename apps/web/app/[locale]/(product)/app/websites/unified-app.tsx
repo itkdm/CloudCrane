@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
@@ -63,6 +63,11 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [createSessionRequest, setCreateSessionRequest] = useState(0);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const previewOpenRef = useRef(false);
+  const sidebarBeforePreviewRef = useRef<boolean | null>(null);
+  const sidebarAutoCollapsedRef = useRef(false);
+  const sidebarChangedDuringPreviewRef = useRef(false);
   const [pendingFirstSessionWebsiteId, setPendingFirstSessionWebsiteId] = useState<string | null>(
     null,
   );
@@ -250,12 +255,46 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     [selectedWebsite],
   );
 
+  const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
+    if (previewOpenRef.current) sidebarChangedDuringPreviewRef.current = true;
+    setSidebarCollapsed(collapsed);
+  }, []);
+
+  const handlePreviewOpenChange = useCallback(
+    (open: boolean) => {
+      if (open === previewOpenRef.current) return;
+      previewOpenRef.current = open;
+
+      if (open) {
+        sidebarBeforePreviewRef.current = sidebarCollapsed;
+        sidebarAutoCollapsedRef.current = !sidebarCollapsed;
+        sidebarChangedDuringPreviewRef.current = false;
+        if (!sidebarCollapsed) setSidebarCollapsed(true);
+        return;
+      }
+
+      if (
+        sidebarAutoCollapsedRef.current &&
+        !sidebarChangedDuringPreviewRef.current &&
+        sidebarBeforePreviewRef.current !== null
+      ) {
+        setSidebarCollapsed(sidebarBeforePreviewRef.current);
+      }
+      sidebarBeforePreviewRef.current = null;
+      sidebarAutoCollapsedRef.current = false;
+      sidebarChangedDuringPreviewRef.current = false;
+    },
+    [sidebarCollapsed],
+  );
+
   return (
     <div className="unified-app">
       <UnifiedSidebar
         view={view}
+        collapsed={sidebarCollapsed}
         groupedSessions={groupedSessions}
         selectedSession={selectedSession}
+        onCollapsedChange={handleSidebarCollapsedChange}
         onViewChange={handleViewChange}
         onSessionSelect={handleSessionSelect}
         onNewSession={handleNewSession}
@@ -288,6 +327,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             onSessionChange={handleSessionChange}
             onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
             createSessionRequest={createSessionRequest}
+            onPreviewOpenChange={handlePreviewOpenChange}
           />
         ) : websites.length === 0 ? (
           <main className="workspace-empty-state">

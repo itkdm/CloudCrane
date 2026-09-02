@@ -26,8 +26,10 @@ type GroupedSessions = {
 
 type UnifiedSidebarProps = {
   view: WorkspaceView;
+  collapsed: boolean;
   groupedSessions: GroupedSessions[];
   selectedSession: string | null;
+  onCollapsedChange: (collapsed: boolean) => void;
   onViewChange: (view: WorkspaceView) => void;
   onSessionSelect: (websiteId: string, sessionId: string) => void;
   onNewSession: (websiteId: string) => void;
@@ -37,8 +39,10 @@ type UnifiedSidebarProps = {
 
 export function UnifiedSidebar({
   view,
+  collapsed,
   groupedSessions,
   selectedSession,
+  onCollapsedChange,
   onViewChange,
   onSessionSelect,
   onNewSession,
@@ -48,7 +52,6 @@ export function UnifiedSidebar({
   const t = useTranslations('navigation');
   const websiteT = useTranslations('websites');
   const workbenchT = useTranslations('workbench');
-  const [collapsed, setCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
 
@@ -93,7 +96,7 @@ export function UnifiedSidebar({
         </Link>
         <button
           className="sidebar-toggle"
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => onCollapsedChange(!collapsed)}
           aria-label={collapsed ? t('expand') : t('collapse')}
         >
           <svg
