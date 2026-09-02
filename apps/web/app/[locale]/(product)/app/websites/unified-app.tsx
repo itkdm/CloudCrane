@@ -114,6 +114,20 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     window.history.replaceState(null, '', nextUrl);
   }, [view, selectedWebsite, selectedSession]);
 
+  useEffect(() => {
+    if (websiteLoadState !== 'success' || !selectedWebsite) return;
+    const website = websites.find((item) => item.id === selectedWebsite);
+    if (!website) {
+      setSelectedWebsite(null);
+      setSelectedSession(null);
+      return;
+    }
+    if (!canEnterWorkspace(website)) {
+      setSelectedSession(null);
+      setSettingsWebsiteId(selectedWebsite);
+    }
+  }, [selectedWebsite, websiteLoadState, websites]);
+
   const groupedSessions = useMemo<GroupedSessions[]>(
     () =>
       websites.map((website) => ({
@@ -200,6 +214,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }
 
   const settingsWebsite = websites.find((website) => website.id === settingsWebsiteId) ?? null;
+  const selectedWebsiteRecord = selectedWebsite
+    ? websites.find((website) => website.id === selectedWebsite)
+    : undefined;
 
   const handleSessionChange = useCallback(
     (change: SessionChange) => {
@@ -264,7 +281,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
               </button>
             </div>
           </main>
-        ) : selectedWebsite ? (
+        ) : selectedWebsite && canEnterWorkspace(selectedWebsiteRecord) ? (
           <AgentWorkbenchContent
             websiteId={selectedWebsite}
             sessionId={selectedSession || undefined}
