@@ -33,6 +33,7 @@ import {
   type PreviewObservationContext,
   type PreviewObservationProvider,
 } from './preview.js';
+import { CLOUDCRANE_SYSTEM_PROMPT } from './system-prompt.js';
 
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
@@ -42,24 +43,6 @@ const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
-const APPEND_SYSTEM_PROMPT = [
-  'CloudCrane agent constraints:',
-  '- The working directory is the remote website workspace at /workspace.',
-  '- Use the supplied remote tools for all workspace file and process operations.',
-  '- Do not assume that the control-plane host filesystem is the website workspace.',
-  "- Preview tools observe the user's current development Preview when available.",
-  '- After page changes, use preview_refresh or preview_observe to verify the result when available.',
-  '- If the Preview Client is unavailable, continue non-visual work without inventing page state.',
-  '- preview_navigate only accepts Website-relative paths.',
-  '- The Website workspace uses its local Git repository at /workspace/.git; use bash and git there for history.',
-  '- Before editing, inspect git status --porcelain; after editing, inspect git diff --check and git diff before committing.',
-  '- Never overwrite or absorb pre-existing uncommitted changes. If the run starts dirty, do not auto-commit.',
-  "- Commit only this run's intended Website changes with explicit paths; never use git add -A, git add ., or git commit -a.",
-  '- Do not use git reset --hard, git clean -fd, git checkout -- ., git restore ., git rebase, git push --force, git filter-branch, or git push.',
-  '- Use repository-local identity only: CloudCrane Agent <agent@cloudcrane.local>; never change global Git config.',
-  '- User-facing text must use the language of the user request.',
-  '- Keep code identifiers, filenames, and commands exactly as provided.',
-].join('\n');
 
 export const AGENT_RUN_STATUSES = [
   'PENDING',
@@ -702,7 +685,8 @@ export class WebsiteAgentRuntime {
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
-          appendSystemPrompt: [APPEND_SYSTEM_PROMPT],
+          systemPromptOverride: () => CLOUDCRANE_SYSTEM_PROMPT,
+          appendSystemPromptOverride: () => [],
           extensionFactories: [modelFacingCwdExtension],
           agentsFilesOverride: () => ({ agentsFiles: remoteResources.agentsFiles }),
         },

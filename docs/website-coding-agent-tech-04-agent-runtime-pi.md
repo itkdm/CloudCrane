@@ -2833,7 +2833,7 @@ Browser / CMS / Publish 等 Website 特有能力作为 Pi Custom Tool / Extensio
 
 ## ADR-070
 
-System Prompt 优先保留 Pi Coding Prompt，并追加 Website Agent 专属约束；无必要不完全重写。
+Runtime 继续复用 Pi Coding Agent Harness；模型级 System Prompt 由 CloudCrane 完整控制，不继承 Pi 的产品身份与默认 Coding Agent 人格。底层 SDK 的 ResourceLoader 通过官方覆盖接口注入 CloudCrane System Prompt，同时保留工具描述、Skills、AGENTS context 和 Extensions 等运行能力。
 
 ## ADR-071
 

@@ -340,6 +340,13 @@ describe('WebsiteAgentRuntime', () => {
     const first = await runtime.createSession();
     await runtime.prompt(first.id, 'hello');
     systemPrompts.push(await runtime.getSystemPrompt(first.id));
+    expect(systemPrompts.at(-1)).toContain('CloudCrane');
+    expect(systemPrompts.at(-1)).toContain('筑云鹤');
+    expect(systemPrompts.at(-1)).toContain('/workspace');
+    expect(systemPrompts.at(-1)).toContain('Preview');
+    expect(systemPrompts.at(-1)).toContain('git status --porcelain');
+    expect(systemPrompts.at(-1)).not.toContain('operating inside pi');
+    expect(systemPrompts.at(-1)).not.toContain('Pi Coding Agent');
     expect(systemPrompts.at(-1)).toContain('Current working directory: /workspace');
     expect(systemPrompts.at(-1)).not.toContain(dataRoot);
     expect(systemPrompts.at(-1)).not.toContain('runtime-cwd');
