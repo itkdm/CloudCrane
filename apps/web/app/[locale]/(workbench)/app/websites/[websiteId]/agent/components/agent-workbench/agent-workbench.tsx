@@ -465,7 +465,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           frameRef={previewFrame}
           bridgeStatus={bridgeStatus}
           onClose={() => setPreviewOpen(false)}
-          onOpenPanel={() => setPreviewOpen(true)}
           onRefresh={refreshPreview}
           onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
           previewViewportMode={previewViewportMode}

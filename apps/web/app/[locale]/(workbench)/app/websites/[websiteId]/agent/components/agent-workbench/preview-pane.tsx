@@ -18,8 +18,6 @@ export type PreviewPaneProps = {
   onRefresh: () => void;
   /** Opens the preview in a separate browser window (legacy prop semantics). */
   onOpen: () => void;
-  /** Opens the preview panel in the legacy Workbench caller. */
-  onOpenPanel?: () => void;
   /** Closes the panel and allows the parent to dispose the bridge. */
   onClose?: () => void;
   /** Current page path supplied by the parent after preview navigation. */

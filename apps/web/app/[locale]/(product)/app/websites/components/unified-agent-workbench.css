@@ -4,6 +4,10 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.workbench-body.no-session-sidebar.preview-open {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
 .workbench-body.no-session-sidebar .assistant-message {
   display: block;
 }
@@ -50,6 +54,12 @@
 
 @media (max-width: 1280px) {
   .workbench-body.no-session-sidebar.preview-closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .workbench-body.no-session-sidebar.preview-open {
     grid-template-columns: minmax(0, 1fr);
   }
 }
