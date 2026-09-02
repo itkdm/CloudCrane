@@ -1,4 +1,4 @@
-import { AlertTriangle, Eye } from 'lucide-react';
+import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
@@ -17,6 +17,7 @@ type ChatPanelProps = {
   onExample: (value: string) => void;
   previewOpen?: boolean;
   onPreviewToggle?: () => void;
+  onSettingsOpen?: () => void;
 };
 
 export function ChatPanel({
@@ -32,23 +33,38 @@ export function ChatPanel({
   onExample,
   previewOpen,
   onPreviewToggle,
+  onSettingsOpen,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   return (
     <section className="chat-panel" aria-label={t('chat')}>
-      {onPreviewToggle ? (
+      {onPreviewToggle || onSettingsOpen ? (
         <div className="chat-toolbar">
-          <button
-            type="button"
-            className={`preview-toggle-button ${previewOpen ? 'active' : ''}`}
-            onClick={onPreviewToggle}
-            aria-label={previewOpen ? t('closePreview') : t('openPreview')}
-            aria-pressed={previewOpen}
-            title={previewOpen ? t('closePreview') : t('openPreview')}
-          >
-            <Eye size={15} aria-hidden="true" />
-            <span>{t('preview')}</span>
-          </button>
+          {onSettingsOpen ? (
+            <button
+              type="button"
+              className="preview-toggle-button"
+              onClick={onSettingsOpen}
+              aria-label={t('settings')}
+              title={t('settings')}
+            >
+              <Settings size={15} aria-hidden="true" />
+              <span>{t('settings')}</span>
+            </button>
+          ) : null}
+          {onPreviewToggle ? (
+            <button
+              type="button"
+              className={`preview-toggle-button ${previewOpen ? 'active' : ''}`}
+              onClick={onPreviewToggle}
+              aria-label={previewOpen ? t('closePreview') : t('openPreview')}
+              aria-pressed={previewOpen}
+              title={previewOpen ? t('closePreview') : t('openPreview')}
+            >
+              <Eye size={15} aria-hidden="true" />
+              <span>{t('preview')}</span>
+            </button>
+          ) : null}
         </div>
       ) : null}
       {error ? (

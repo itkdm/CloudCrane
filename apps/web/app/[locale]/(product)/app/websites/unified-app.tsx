@@ -7,7 +7,7 @@ import { UnifiedSidebar } from './components/unified-sidebar';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
 import { TemplatesView } from './components/templates-view';
 import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-create-dialog';
-import { WebsiteAuthorizationDialog } from './components/website-authorization-dialog';
+import { WebsiteSettingsDialog } from './components/website-settings-dialog';
 import './websites.css';
 
 export type WorkspaceView = 'websites' | 'templates';
@@ -58,7 +58,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [sessions, setSessions] = useState<Session[]>([]);
   const [createSessionRequest, setCreateSessionRequest] = useState(0);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
-  const [authorizationWebsiteId, setAuthorizationWebsiteId] = useState<string | null>(null);
+  const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
+  const [pendingFirstSessionWebsiteId, setPendingFirstSessionWebsiteId] = useState<string | null>(
+    null,
+  );
   const [websiteLoadState, setWebsiteLoadState] = useState<'loading' | 'success' | 'error'>(
     'loading',
   );
@@ -147,7 +150,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setView('websites');
     if (website.status === 'authorization_required') {
       setSelectedWebsite(null);
-      setAuthorizationWebsiteId(website.id);
+      setSettingsWebsiteId(website.id);
+      setPendingFirstSessionWebsiteId(website.id);
       return;
     }
     if (website.status === 'ready') {
@@ -159,26 +163,30 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }
 
   function handleAuthorizeWebsite(websiteId: string) {
-    setAuthorizationWebsiteId(websiteId);
+    setSettingsWebsiteId(websiteId);
+    setPendingFirstSessionWebsiteId(null);
   }
 
   function handleAuthorizationComplete() {
-    if (!authorizationWebsiteId) return;
-    const websiteId = authorizationWebsiteId;
+    if (!settingsWebsiteId) return;
+    const websiteId = settingsWebsiteId;
+    const isFirstSessionPending = pendingFirstSessionWebsiteId === websiteId;
     setWebsites((current) =>
       current.map((website) =>
         website.id === websiteId ? { ...website, status: 'ready' } : website,
       ),
     );
-    setAuthorizationWebsiteId(null);
-    setSelectedWebsite(websiteId);
-    setSelectedSession(null);
-    setView('websites');
-    setCreateSessionRequest((current) => current + 1);
+    setPendingFirstSessionWebsiteId(null);
+    if (isFirstSessionPending) {
+      setSettingsWebsiteId(null);
+      setSelectedWebsite(websiteId);
+      setSelectedSession(null);
+      setView('websites');
+      setCreateSessionRequest((current) => current + 1);
+    }
   }
 
-  const authorizationWebsite =
-    websites.find((website) => website.id === authorizationWebsiteId) ?? null;
+  const settingsWebsite = websites.find((website) => website.id === settingsWebsiteId) ?? null;
 
   const handleSessionChange = useCallback(
     (change: SessionChange) => {
@@ -222,7 +230,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onSessionSelect={handleSessionSelect}
         onNewSession={handleNewSession}
         onCreateWebsite={() => setCreateWebsiteOpen(true)}
-        onAuthorizeWebsite={handleAuthorizeWebsite}
+        onSettingsOpen={handleAuthorizeWebsite}
       />
       <div className="unified-content">
         {view === 'templates' ? (
@@ -248,6 +256,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             websiteId={selectedWebsite}
             sessionId={selectedSession || undefined}
             onSessionChange={handleSessionChange}
+            onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
             createSessionRequest={createSessionRequest}
           />
         ) : websites.length === 0 ? (
@@ -289,10 +298,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onClose={() => setCreateWebsiteOpen(false)}
         onCreated={handleWebsiteCreated}
       />
-      <WebsiteAuthorizationDialog
-        key={authorizationWebsiteId ?? 'closed'}
-        website={authorizationWebsite}
-        onClose={() => setAuthorizationWebsiteId(null)}
+      <WebsiteSettingsDialog
+        key={settingsWebsiteId ?? 'closed'}
+        website={settingsWebsite}
+        onClose={() => {
+          setSettingsWebsiteId(null);
+          setPendingFirstSessionWebsiteId(null);
+        }}
         onAuthorized={handleAuthorizationComplete}
       />
     </div>

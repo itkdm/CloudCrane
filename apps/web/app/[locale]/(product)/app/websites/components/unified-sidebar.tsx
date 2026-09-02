@@ -32,7 +32,7 @@ type UnifiedSidebarProps = {
   onSessionSelect: (websiteId: string, sessionId: string) => void;
   onNewSession: (websiteId: string) => void;
   onCreateWebsite: () => void;
-  onAuthorizeWebsite: (websiteId: string) => void;
+  onSettingsOpen: (websiteId: string) => void;
 };
 
 export function UnifiedSidebar({
@@ -43,7 +43,7 @@ export function UnifiedSidebar({
   onSessionSelect,
   onNewSession,
   onCreateWebsite,
-  onAuthorizeWebsite,
+  onSettingsOpen,
 }: UnifiedSidebarProps) {
   const t = useTranslations('navigation');
   const websiteT = useTranslations('websites');
@@ -195,29 +195,25 @@ export function UnifiedSidebar({
                     </svg>
                     <span className="session-group-title">{group.websiteName}</span>
                   </button>
-                  {group.status === 'authorization_required' ? (
-                    <button
-                      type="button"
-                      className="session-settings-button"
-                      onClick={() => onAuthorizeWebsite(group.websiteId)}
-                      title={websiteT('authorizationSetup')}
-                      aria-label={`${websiteT('authorizationSetup')}: ${group.websiteName}`}
+                  <button
+                    type="button"
+                    className="session-settings-button"
+                    onClick={() => onSettingsOpen(group.websiteId)}
+                    title={websiteT('settings')}
+                    aria-label={`${websiteT('settings')}: ${group.websiteName}`}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
                     >
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                        <path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 4.4 11H4.2a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.8 3.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.2V2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 23.6 10h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-1.4 3.4Z" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <span className="session-settings-placeholder" aria-hidden="true" />
-                  )}
+                      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+                      <path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 4.4 11H4.2a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.8 3.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.2V2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 23.6 10h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-1.4 3.4Z" />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     className="session-new-button"

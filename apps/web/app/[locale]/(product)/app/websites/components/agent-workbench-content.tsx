@@ -43,11 +43,13 @@ export function AgentWorkbenchContent({
   websiteId,
   sessionId,
   onSessionChange,
+  onSettingsOpen,
   createSessionRequest = 0,
 }: {
   websiteId: string;
   sessionId?: string;
   onSessionChange?: (change: SessionChange) => void;
+  onSettingsOpen?: () => void;
   createSessionRequest?: number;
 }) {
   const t = useTranslations('workbench');
@@ -501,6 +503,7 @@ export function AgentWorkbenchContent({
           onExample={setDraft}
           previewOpen={previewOpen}
           onPreviewToggle={() => setPreviewOpen((current) => !current)}
+          onSettingsOpen={onSettingsOpen}
         />
         <PreviewPane
           preview={preview}

@@ -440,3 +440,109 @@
   background: var(--cc-surface-2);
   color: var(--cc-text);
 }
+.website-settings-panel {
+  position: relative;
+  overflow: auto;
+  max-height: min(760px, calc(100dvh - 48px));
+  width: min(640px, calc(100vw - 32px));
+  padding: 32px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-surface-0);
+  box-shadow: var(--cc-shadow-lg);
+}
+.website-settings-panel h2 {
+  margin: 0 0 24px;
+  color: var(--cc-text);
+  font-size: 24px;
+}
+.website-settings-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--cc-border);
+}
+.website-settings-section h3 {
+  margin: 0 0 16px;
+  color: var(--cc-text);
+  font-size: 15px;
+}
+.website-settings-details {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.website-settings-details > div,
+.website-settings-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.website-settings-details dt,
+.website-settings-row > span {
+  color: var(--cc-text-secondary);
+  font-size: 13px;
+}
+.website-settings-details dd {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: 14px;
+}
+.website-settings-row strong {
+  color: var(--cc-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.website-settings-preview {
+  margin-top: 12px;
+}
+.website-settings-preview code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cc-text);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.website-settings-preview .secondary-button {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.website-settings-authorization {
+  margin-top: 20px;
+}
+.website-settings-authorization p {
+  margin: 0 0 12px;
+  color: var(--cc-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.website-settings-authorization a {
+  color: var(--cc-brand);
+}
+.website-settings-authorization label {
+  display: block;
+  margin: 20px 0 10px;
+  color: var(--cc-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.website-settings-authorization textarea {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  max-height: 240px;
+  padding: 12px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  background: var(--cc-surface-0);
+  color: var(--cc-text);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  outline: none;
+  resize: vertical;
+}
+.website-settings-authorization textarea:focus {
+  border-color: var(--cc-brand);
+}
