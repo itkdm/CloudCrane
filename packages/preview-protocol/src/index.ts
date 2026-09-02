@@ -58,9 +58,17 @@ export type PreviewObservation = z.infer<typeof previewObservationSchema>;
 
 export const previewClientRegisterPayloadSchema = z.object({
   previewClientId: z.string().uuid(),
-  capabilities: z.array(previewCapabilitySchema).max(16),
+  capabilities: z.array(previewCapabilitySchema).max(16).optional(),
 });
 export type PreviewClientRegisterPayload = z.infer<typeof previewClientRegisterPayloadSchema>;
+
+export const previewClientCapabilitiesPayloadSchema = z.object({
+  previewClientId: z.string().uuid(),
+  capabilities: z.array(previewCapabilitySchema).max(16).optional(),
+});
+export type PreviewClientCapabilitiesPayload = z.infer<
+  typeof previewClientCapabilitiesPayloadSchema
+>;
 
 export const previewRequestPayloadSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('observe') }),

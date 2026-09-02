@@ -657,7 +657,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
               requestId: 'register-preview-a',
               websiteId,
               timestamp: new Date().toISOString(),
-              payload: { previewClientId: previewClientA, capabilities: previewCapabilities },
+              payload: { previewClientId: previewClientA },
             }),
           );
         }

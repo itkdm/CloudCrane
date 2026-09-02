@@ -1213,11 +1213,13 @@ clientId
 previewCapabilities
 ```
 
-客户端打开某 Website 后注册：
+客户端进入某 Website Workbench 并建立 WebSocket 后注册 Browser Client：
 
 ```text
-PreviewClientConnected
+preview.client.register
 ```
+
+注册只表示当前 Browser Tab 可以接收 `preview.request`，不要求 Preview iframe 已打开，也不要求 Bridge 已 ready。Bridge 建立后再发送 `preview.client.capabilities` 更新；关闭 Preview 时清除能力，但不注销 Browser Client。
 
 能力例如：
 
@@ -1228,7 +1230,7 @@ CONSOLE
 ELEMENT_SELECT
 ```
 
-Agent 需要 Observation 时选择一个可用 Client。
+Agent 需要 Observation 时使用触发本次 AgentRun 的 Browser Client。
 
 ---
 
@@ -1274,7 +1276,7 @@ preview_observe
 ↓
 REQUEST_CLIENT_OBSERVATION
 ↓
-10s timeout
+observe 默认约 20s timeout；refresh / navigate 默认约 25s timeout
 ```
 
 如果 Client 无响应：
@@ -1774,7 +1776,7 @@ V1 不部署常驻服务端 Chromium / Playwright Browser Service 作为核心�
 
 ## ADR-092
 
-默认使用触发当前 AgentRun 的 Client 作为 Active Preview Client。
+默认使用触发当前 AgentRun 的 Browser Workbench Client 作为 Active Preview Client；Browser Client 注册不依赖 Preview Pane 或 Bridge 是否 ready。
 
 ## ADR-093
 

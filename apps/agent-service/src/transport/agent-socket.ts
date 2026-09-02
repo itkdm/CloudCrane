@@ -164,6 +164,21 @@ class AgentSocketConnection {
       this.ack(command);
       return;
     }
+    if (command.type === 'preview.client.capabilities') {
+      if (
+        this.previewWebsiteId !== command.websiteId ||
+        this.previewClientId !== command.payload.previewClientId ||
+        !this.options.previewClients.updateCapabilities(
+          command.websiteId,
+          command.payload.previewClientId,
+          command.payload.capabilities,
+          this.previewConnection,
+        )
+      )
+        throw new AgentServiceError('INVALID_ARGUMENT', 'Preview Client is not registered', 400);
+      this.ack(command);
+      return;
+    }
     if (command.type === 'preview.response') {
       if (this.previewWebsiteId !== command.websiteId || !this.previewClientId)
         throw new AgentServiceError('INVALID_ARGUMENT', 'Preview Client is not registered', 400);

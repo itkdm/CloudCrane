@@ -182,7 +182,7 @@ describe('AgentSocketTransport', () => {
               requestId: 'register-1',
               websiteId,
               timestamp: new Date().toISOString(),
-              payload: { previewClientId, capabilities: previewCapabilities },
+              payload: { previewClientId },
             }),
           );
           return;
@@ -203,7 +203,7 @@ describe('AgentSocketTransport', () => {
           previewRequestId = message.requestId;
           client.send(
             JSON.stringify({
-              type: 'preview.client.register',
+              type: 'preview.client.capabilities',
               requestId: 'register-2',
               websiteId,
               timestamp: new Date().toISOString(),

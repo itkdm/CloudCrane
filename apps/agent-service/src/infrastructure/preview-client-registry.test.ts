@@ -56,6 +56,35 @@ describe('PreviewClientRegistry', () => {
     await expect(pending).resolves.toEqual(observation);
   });
 
+  it('routes requests to a registered Browser Client before the Bridge is ready', async () => {
+    const registry = new PreviewClientRegistry({ observeMs: 100 });
+    const sent: AgentWireMessage[] = [];
+    const connection = { send: (message: AgentWireMessage) => sent.push(message) };
+    registry.register(websiteA, clientA, undefined, connection);
+    const pending = registry.observe(context(websiteA, clientA));
+    expect(sent[0]).toMatchObject({ type: 'preview.request', payload: { operation: 'observe' } });
+    expect(registry.updateCapabilities(websiteA, clientA, capabilities, connection)).toBe(true);
+    expect(registry.getCapabilities(websiteA, clientA)).toEqual(capabilities);
+    expect(
+      registry.respond(
+        websiteA,
+        clientA,
+        sent[0]!.requestId,
+        { ok: true, observation },
+        connection,
+      ),
+    ).toBe(true);
+    await expect(pending).resolves.toEqual(observation);
+  });
+
+  it('keeps Browser Client registration when Bridge capabilities are cleared', () => {
+    const registry = new PreviewClientRegistry();
+    const connection = { send: () => undefined };
+    registry.register(websiteA, clientA, capabilities, connection);
+    expect(registry.updateCapabilities(websiteA, clientA, undefined, connection)).toBe(true);
+    expect(registry.getCapabilities(websiteA, clientA)).toEqual([]);
+  });
+
   it('replaces a reconnecting client and releases pending requests', async () => {
     const registry = new PreviewClientRegistry({ observeMs: 100 });
     const first = { send: () => undefined };

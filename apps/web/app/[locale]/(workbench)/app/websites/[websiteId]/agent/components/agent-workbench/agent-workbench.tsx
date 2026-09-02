@@ -24,7 +24,6 @@ import { PreviewPane } from './preview-pane';
 import type { PreviewViewportMode } from './preview-viewport';
 import { SessionSidebar } from './session-sidebar';
 import type { PreviewState, Session } from './types';
-import { WorkbenchHeader } from './workbench-header';
 import './agent-workbench.css';
 
 export function AgentWorkbench({ websiteId }: { websiteId: string }) {
@@ -110,13 +109,26 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   }, []);
 
   const registerPreviewClient = useCallback(() => {
-    if (!previewClientIdRef.current || !previewCapabilitiesRef.current) return;
+    if (!previewClientIdRef.current) return;
     sendCommand({
       type: 'preview.client.register',
       websiteId,
       payload: {
         previewClientId: previewClientIdRef.current,
-        capabilities: [...previewCapabilitiesRef.current],
+      },
+    });
+  }, [sendCommand, websiteId]);
+
+  const updatePreviewCapabilities = useCallback(() => {
+    if (!previewClientIdRef.current) return;
+    sendCommand({
+      type: 'preview.client.capabilities',
+      websiteId,
+      payload: {
+        previewClientId: previewClientIdRef.current,
+        ...(previewCapabilitiesRef.current
+          ? { capabilities: [...previewCapabilitiesRef.current] }
+          : {}),
       },
     });
   }, [sendCommand, websiteId]);
@@ -351,7 +363,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
       previewCapabilitiesRef.current = capabilities;
       setBridgeStatus('connected');
-      registerPreviewClient();
+      updatePreviewCapabilities();
       previewReadyRef.current?.resolve(client);
       previewReadyRef.current = null;
     });
@@ -359,6 +371,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     return () => {
       client.dispose();
       if (previewBridge.current === client) previewBridge.current = null;
+      previewCapabilitiesRef.current = undefined;
+      updatePreviewCapabilities();
       const waiter = previewReadyRef.current;
       if (waiter) {
         window.clearTimeout(waiter.timer);
@@ -367,7 +381,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       }
       setBridgeStatus('waiting');
     };
-  }, [preview.status, preview.url, previewOpen, registerPreviewClient]);
+  }, [preview.status, preview.url, previewOpen, updatePreviewCapabilities]);
 
   function submit() {
     const text = draft.trim();
@@ -434,7 +448,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
 
   return (
     <main className="workbench">
-      <WorkbenchHeader connection={connection} />
       <div
         className={`workbench-body ${sidebarCollapsed ? 'sidebar-collapsed' : ''} ${previewOpen ? 'preview-open' : 'preview-closed'}`}
       >

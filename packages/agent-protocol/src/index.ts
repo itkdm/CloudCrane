@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import {
   previewClientRegisterPayloadSchema,
+  previewClientCapabilitiesPayloadSchema,
   previewRequestPayloadSchema,
   previewResponsePayloadSchema,
 } from '@cloudcrane/preview-protocol';
 export type {
   PreviewCapability,
   PreviewClientRegisterPayload,
+  PreviewClientCapabilitiesPayload,
   PreviewObservation,
   PreviewRequestPayload,
   PreviewResponsePayload,
@@ -56,6 +58,10 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
   commandBase.extend({
     type: z.literal('preview.client.register'),
     payload: previewClientRegisterPayloadSchema,
+  }),
+  commandBase.extend({
+    type: z.literal('preview.client.capabilities'),
+    payload: previewClientCapabilitiesPayloadSchema,
   }),
   commandBase.extend({
     type: z.literal('preview.response'),

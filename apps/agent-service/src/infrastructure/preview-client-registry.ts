@@ -42,7 +42,7 @@ type PendingRequest = {
 type RegisteredClient = {
   websiteId: string;
   previewClientId: string;
-  capabilities: Set<PreviewCapability>;
+  capabilities?: Set<PreviewCapability>;
   connection: PreviewClientConnection;
   pending: Map<string, PendingRequest>;
 };
@@ -63,7 +63,7 @@ export class PreviewClientRegistry implements PreviewObservationProvider {
   register(
     websiteId: string,
     previewClientId: string,
-    capabilities: PreviewCapability[],
+    capabilities: PreviewCapability[] | undefined,
     connection: PreviewClientConnection,
   ): void {
     const key = this.key(websiteId, previewClientId);
@@ -72,10 +72,23 @@ export class PreviewClientRegistry implements PreviewObservationProvider {
     this.clients.set(key, {
       websiteId,
       previewClientId,
-      capabilities: new Set(capabilities),
+      ...(capabilities ? { capabilities: new Set(capabilities) } : {}),
       connection,
       pending: previous?.connection === connection ? previous.pending : new Map(),
     });
+  }
+
+  updateCapabilities(
+    websiteId: string,
+    previewClientId: string,
+    capabilities: PreviewCapability[] | undefined,
+    connection: PreviewClientConnection,
+  ): boolean {
+    const client = this.clients.get(this.key(websiteId, previewClientId));
+    if (!client || client.connection !== connection) return false;
+    if (capabilities) client.capabilities = new Set(capabilities);
+    else delete client.capabilities;
+    return true;
   }
 
   unregister(
@@ -170,7 +183,8 @@ export class PreviewClientRegistry implements PreviewObservationProvider {
         new PreviewClientError('CLIENT_UNAVAILABLE', 'the requested Preview Client is unavailable'),
       );
     const required = operationCapabilities[payload.operation] ?? [];
-    if (required.some((capability) => !client.capabilities.has(capability)))
+    const capabilities = client.capabilities;
+    if (capabilities && required.some((capability) => !capabilities.has(capability)))
       return Promise.reject(
         new PreviewClientError(
           'PREVIEW_CAPABILITY_UNAVAILABLE',
@@ -180,10 +194,10 @@ export class PreviewClientRegistry implements PreviewObservationProvider {
     const requestId = randomUUID();
     const timeoutMs =
       payload.operation === 'observe'
-        ? (this.timeouts.observeMs ?? 10_000)
+        ? (this.timeouts.observeMs ?? 20_000)
         : payload.operation === 'refresh'
-          ? (this.timeouts.refreshMs ?? 15_000)
-          : (this.timeouts.navigateMs ?? 15_000);
+          ? (this.timeouts.refreshMs ?? 25_000)
+          : (this.timeouts.navigateMs ?? 25_000);
     return new Promise<PreviewObservation>((resolve, reject) => {
       const timer = setTimeout(() => {
         client.pending.delete(requestId);

@@ -172,13 +172,26 @@ export function AgentWorkbenchContent({
   }, [refreshPreview]);
 
   const registerPreviewClient = useCallback(() => {
-    if (!previewClientIdRef.current || !previewCapabilitiesRef.current) return;
+    if (!previewClientIdRef.current) return;
     sendCommand({
       type: 'preview.client.register',
       websiteId,
       payload: {
         previewClientId: previewClientIdRef.current,
-        capabilities: [...previewCapabilitiesRef.current],
+      },
+    });
+  }, [sendCommand, websiteId]);
+
+  const updatePreviewCapabilities = useCallback(() => {
+    if (!previewClientIdRef.current) return;
+    sendCommand({
+      type: 'preview.client.capabilities',
+      websiteId,
+      payload: {
+        previewClientId: previewClientIdRef.current,
+        ...(previewCapabilitiesRef.current
+          ? { capabilities: [...previewCapabilitiesRef.current] }
+          : {}),
       },
     });
   }, [sendCommand, websiteId]);
@@ -230,7 +243,7 @@ export function AgentWorkbenchContent({
     const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
       previewCapabilitiesRef.current = capabilities;
       setBridgeStatus('attached');
-      registerPreviewClient();
+      updatePreviewCapabilities();
       previewReadyRef.current?.resolve(client);
       previewReadyRef.current = null;
     });
@@ -238,6 +251,8 @@ export function AgentWorkbenchContent({
     return () => {
       client.dispose();
       if (previewClient.current === client) previewClient.current = null;
+      previewCapabilitiesRef.current = undefined;
+      updatePreviewCapabilities();
       const waiter = previewReadyRef.current;
       if (waiter) {
         window.clearTimeout(waiter.timer);
@@ -246,7 +261,7 @@ export function AgentWorkbenchContent({
       }
       setBridgeStatus('unavailable');
     };
-  }, [preview.status, preview.url, previewOpen, registerPreviewClient]);
+  }, [preview.status, preview.url, previewOpen, updatePreviewCapabilities]);
 
   // Load session list
   useEffect(() => {
@@ -593,10 +608,7 @@ function WorkspaceResizeHandle({
     const minimumsFit = availableWidth >= MIN_CHAT_WIDTH + MIN_PREVIEW_WIDTH;
     const rawChatWidth = clientX - container.getBoundingClientRect().left;
     const chatWidth = minimumsFit
-      ? Math.min(
-          Math.max(rawChatWidth, MIN_CHAT_WIDTH),
-          availableWidth - MIN_PREVIEW_WIDTH,
-        )
+      ? Math.min(Math.max(rawChatWidth, MIN_CHAT_WIDTH), availableWidth - MIN_PREVIEW_WIDTH)
       : Math.max(0, Math.min(rawChatWidth, availableWidth));
     onRatioChange(Math.min(0.8, Math.max(0.2, chatWidth / availableWidth)));
   };
