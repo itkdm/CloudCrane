@@ -142,6 +142,7 @@
     "collapseSessions": "Collapse conversation sidebar",
     "newSession": "New conversation",
     "newSessionTitle": "New conversation",
+    "noSessions": "No conversations",
     "openSession": "Open conversation: {title}",
     "today": "Today",
     "yesterday": "Yesterday",

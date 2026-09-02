@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
@@ -42,6 +42,29 @@ export function UnifiedSidebar({
   const t = useTranslations('navigation');
   const wt = useTranslations('workbench');
   const [collapsed, setCollapsed] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setExpandedGroups((current) => {
+      const next = { ...current };
+      for (const group of groupedSessions) {
+        if (!(group.websiteId in next)) next[group.websiteId] = true;
+      }
+      return next;
+    });
+  }, [groupedSessions]);
+
+  useEffect(() => {
+    const selectedGroup = groupedSessions.find((group) =>
+      group.sessions.some((session) => session.id === selectedSession),
+    );
+    if (!selectedGroup) return;
+    setExpandedGroups((current) => ({ ...current, [selectedGroup.websiteId]: true }));
+  }, [groupedSessions, selectedSession]);
+
+  function toggleGroup(websiteId: string) {
+    setExpandedGroups((current) => ({ ...current, [websiteId]: !current[websiteId] }));
+  }
 
   return (
     <aside className={`unified-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -107,69 +130,62 @@ export function UnifiedSidebar({
             </svg>
             <span>{t('templates')}</span>
           </button>
-          <button
-            className={`unified-sidebar-link ${view === 'conversations' ? 'active' : ''}`}
-            onClick={() => onViewChange('conversations')}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
-            <span>{wt('sessions')}</span>
-          </button>
         </nav>
 
-        {view === 'conversations' && (
-          <div className="unified-sidebar-sessions">
-            {groupedSessions.map((group) => (
+        <div className="unified-sidebar-sessions">
+          {groupedSessions.map((group) => {
+            const expanded = expandedGroups[group.websiteId] ?? true;
+            return (
               <div key={group.websiteId} className="session-group">
                 <div className="session-group-header">
-                  <span className="session-group-title">{group.websiteName}</span>
                   <button
+                    type="button"
+                    className="session-group-toggle"
+                    onClick={() => toggleGroup(group.websiteId)}
+                    aria-expanded={expanded}
+                    title={group.websiteName}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
+                    </svg>
+                    <span className="session-group-title">{group.websiteName}</span>
+                  </button>
+                  <button
+                    type="button"
                     className="session-new-button"
                     onClick={() => onNewSession(group.websiteId)}
                     title={wt('newSession')}
+                    aria-label={`${wt('newSession')}: ${group.websiteName}`}
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                   </button>
                 </div>
-                {group.sessions.length === 0 ? (
-                  <div className="session-empty">{wt('newSessionTitle')}</div>
-                ) : (
-                  <div className="session-list">
-                    {group.sessions.map((session) => (
-                      <button
-                        key={session.id}
-                        className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
-                        onClick={() => onSessionSelect(group.websiteId, session.id)}
-                      >
-                        <span className="session-title">
-                          {session.title || wt('newSessionTitle')}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {expanded ? (
+                  group.sessions.length === 0 ? (
+                    <div className="session-empty">{wt('noSessions')}</div>
+                  ) : (
+                    <div className="session-list">
+                      {group.sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
+                          onClick={() => onSessionSelect(group.websiteId, session.id)}
+                        >
+                          <span className="session-title">
+                            {session.title || wt('newSessionTitle')}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )
+                ) : null}
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
 
       <div className="unified-sidebar-footer">

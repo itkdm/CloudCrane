@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
 import { WebsitesView } from './components/websites-view';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
-import { ConversationsView } from './components/conversations-view';
 import { TemplatesView } from './components/templates-view';
 import './websites.css';
 
-export type WorkspaceView = 'websites' | 'templates' | 'conversations';
+export type WorkspaceView = 'websites' | 'templates';
 
 export type WorkspaceInitialState = {
   view?: WorkspaceView;
@@ -43,10 +43,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const t = useTranslations('websites');
   const [view, setView] = useState<WorkspaceView>(initialState?.view ?? 'websites');
   const [selectedWebsite, setSelectedWebsite] = useState<string | null>(
-    initialState?.view === 'conversations' ? (initialState.websiteId ?? null) : null,
+    initialState?.websiteId ?? null,
   );
   const [selectedSession, setSelectedSession] = useState<string | null>(
-    initialState?.view === 'conversations' ? (initialState.sessionId ?? null) : null,
+    initialState?.sessionId ?? null,
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -57,12 +57,20 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         const websitesRes = await fetch('/api/websites');
         if (!websitesRes.ok) throw new Error(t('loadError'));
         const websitesData = (await websitesRes.json()) as Website[];
-        const sessionsRes = await fetch('/api/sessions');
-        if (!sessionsRes.ok) throw new Error(t('loadError'));
-        const sessionsData = (await sessionsRes.json()) as Session[];
-
         setWebsites(websitesData);
-        setSessions(sessionsData);
+        const sessionResults = await Promise.allSettled(
+          websitesData.map(async (website) => {
+            const result = await listAgentSessions(website.id);
+            return result.sessions.map((session) => ({
+              ...session,
+              websiteId: website.id,
+              title: session.title ?? undefined,
+            }));
+          }),
+        );
+        setSessions(
+          sessionResults.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+        );
       } catch (error) {
         console.error('Failed to load data:', error);
       }
@@ -91,7 +99,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
-    setView('conversations');
+    setView('websites');
   }
 
   function handleViewChange(nextView: WorkspaceView) {
@@ -100,20 +108,20 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       setSelectedWebsite(null);
       setSelectedSession(null);
     }
-    if (nextView !== 'conversations') setCreateSessionRequest(0);
+    setCreateSessionRequest(0);
   }
 
   function handleSessionSelect(websiteId: string, sessionId: string) {
     setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(sessionId);
-    setView('conversations');
+    setView('websites');
   }
 
   function handleNewSession(websiteId: string) {
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
-    setView('conversations');
+    setView('websites');
     setCreateSessionRequest((current) => current + 1);
   }
 
@@ -150,9 +158,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onNewSession={handleNewSession}
       />
       <div className="unified-content">
-        {view === 'websites' ? (
-          <WebsitesView websites={websites} onWebsiteSelect={handleWebsiteSelect} />
-        ) : view === 'templates' ? (
+        {view === 'templates' ? (
           <TemplatesView />
         ) : selectedWebsite ? (
           <AgentWorkbenchContent
@@ -162,7 +168,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             createSessionRequest={createSessionRequest}
           />
         ) : (
-          <ConversationsView />
+          <WebsitesView websites={websites} onWebsiteSelect={handleWebsiteSelect} />
         )}
       </div>
     </div>

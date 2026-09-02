@@ -142,6 +142,7 @@
     "collapseSessions": "折叠对话侧栏",
     "newSession": "新建对话",
     "newSessionTitle": "新对话",
+    "noSessions": "暂无对话",
     "openSession": "打开对话：{title}",
     "today": "今天",
     "yesterday": "昨天",
