@@ -59,32 +59,44 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [createSessionRequest, setCreateSessionRequest] = useState(0);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [authorizationWebsiteId, setAuthorizationWebsiteId] = useState<string | null>(null);
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const websitesRes = await fetch('/api/websites');
-        if (!websitesRes.ok) throw new Error(t('loadError'));
-        const websitesData = (await websitesRes.json()) as Website[];
-        setWebsites(websitesData);
-        const sessionResults = await Promise.allSettled(
-          websitesData.map(async (website) => {
-            const result = await listAgentSessions(website.id);
-            return result.sessions.map((session) => ({
-              ...session,
-              websiteId: website.id,
-              title: session.title ?? undefined,
-            }));
-          }),
-        );
-        setSessions(
-          sessionResults.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
-        );
-      } catch (error) {
-        console.error('Failed to load data:', error);
-      }
+  const [websiteLoadState, setWebsiteLoadState] = useState<'loading' | 'success' | 'error'>(
+    'loading',
+  );
+  const [websiteLoadError, setWebsiteLoadError] = useState('');
+
+  const loadWebsites = useCallback(async () => {
+    setWebsiteLoadState('loading');
+    setWebsiteLoadError('');
+    try {
+      const websitesRes = await fetch('/api/websites');
+      if (!websitesRes.ok) throw new Error(t('loadError'));
+      const websitesData = (await websitesRes.json()) as Website[];
+      const sessionResults = await Promise.allSettled(
+        websitesData.map(async (website) => {
+          const result = await listAgentSessions(website.id);
+          return result.sessions.map((session) => ({
+            ...session,
+            websiteId: website.id,
+            title: session.title ?? undefined,
+          }));
+        }),
+      );
+      setWebsites(websitesData);
+      setSessions(
+        sessionResults.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+      );
+      setWebsiteLoadState('success');
+    } catch (error) {
+      setWebsites([]);
+      setSessions([]);
+      setWebsiteLoadError(error instanceof Error ? error.message : t('loadError'));
+      setWebsiteLoadState('error');
     }
-    void loadData();
   }, [t]);
+
+  useEffect(() => {
+    void loadWebsites();
+  }, [loadWebsites]);
 
   useEffect(() => {
     const query = new URLSearchParams();
@@ -215,6 +227,22 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       <div className="unified-content">
         {view === 'templates' ? (
           <TemplatesView />
+        ) : websiteLoadState === 'loading' ? (
+          <main className="workspace-empty-state">
+            <div className="workspace-empty-state-inner">
+              <h1>{t('loading')}</h1>
+            </div>
+          </main>
+        ) : websiteLoadState === 'error' ? (
+          <main className="workspace-empty-state">
+            <div className="workspace-empty-state-inner">
+              <h1>{t('loadError')}</h1>
+              <p>{websiteLoadError}</p>
+              <button className="primary-button" type="button" onClick={() => void loadWebsites()}>
+                {t('retry')}
+              </button>
+            </div>
+          </main>
         ) : selectedWebsite ? (
           <AgentWorkbenchContent
             websiteId={selectedWebsite}
@@ -256,11 +284,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         )}
       </div>
       <WebsiteCreateDialog
+        key={createWebsiteOpen ? 'open' : 'closed'}
         open={createWebsiteOpen}
         onClose={() => setCreateWebsiteOpen(false)}
         onCreated={handleWebsiteCreated}
       />
       <WebsiteAuthorizationDialog
+        key={authorizationWebsiteId ?? 'closed'}
         website={authorizationWebsite}
         onClose={() => setAuthorizationWebsiteId(null)}
         onAuthorized={handleAuthorizationComplete}

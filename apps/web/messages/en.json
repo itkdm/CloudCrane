@@ -83,6 +83,7 @@
     "loading": "Loading websites…",
     "empty": "No websites yet. Create your first website.",
     "loadError": "Could not load websites",
+    "retry": "Retry",
     "createError": "Could not create website",
     "authorizationSuccess": "PbootCMS authorization verified. The website is ready.",
     "authorizationSetup": "Set up authorization",

@@ -83,6 +83,7 @@
     "loading": "正在加载网站…",
     "empty": "还没有网站，创建你的第一个网站。",
     "loadError": "网站列表加载失败",
+    "retry": "重试",
     "createError": "创建网站失败",
     "authorizationSuccess": "PbootCMS 授权已验证，网站环境已准备。",
     "authorizationSetup": "配置授权",

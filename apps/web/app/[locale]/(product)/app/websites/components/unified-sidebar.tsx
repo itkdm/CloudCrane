@@ -215,7 +215,9 @@ export function UnifiedSidebar({
                         <path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 4.4 11H4.2a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.8 3.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.2V2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 23.6 10h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-1.4 3.4Z" />
                       </svg>
                     </button>
-                  ) : null}
+                  ) : (
+                    <span className="session-settings-placeholder" aria-hidden="true" />
+                  )}
                   <button
                     type="button"
                     className="session-new-button"

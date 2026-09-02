@@ -588,6 +588,11 @@ button:disabled {
   transition: all 180ms ease;
   flex-shrink: 0;
 }
+.session-settings-placeholder {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
 .session-group-header:hover .session-new-button,
 .session-group-header:focus-within .session-new-button,
 .session-group-header:hover .session-settings-button,
