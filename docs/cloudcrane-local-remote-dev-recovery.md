@@ -49,6 +49,40 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
    $env:PREVIEW_COOKIE_SECURE = 'true'
    ```
 
+### 本地 Web 与正式 Preview 地址的边界
+
+`localhost:3000` 只是本地 Web 的访问地址，不代表 Website Preview 也应该使用
+`localhost`。当本地 Web 通过 SSH 隧道连接 ECS 的数据库、Agent Service、Workspace
+Gateway 和 Preview Gateway 时，Preview 仍应使用正式的 canonical host：
+
+```powershell
+$env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://site-{websiteId}.preview.itkdm.com/'
+$env:PREVIEW_HOST_SUFFIXES = 'preview.itkdm.com,localhost'
+$env:PREVIEW_PUBLIC_PROTOCOL = 'https'
+$env:PREVIEW_COOKIE_SECURE = 'true'
+```
+
+`.env.example` 中的 `site-{websiteId}.localhost` 仅用于完全本地的 Preview Gateway
+开发场景。它不能作为“本地 Web + ECS 远程 Preview”模式的配置，否则设置页会显示
+错误的 localhost 预览地址，并可能与正式 DNS、TLS 及授权 Cookie 行为不一致。
+
+Preview 地址相关环境变量在 Web 进程启动时读取。修改后必须重启 Web，再刷新页面并
+在 Website Settings 中确认地址；不要只刷新浏览器页面。
+
+### 远程服务凭据的最小检查
+
+本地 Web 使用 ECS 的 Workspace Gateway 时，除了将 `DATABASE_URL` 指向 SSH 隧道端口，
+还必须向当前进程提供与 ECS 私密环境一致的 `WORKSPACE_GATEWAY_CLIENT_TOKEN`。
+缺少该 token 时，ECS 健康检查仍可能全部正常，但创建 Website 会在 Web → Workspace
+Gateway 鉴权处失败并表现为 `502` 或 `provisioning_failed`。排查时只检查变量是否存在，
+不要回显 token、数据库密码或完整连接字符串。
+
+### Preview 直连返回 401 的含义
+
+对 canonical Preview host 直接发起请求时，如果尚未完成 Preview 授权会话，返回
+`401 Unauthorized` 可以是预期结果。这说明请求已到达 Preview Gateway；应继续检查
+Preview Cookie / PbootCMS 授权流程，不要因此把地址改回 localhost、绕过授权或重建数据库。
+
 4. 用当前项目的镜像依赖启动：
 
    ```powershell
