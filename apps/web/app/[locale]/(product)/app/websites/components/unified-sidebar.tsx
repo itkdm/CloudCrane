@@ -46,11 +46,14 @@ export function UnifiedSidebar({
 
   useEffect(() => {
     setExpandedGroups((current) => {
-      const next = { ...current };
+      let next: Record<string, boolean> | undefined;
       for (const group of groupedSessions) {
-        if (!(group.websiteId in next)) next[group.websiteId] = true;
+        if (!(group.websiteId in current)) {
+          next ??= { ...current };
+          next[group.websiteId] = true;
+        }
       }
-      return next;
+      return next ?? current;
     });
   }, [groupedSessions]);
 
@@ -59,7 +62,11 @@ export function UnifiedSidebar({
       group.sessions.some((session) => session.id === selectedSession),
     );
     if (!selectedGroup) return;
-    setExpandedGroups((current) => ({ ...current, [selectedGroup.websiteId]: true }));
+    setExpandedGroups((current) =>
+      current[selectedGroup.websiteId] === true
+        ? current
+        : { ...current, [selectedGroup.websiteId]: true },
+    );
   }, [groupedSessions, selectedSession]);
 
   function toggleGroup(websiteId: string) {
@@ -145,7 +152,14 @@ export function UnifiedSidebar({
                     aria-expanded={expanded}
                     title={group.websiteName}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
                     </svg>
                     <span className="session-group-title">{group.websiteName}</span>
@@ -157,7 +171,14 @@ export function UnifiedSidebar({
                     title={wt('newSession')}
                     aria-label={`${wt('newSession')}: ${group.websiteName}`}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>

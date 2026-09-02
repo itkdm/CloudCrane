@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
@@ -32,6 +32,15 @@ type Session = {
   createdAt: string;
   updatedAt: string;
 };
+
+type SessionChange =
+  | string
+  | {
+      id: string;
+      title?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    };
 
 type GroupedSessions = {
   websiteId: string;
@@ -87,13 +96,17 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     window.history.replaceState(null, '', nextUrl);
   }, [view, selectedWebsite, selectedSession]);
 
-  const groupedSessions: GroupedSessions[] = websites.map((website) => ({
-    websiteId: website.id,
-    websiteName: website.name,
-    sessions: sessions
-      .filter((s) => s.websiteId === website.id)
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-  }));
+  const groupedSessions = useMemo<GroupedSessions[]>(
+    () =>
+      websites.map((website) => ({
+        websiteId: website.id,
+        websiteName: website.name,
+        sessions: sessions
+          .filter((s) => s.websiteId === website.id)
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
+      })),
+    [sessions, websites],
+  );
 
   function handleWebsiteSelect(websiteId: string) {
     setCreateSessionRequest(0);
@@ -126,20 +139,30 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }
 
   const handleSessionChange = useCallback(
-    (newSessionId: string) => {
+    (change: SessionChange) => {
+      const metadata = typeof change === 'string' ? { id: change } : change;
       setCreateSessionRequest(0);
-      setSelectedSession(newSessionId);
+      setSelectedSession(metadata.id);
       setSessions((current) =>
-        current.some((s) => s.id === newSessionId)
-          ? current
+        current.some((s) => s.id === metadata.id)
+          ? current.map((session) =>
+              session.id === metadata.id
+                ? {
+                    ...session,
+                    ...(metadata.title !== undefined ? { title: metadata.title ?? undefined } : {}),
+                    ...(metadata.createdAt ? { createdAt: metadata.createdAt } : {}),
+                    ...(metadata.updatedAt ? { updatedAt: metadata.updatedAt } : {}),
+                  }
+                : session,
+            )
           : [
               ...current,
               {
-                id: newSessionId,
+                id: metadata.id,
                 websiteId: selectedWebsite ?? '',
-                title: '',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                title: metadata.title ?? '',
+                createdAt: metadata.createdAt ?? new Date().toISOString(),
+                updatedAt: metadata.updatedAt ?? new Date().toISOString(),
               },
             ],
       );

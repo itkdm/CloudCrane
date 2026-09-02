@@ -28,6 +28,15 @@ import type {
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/types';
 import '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/agent-workbench.css';
 
+type SessionChange =
+  | string
+  | {
+      id: string;
+      title?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    };
+
 // Simplified workbench without SessionSidebar (managed by UnifiedSidebar)
 export function AgentWorkbenchContent({
   websiteId,
@@ -37,7 +46,7 @@ export function AgentWorkbenchContent({
 }: {
   websiteId: string;
   sessionId?: string;
-  onSessionChange?: (sessionId: string) => void;
+  onSessionChange?: (change: SessionChange) => void;
   createSessionRequest?: number;
 }) {
   const t = useTranslations('workbench');
@@ -111,17 +120,19 @@ export function AgentWorkbenchContent({
 
   const loadPreviewUrl = useCallback(async () => {
     if (previewUrlPromiseRef.current) return previewUrlPromiseRef.current;
-    const promise = getPreviewUrl(websiteId).then(({ url }) => {
-      setPreview({ status: 'ready', url });
-      return url;
-    }).catch((cause) => {
-      const message = cause instanceof Error ? cause.message : t('unavailablePreview');
-      setPreview({
-        status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
-        message,
+    const promise = getPreviewUrl(websiteId)
+      .then(({ url }) => {
+        setPreview({ status: 'ready', url });
+        return url;
+      })
+      .catch((cause) => {
+        const message = cause instanceof Error ? cause.message : t('unavailablePreview');
+        setPreview({
+          status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
+          message,
+        });
+        throw cause;
       });
-      throw cause;
-    });
     previewUrlPromiseRef.current = promise;
     return promise;
   }, [t, websiteId]);
@@ -219,7 +230,12 @@ export function AgentWorkbenchContent({
           const next = [...result.sessions, created.session];
           setSessions(next);
           setCurrentSessionId(created.session.id);
-          onSessionChange?.(created.session.id);
+          onSessionChange?.({
+            id: created.session.id,
+            title: created.session.title,
+            createdAt: created.session.createdAt,
+            updatedAt: created.session.updatedAt,
+          });
         } else {
           let next = result.sessions;
           if (next.length === 0) next = [(await createAgentSession(websiteId)).session];
@@ -228,7 +244,13 @@ export function AgentWorkbenchContent({
             const firstSessionId = next[0]?.id;
             if (firstSessionId) {
               setCurrentSessionId(firstSessionId);
-              onSessionChange?.(firstSessionId);
+              const firstSession = next[0];
+              onSessionChange?.({
+                id: firstSessionId,
+                title: firstSession?.title,
+                createdAt: firstSession?.createdAt,
+                updatedAt: firstSession?.updatedAt,
+              });
             }
           }
         }
@@ -367,6 +389,12 @@ export function AgentWorkbenchContent({
                 )
               : [nextSession, ...current];
           });
+          onSessionChange?.({
+            id: nextSession.id,
+            title: nextSession.title,
+            createdAt: nextSession.createdAt,
+            updatedAt: nextSession.updatedAt,
+          });
         }
 
         // Handle preview requests
@@ -410,6 +438,10 @@ export function AgentWorkbenchContent({
                   : session,
               ),
             );
+            onSessionChange?.({
+              id: pendingTitle.sessionId,
+              title: pendingTitle.title,
+            });
           }
         }
 
@@ -524,7 +556,10 @@ function createPreviewReadyWaiter(): PreviewReadyWaiter {
     resolvePromise = resolve;
     rejectPromise = reject;
   });
-  const timer = window.setTimeout(() => rejectPromise(new Error('Preview Client timed out')), 8_000);
+  const timer = window.setTimeout(
+    () => rejectPromise(new Error('Preview Client timed out')),
+    8_000,
+  );
   return {
     promise,
     resolve: (client) => {
