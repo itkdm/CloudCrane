@@ -641,7 +641,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 18px 18px 14px;
+  padding: 10px 12px;
   border-left: 1px solid var(--cc-line);
   background: #fafcfb;
 }
@@ -649,10 +649,10 @@
 .preview-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 2px 2px 14px;
+  gap: 12px;
+  padding: 0 0 8px;
 }
 
 .preview-header > div:first-child {
@@ -660,6 +660,7 @@
 }
 
 .preview-title-row {
+  min-width: 0;
   gap: 10px;
 }
 
@@ -693,8 +694,10 @@
 }
 
 .preview-path {
-  display: block;
-  margin-top: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--cc-faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
@@ -713,6 +716,10 @@
   height: 29px;
 }
 
+.preview-actions > button {
+  border-radius: 6px;
+}
+
 .preview-actions button:disabled {
   opacity: 0.35;
 }
@@ -720,16 +727,19 @@
 .preview-viewport-controls {
   display: flex;
   align-items: center;
-  gap: 3px;
-  margin-right: 5px;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--cc-line);
+  border-radius: 7px;
+  background: var(--cc-subtle);
   white-space: nowrap;
 }
 
 .preview-viewport-controls button {
   width: auto;
   height: 27px;
-  border: 1px solid var(--cc-line);
-  border-radius: 6px;
+  border: 0;
+  border-radius: 0;
   padding: 0 7px;
   color: var(--cc-muted);
   font-size: 10px;
@@ -741,18 +751,26 @@
   color: var(--cc-accent-dark);
 }
 
+.preview-viewport-tools {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 5px;
+  min-width: 0;
+}
 .preview-viewport-meta {
   color: var(--cc-faint);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
 .preview-stage {
   min-height: 0;
   overflow: hidden;
-  border: 1px solid #dfe7e3;
-  background: #f3f6f5;
+  border: 1px solid var(--cc-line);
+  border-radius: 7px;
+  background: var(--cc-subtle);
 }
 
 .preview-canvas {
@@ -762,7 +780,7 @@
   display: grid;
   align-content: start;
   justify-items: center;
-  padding-top: 16px;
+  padding-top: 7px;
   overflow: hidden;
 }
 
@@ -770,7 +788,8 @@
   flex: 0 0 auto;
   overflow: hidden;
   background: white;
-  box-shadow: 0 10px 30px rgb(22 54 46 / 12%);
+  border-radius: 6px;
+  box-shadow: none;
 }
 
 .preview-viewport-inner {
