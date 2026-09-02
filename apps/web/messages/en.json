@@ -16,14 +16,15 @@
     "websites": "Websites",
     "startBuilding": "Start building",
     "language": "Language",
-    "backToWebsites": "Websites"
+    "backToWebsites": "Websites",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "marketing": {
-    "eyebrow": "AI website engineer",
-    "title": "Build and update real websites with AI",
-    "lede": "Describe what you want to change. CloudCrane reads real code, works inside a persistent workspace, and verifies the result in a live preview.",
+    "eyebrow": "Template · AI Customization · GEO · Growth",
+    "title": "From template to AI-driven growth",
+    "lede": "Start fast with curated templates, let AI handle personalization, and continuously optimize SEO, GEO, and content.",
     "cta": "Start building",
-    "workflowLink": "See how it works",
     "visualLabel": "CloudCrane workspace with conversation and live preview",
     "visualConversation": "Conversation",
     "visualPrompt": "Update the navigation colors on the homepage.",

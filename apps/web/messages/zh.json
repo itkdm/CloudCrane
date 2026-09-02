@@ -16,14 +16,15 @@
     "websites": "网站",
     "startBuilding": "开始构建",
     "language": "语言",
-    "backToWebsites": "网站"
+    "backToWebsites": "网站",
+    "collapse": "收起",
+    "expand": "展开"
   },
   "marketing": {
-    "eyebrow": "AI 网站工程师",
-    "title": "用 AI 构建并持续修改真实网站",
-    "lede": "描述你想修改什么，筑云鹤会读取真实代码，在独立工作区中完成修改，并在实时预览中验证结果。",
+    "eyebrow": "模板建站 · AI 定制 · GEO · 持续增长",
+    "title": "从模板建站，到 AI 驱动增长",
+    "lede": "精选模板快速起站，AI 完成个性化定制，并持续优化 SEO、GEO 与网站内容。",
     "cta": "开始构建",
-    "workflowLink": "查看工作方式",
     "visualLabel": "筑云鹤工作区对话与实时预览",
     "visualConversation": "对话",
     "visualPrompt": "修改首页导航栏的配色。",
