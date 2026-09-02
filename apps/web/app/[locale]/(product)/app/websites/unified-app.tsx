@@ -50,6 +50,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [createSessionRequest, setCreateSessionRequest] = useState(0);
   useEffect(() => {
     async function loadData() {
       try {
@@ -87,6 +88,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }));
 
   function handleWebsiteSelect(websiteId: string) {
+    setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
     setView('conversations');
@@ -98,9 +100,11 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       setSelectedWebsite(null);
       setSelectedSession(null);
     }
+    if (nextView !== 'conversations') setCreateSessionRequest(0);
   }
 
   function handleSessionSelect(websiteId: string, sessionId: string) {
+    setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(sessionId);
     setView('conversations');
@@ -110,10 +114,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
     setView('conversations');
+    setCreateSessionRequest((current) => current + 1);
   }
 
   const handleSessionChange = useCallback(
     (newSessionId: string) => {
+      setCreateSessionRequest(0);
       setSelectedSession(newSessionId);
       setSessions((current) =>
         current.some((s) => s.id === newSessionId)
@@ -153,6 +159,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             websiteId={selectedWebsite}
             sessionId={selectedSession || undefined}
             onSessionChange={handleSessionChange}
+            createSessionRequest={createSessionRequest}
           />
         ) : (
           <ConversationsView />

@@ -90,7 +90,7 @@ export function UnifiedSidebar({
           <button
             type="button"
             onClick={() => onViewChange('templates')}
-            className="unified-sidebar-link"
+            className={`unified-sidebar-link ${view === 'templates' ? 'active' : ''}`}
           >
             <svg
               width="16"

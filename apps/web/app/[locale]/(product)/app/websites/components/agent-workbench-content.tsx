@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { AgentEnvelope, AgentEvent } from '@cloudcrane/agent-protocol';
+import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
 import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
@@ -33,10 +33,12 @@ export function AgentWorkbenchContent({
   websiteId,
   sessionId,
   onSessionChange,
+  createSessionRequest = 0,
 }: {
   websiteId: string;
   sessionId?: string;
   onSessionChange?: (sessionId: string) => void;
+  createSessionRequest?: number;
 }) {
   const t = useTranslations('workbench');
   const [conversation, dispatchConversation] = useReducer(
@@ -59,14 +61,24 @@ export function AgentWorkbenchContent({
   const socket = useRef<WebSocket | null>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const previewClient = useRef<PreviewBridgeClient | null>(null);
+  const previewClientIdRef = useRef<string | undefined>(undefined);
+  const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const pendingConversationQueue = useRef<ConversationEvent[]>([]);
   const activeRunRef = useRef<string | undefined>(undefined);
+  const conversationRafRef = useRef<number | undefined>(undefined);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
+  const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const previewUrlPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
 
   activeRunRef.current = runId;
 
   const flushConversation = useCallback(() => {
+    if (conversationRafRef.current !== undefined) {
+      window.cancelAnimationFrame(conversationRafRef.current);
+      conversationRafRef.current = undefined;
+    }
     const queue = pendingConversationQueue.current;
     if (queue.length === 0) return;
     const batch = queue.splice(0, queue.length);
@@ -76,10 +88,20 @@ export function AgentWorkbenchContent({
   const queueConversation = useCallback(
     (event: ConversationEvent, immediate = false) => {
       pendingConversationQueue.current.push(event);
-      if (immediate) flushConversation();
+      if (immediate) {
+        flushConversation();
+        return;
+      }
+      if (conversationRafRef.current === undefined)
+        conversationRafRef.current = window.requestAnimationFrame(flushConversation);
     },
     [flushConversation],
   );
+
+  const setRunIdState = useCallback((value: string | undefined) => {
+    activeRunRef.current = value;
+    setRunId(value);
+  }, []);
 
   const sendCommand = useCallback((input: Parameters<typeof command>[0], requestId?: string) => {
     const next = command(input);
@@ -92,10 +114,17 @@ export function AgentWorkbenchContent({
     const promise = getPreviewUrl(websiteId).then(({ url }) => {
       setPreview({ status: 'ready', url });
       return url;
+    }).catch((cause) => {
+      const message = cause instanceof Error ? cause.message : t('unavailablePreview');
+      setPreview({
+        status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
+        message,
+      });
+      throw cause;
     });
     previewUrlPromiseRef.current = promise;
     return promise;
-  }, [websiteId]);
+  }, [t, websiteId]);
 
   const refreshPreview = useCallback(() => {
     if (previewClient.current)
@@ -107,6 +136,37 @@ export function AgentWorkbenchContent({
     else setPreviewKey((current) => current + 1);
   }, [t]);
 
+  const schedulePreviewRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(refreshPreview, 300);
+  }, [refreshPreview]);
+
+  const registerPreviewClient = useCallback(() => {
+    if (!previewClientIdRef.current || !previewCapabilitiesRef.current) return;
+    sendCommand({
+      type: 'preview.client.register',
+      websiteId,
+      payload: {
+        previewClientId: previewClientIdRef.current,
+        capabilities: [...previewCapabilitiesRef.current],
+      },
+    });
+  }, [sendCommand, websiteId]);
+
+  const ensurePreviewReady = useCallback(async () => {
+    setPreviewOpen(true);
+    if (previewClient.current) return previewClient.current;
+    if (preview.status !== 'ready' || !preview.url) await loadPreviewUrl();
+    if (!previewReadyRef.current) {
+      const waiter = createPreviewReadyWaiter();
+      previewReadyRef.current = waiter;
+      void waiter.promise.catch(() => {
+        if (previewReadyRef.current === waiter) previewReadyRef.current = null;
+      });
+    }
+    return previewReadyRef.current.promise;
+  }, [loadPreviewUrl, preview.status, preview.url]);
+
   useEffect(() => {
     loadPreviewUrl()
       .then((url) => setPreview((current) => ({ ...current, url })))
@@ -116,6 +176,36 @@ export function AgentWorkbenchContent({
     };
   }, [loadPreviewUrl]);
 
+  useEffect(() => {
+    const key = `cloudcrane.previewClientId.${websiteId}`;
+    const stored = sessionStorage.getItem(key) ?? crypto.randomUUID();
+    sessionStorage.setItem(key, stored);
+    previewClientIdRef.current = stored;
+  }, [websiteId]);
+
+  useEffect(() => {
+    if (!previewOpen || preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
+    const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
+      previewCapabilitiesRef.current = capabilities;
+      setBridgeStatus('attached');
+      registerPreviewClient();
+      previewReadyRef.current?.resolve(client);
+      previewReadyRef.current = null;
+    });
+    previewClient.current = client;
+    return () => {
+      client.dispose();
+      if (previewClient.current === client) previewClient.current = null;
+      const waiter = previewReadyRef.current;
+      if (waiter) {
+        window.clearTimeout(waiter.timer);
+        waiter.reject(new Error('Preview Client was closed'));
+        previewReadyRef.current = null;
+      }
+      setBridgeStatus('unavailable');
+    };
+  }, [preview.status, preview.url, previewOpen, registerPreviewClient]);
+
   // Load session list
   useEffect(() => {
     let cancelled = false;
@@ -123,14 +213,23 @@ export function AgentWorkbenchContent({
       try {
         const result = await listAgentSessions(websiteId);
         if (cancelled) return;
-        let next = result.sessions;
-        if (next.length === 0) next = [(await createAgentSession(websiteId)).session];
-        setSessions(next);
-        if (!sessionId) {
-          const firstSessionId = next[0]?.id;
-          if (firstSessionId) {
-            setCurrentSessionId(firstSessionId);
-            onSessionChange?.(firstSessionId);
+        if (createSessionRequest > 0) {
+          const created = await createAgentSession(websiteId);
+          if (cancelled) return;
+          const next = [...result.sessions, created.session];
+          setSessions(next);
+          setCurrentSessionId(created.session.id);
+          onSessionChange?.(created.session.id);
+        } else {
+          let next = result.sessions;
+          if (next.length === 0) next = [(await createAgentSession(websiteId)).session];
+          setSessions(next);
+          if (!sessionId) {
+            const firstSessionId = next[0]?.id;
+            if (firstSessionId) {
+              setCurrentSessionId(firstSessionId);
+              onSessionChange?.(firstSessionId);
+            }
           }
         }
       } catch (cause) {
@@ -141,18 +240,18 @@ export function AgentWorkbenchContent({
       cancelled = true;
       socket.current?.close();
     };
-  }, [websiteId, sessionId, onSessionChange, t]);
+  }, [createSessionRequest, websiteId, sessionId, onSessionChange, t]);
 
   // Listen to external sessionId changes
   useEffect(() => {
-    if (sessionId && sessionId !== currentSessionId) {
+    if (sessionId !== currentSessionId) {
       flushConversation();
       queueConversation({ type: 'session.snapshot', payload: { messages: [] } }, true);
-      setRunId(undefined);
+      setRunIdState(undefined);
       setError(undefined);
       setCurrentSessionId(sessionId);
     }
-  }, [sessionId, currentSessionId, flushConversation]);
+  }, [sessionId, currentSessionId, flushConversation, queueConversation, setRunIdState]);
 
   function submit() {
     const text = draft.trim();
@@ -197,31 +296,18 @@ export function AgentWorkbenchContent({
   };
 
   const requestPreview = useCallback(
-    async (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
-      const client = previewClient.current;
-      if (!client)
-        throw new PreviewBridgeClientError('PREVIEW_PROTOCOL_ERROR', 'Preview Client unavailable');
-      return handlePreviewRequest(client, payload);
+    (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
+      const operation = previewOperationRef.current.then(async () => {
+        const client = await ensurePreviewReady();
+        const response = await handlePreviewRequest(client, payload);
+        if (response.ok) setPreview((current) => ({ ...current, path: response.observation.path }));
+        return response;
+      });
+      previewOperationRef.current = operation.catch(() => undefined);
+      return operation;
     },
-    [],
+    [ensurePreviewReady],
   );
-
-  const schedulePreviewRefresh = useCallback(() => {
-    refreshPreview();
-  }, [refreshPreview]);
-
-  useEffect(() => {
-    if (!previewOpen || preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
-    const client = new PreviewBridgeClient(previewFrame.current, preview.url, () => {
-      setBridgeStatus('attached');
-    });
-    previewClient.current = client;
-    return () => {
-      client.dispose();
-      if (previewClient.current === client) previewClient.current = null;
-      setBridgeStatus('unavailable');
-    };
-  }, [previewOpen, preview.status, preview.url]);
 
   // Handle WebSocket events
   useEffect(() => {
@@ -241,6 +327,7 @@ export function AgentWorkbenchContent({
           websiteId,
           payload: { sessionId: currentSessionId },
         });
+        registerPreviewClient();
       };
 
       ws.onclose = () => {
@@ -270,6 +357,18 @@ export function AgentWorkbenchContent({
         )
           return;
 
+        if (projected.event.type === 'session.snapshot') {
+          const nextSession = projected.event.payload.session;
+          setSessions((current) => {
+            const existing = current.some((session) => session.id === nextSession.id);
+            return existing
+              ? current.map((session) =>
+                  session.id === nextSession.id ? { ...session, ...nextSession } : session,
+                )
+              : [nextSession, ...current];
+          });
+        }
+
         // Handle preview requests
         if (projected.event.type === 'preview.request') {
           void requestPreview(projected.event.payload)
@@ -288,10 +387,7 @@ export function AgentWorkbenchContent({
                   payload: {
                     ok: false,
                     error: {
-                      code:
-                        cause instanceof PreviewBridgeClientError
-                          ? cause.code
-                          : 'PREVIEW_PROTOCOL_ERROR',
+                      code: previewErrorCode(cause),
                       message: cause instanceof Error ? cause.message : 'Preview request failed',
                     },
                   },
@@ -321,20 +417,12 @@ export function AgentWorkbenchContent({
           pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
         }
 
-        if (projected.event.type === 'run.started') {
-          setRunId(projected.envelope.runId);
-        }
-
-        if (projected.event.type === 'run.settled') {
-          setRunId(undefined);
-        }
-
         handleEvent(
           projected.event,
           projected.envelope,
           queueConversation,
           flushConversation,
-          setRunId,
+          setRunIdState,
           setError,
           schedulePreviewRefresh,
         );
@@ -353,10 +441,12 @@ export function AgentWorkbenchContent({
     websiteId,
     currentSessionId,
     sendCommand,
+    registerPreviewClient,
     requestPreview,
     queueConversation,
     flushConversation,
     schedulePreviewRefresh,
+    setRunIdState,
     t,
   ]);
 
@@ -404,6 +494,49 @@ async function handlePreviewRequest(
   if (request.operation === 'refresh')
     return { ok: true as const, observation: await client.refresh() };
   return { ok: true as const, observation: await client.navigate(request.path) };
+}
+
+function previewErrorCode(
+  cause: unknown,
+):
+  | 'CLIENT_UNAVAILABLE'
+  | 'CLIENT_PREVIEW_TIMEOUT'
+  | 'PREVIEW_CAPABILITY_UNAVAILABLE'
+  | 'PREVIEW_PROTOCOL_ERROR'
+  | 'INVALID_ARGUMENT' {
+  if (cause instanceof PreviewBridgeClientError) return cause.code;
+  if (cause instanceof Error && /timed out|not ready|closed/i.test(cause.message))
+    return /timed out/i.test(cause.message) ? 'CLIENT_PREVIEW_TIMEOUT' : 'CLIENT_UNAVAILABLE';
+  return 'PREVIEW_PROTOCOL_ERROR';
+}
+
+type PreviewReadyWaiter = {
+  promise: Promise<PreviewBridgeClient>;
+  resolve: (client: PreviewBridgeClient) => void;
+  reject: (cause: Error) => void;
+  timer: number;
+};
+
+function createPreviewReadyWaiter(): PreviewReadyWaiter {
+  let resolvePromise!: (client: PreviewBridgeClient) => void;
+  let rejectPromise!: (cause: Error) => void;
+  const promise = new Promise<PreviewBridgeClient>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  const timer = window.setTimeout(() => rejectPromise(new Error('Preview Client timed out')), 8_000);
+  return {
+    promise,
+    resolve: (client) => {
+      window.clearTimeout(timer);
+      resolvePromise(client);
+    },
+    reject: (cause) => {
+      window.clearTimeout(timer);
+      rejectPromise(cause);
+    },
+    timer,
+  };
 }
 
 function handleEvent(
