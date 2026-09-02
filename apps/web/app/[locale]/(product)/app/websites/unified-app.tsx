@@ -37,6 +37,10 @@ type SessionChange =
       updatedAt?: string;
     };
 
+function canEnterWorkspace(website: Website | undefined): website is Website {
+  return website?.status === 'ready';
+}
+
 type GroupedSessions = {
   websiteId: string;
   websiteName: string;
@@ -130,6 +134,11 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }
 
   function handleSessionSelect(websiteId: string, sessionId: string) {
+    const website = websites.find((item) => item.id === websiteId);
+    if (!canEnterWorkspace(website)) {
+      handleAuthorizeWebsite(websiteId);
+      return;
+    }
     setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(sessionId);
@@ -137,6 +146,11 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }
 
   function handleNewSession(websiteId: string) {
+    const website = websites.find((item) => item.id === websiteId);
+    if (!canEnterWorkspace(website)) {
+      handleAuthorizeWebsite(websiteId);
+      return;
+    }
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
     setView('websites');
@@ -164,7 +178,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
 
   function handleAuthorizeWebsite(websiteId: string) {
     setSettingsWebsiteId(websiteId);
-    setPendingFirstSessionWebsiteId(null);
   }
 
   function handleAuthorizationComplete() {
@@ -176,8 +189,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         website.id === websiteId ? { ...website, status: 'ready' } : website,
       ),
     );
-    setPendingFirstSessionWebsiteId(null);
     if (isFirstSessionPending) {
+      setPendingFirstSessionWebsiteId(null);
       setSettingsWebsiteId(null);
       setSelectedWebsite(websiteId);
       setSelectedSession(null);
@@ -303,7 +316,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         website={settingsWebsite}
         onClose={() => {
           setSettingsWebsiteId(null);
-          setPendingFirstSessionWebsiteId(null);
         }}
         onAuthorized={handleAuthorizationComplete}
       />
