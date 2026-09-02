@@ -1,4 +1,4 @@
-import { AlertTriangle, ExternalLink, Eye, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, ExternalLink, LoaderCircle, RefreshCw, X } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useTranslations } from 'next-intl';
 import {
@@ -18,7 +18,7 @@ export type PreviewPaneProps = {
   onRefresh: () => void;
   /** Opens the preview in a separate browser window (legacy prop semantics). */
   onOpen: () => void;
-  /** Opens the preview panel and mounts the iframe. */
+  /** Opens the preview panel in the legacy Workbench caller. */
   onOpenPanel?: () => void;
   /** Closes the panel and allows the parent to dispose the bridge. */
   onClose?: () => void;
@@ -39,7 +39,6 @@ export function PreviewPane({
   bridgeStatus,
   onRefresh,
   onOpen,
-  onOpenPanel,
   onClose,
   currentPath,
   currentUrl,
@@ -81,20 +80,7 @@ export function PreviewPane({
   }, [open]);
 
   if (open === false) {
-    return (
-      <aside className="preview-pane preview-pane-closed" aria-label={t('previewClosed')}>
-        <button
-          type="button"
-          className="new-session-button preview-open-button"
-          onClick={onOpenPanel ?? onOpen}
-          aria-label={t('openPreview')}
-          title={t('openPreview')}
-        >
-          <Eye size={17} aria-hidden="true" />
-          <span>{t('preview')}</span>
-        </button>
-      </aside>
-    );
+    return null;
   }
 
   return (

@@ -27,6 +27,7 @@ import type {
   Session,
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/types';
 import '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/agent-workbench.css';
+import './unified-agent-workbench.css';
 
 type SessionChange =
   | string
@@ -498,6 +499,8 @@ export function AgentWorkbenchContent({
           onStop={stop}
           onDismissError={() => setError(undefined)}
           onExample={setDraft}
+          previewOpen={previewOpen}
+          onPreviewToggle={() => setPreviewOpen((current) => !current)}
         />
         <PreviewPane
           preview={preview}
@@ -506,7 +509,6 @@ export function AgentWorkbenchContent({
           frameRef={previewFrame}
           bridgeStatus={bridgeStatus}
           onClose={() => setPreviewOpen(false)}
-          onOpenPanel={() => setPreviewOpen(true)}
           onRefresh={refreshPreview}
           onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
           previewViewportMode={previewViewportMode}

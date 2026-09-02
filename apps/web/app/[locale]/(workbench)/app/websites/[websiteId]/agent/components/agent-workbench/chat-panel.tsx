@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Eye } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
@@ -15,6 +15,8 @@ type ChatPanelProps = {
   onStop: () => void;
   onDismissError: () => void;
   onExample: (value: string) => void;
+  previewOpen?: boolean;
+  onPreviewToggle?: () => void;
 };
 
 export function ChatPanel({
@@ -28,10 +30,27 @@ export function ChatPanel({
   onStop,
   onDismissError,
   onExample,
+  previewOpen,
+  onPreviewToggle,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   return (
     <section className="chat-panel" aria-label={t('chat')}>
+      {onPreviewToggle ? (
+        <div className="chat-toolbar">
+          <button
+            type="button"
+            className={`preview-toggle-button ${previewOpen ? 'active' : ''}`}
+            onClick={onPreviewToggle}
+            aria-label={previewOpen ? t('closePreview') : t('openPreview')}
+            aria-pressed={previewOpen}
+            title={previewOpen ? t('closePreview') : t('openPreview')}
+          >
+            <Eye size={15} aria-hidden="true" />
+            <span>{t('preview')}</span>
+          </button>
+        </div>
+      ) : null}
       {error ? (
         <div className="error-banner" role="alert">
           <AlertTriangle size={16} aria-hidden="true" />

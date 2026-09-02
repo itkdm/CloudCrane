@@ -36,9 +36,6 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   return (
     <article className="assistant-message">
-      <div className="message-avatar" aria-hidden="true">
-        CC
-      </div>
       <div
         className="message-body markdown-body"
         {...(isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}

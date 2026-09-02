@@ -1,0 +1,55 @@
+/* Unified workbench layout overrides. The legacy Workbench stylesheet is shared
+ * with the compatibility route, so keep these rules scoped to the unified shell. */
+.workbench-body.no-session-sidebar.preview-closed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-body.no-session-sidebar .assistant-message {
+  display: block;
+}
+
+.workbench-body.no-session-sidebar .composer-wrap {
+  border-top: 0;
+}
+
+.chat-toolbar {
+  flex: 0 0 auto;
+  padding: 10px clamp(22px, 4vw, 48px) 0;
+}
+
+.preview-toggle-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--cc-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.preview-toggle-button:hover,
+.preview-toggle-button.active {
+  background: var(--cc-surface-2);
+  color: var(--cc-text-secondary);
+}
+
+.preview-toggle-button.active {
+  color: var(--cc-text);
+}
+
+.preview-toggle-button:focus-visible {
+  outline: 2px solid var(--cc-brand);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1280px) {
+  .workbench-body.no-session-sidebar.preview-closed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
