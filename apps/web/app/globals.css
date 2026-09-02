@@ -523,6 +523,11 @@ button:disabled {
 .session-group-toggle svg {
   flex-shrink: 0;
   color: var(--cc-text-tertiary);
+  opacity: 0.55;
+}
+.session-group-toggle .session-group-folder {
+  color: var(--cc-text-secondary);
+  opacity: 0.8;
 }
 .session-group-title {
   font-size: 13px;
@@ -538,29 +543,36 @@ button:disabled {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--cc-border);
-  border-radius: var(--cc-radius-sm);
-  background: var(--cc-brand-muted);
-  color: var(--cc-brand);
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cc-text-secondary);
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
   transition: all 180ms ease;
   flex-shrink: 0;
 }
+.session-group-header:hover .session-new-button,
+.session-group-header:focus-within .session-new-button {
+  opacity: 1;
+  pointer-events: auto;
+}
 .session-new-button:hover {
-  background: var(--cc-brand);
-  color: var(--cc-surface-0);
-  border-color: var(--cc-brand);
+  background: var(--cc-brand-muted);
+  color: var(--cc-brand);
 }
 .session-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-left: 36px;
 }
 .session-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 7px 6px;
   border-radius: var(--cc-radius-md);
   border: 0;
   background: transparent;
@@ -588,9 +600,25 @@ button:disabled {
 }
 .session-empty {
   padding: 8px 10px;
+  margin-left: 36px;
   color: var(--cc-text-tertiary);
   font-size: 12px;
   text-align: center;
+}
+.session-list-toggle {
+  width: 100%;
+  padding: 6px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--cc-text-tertiary);
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.session-list-toggle:hover {
+  color: var(--cc-text-secondary);
+  background: var(--cc-surface-2);
 }
 .unified-sidebar-footer {
   padding: 12px;

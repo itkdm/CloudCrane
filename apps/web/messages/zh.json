@@ -143,6 +143,8 @@
     "newSession": "新建对话",
     "newSessionTitle": "新对话",
     "noSessions": "暂无对话",
+    "showMoreSessions": "展开更多",
+    "showFewerSessions": "收起",
     "openSession": "打开对话：{title}",
     "today": "今天",
     "yesterday": "昨天",

@@ -43,6 +43,7 @@ export function UnifiedSidebar({
   const wt = useTranslations('workbench');
   const [collapsed, setCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setExpandedGroups((current) => {
@@ -71,6 +72,10 @@ export function UnifiedSidebar({
 
   function toggleGroup(websiteId: string) {
     setExpandedGroups((current) => ({ ...current, [websiteId]: !current[websiteId] }));
+  }
+
+  function toggleSessionList(websiteId: string) {
+    setExpandedSessionLists((current) => ({ ...current, [websiteId]: !current[websiteId] }));
   }
 
   return (
@@ -142,6 +147,13 @@ export function UnifiedSidebar({
         <div className="unified-sidebar-sessions">
           {groupedSessions.map((group) => {
             const expanded = expandedGroups[group.websiteId] ?? true;
+            const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;
+            const visibleSessions = sessionsExpanded
+              ? group.sessions
+              : group.sessions.filter(
+                  (session, index) => index < 5 || session.id === selectedSession,
+                );
+            const hasMoreSessions = visibleSessions.length < group.sessions.length;
             return (
               <div key={group.websiteId} className="session-group">
                 <div className="session-group-header">
@@ -161,6 +173,18 @@ export function UnifiedSidebar({
                       strokeWidth="2"
                     >
                       {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
+                    </svg>
+                    <svg
+                      className="session-group-folder"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                    >
+                      <path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-15z" />
+                      <path d="M3.5 6.5v-1a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1" />
                     </svg>
                     <span className="session-group-title">{group.websiteName}</span>
                   </button>
@@ -189,7 +213,7 @@ export function UnifiedSidebar({
                     <div className="session-empty">{wt('noSessions')}</div>
                   ) : (
                     <div className="session-list">
-                      {group.sessions.map((session) => (
+                      {visibleSessions.map((session) => (
                         <button
                           key={session.id}
                           className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
@@ -200,6 +224,15 @@ export function UnifiedSidebar({
                           </span>
                         </button>
                       ))}
+                      {group.sessions.length > 5 ? (
+                        <button
+                          type="button"
+                          className="session-list-toggle"
+                          onClick={() => toggleSessionList(group.websiteId)}
+                        >
+                          {hasMoreSessions ? wt('showMoreSessions') : wt('showFewerSessions')}
+                        </button>
+                      ) : null}
                     </div>
                   )
                 ) : null}
