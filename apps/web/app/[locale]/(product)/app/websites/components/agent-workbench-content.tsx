@@ -96,6 +96,9 @@ export function AgentWorkbenchContent({
   const previewUrlPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
+  const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
+
+  onPreviewOpenChangeRef.current = onPreviewOpenChange;
 
   activeRunRef.current = runId;
 
@@ -195,8 +198,12 @@ export function AgentWorkbenchContent({
   }, [loadPreviewUrl, preview.status, preview.url]);
 
   useEffect(() => {
-    onPreviewOpenChange?.(previewOpen);
-  }, [onPreviewOpenChange, previewOpen]);
+    onPreviewOpenChangeRef.current?.(previewOpen);
+  }, [previewOpen]);
+
+  useEffect(() => {
+    return () => onPreviewOpenChangeRef.current?.(false);
+  }, []);
 
   useEffect(() => {
     if (!previewOpen) setIsResizingPreview(false);
