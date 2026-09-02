@@ -1,6 +1,31 @@
+import type { Metadata } from 'next';
 import { useTranslations } from 'next-intl';
+import { getTranslations } from 'next-intl/server';
 import { Link } from '../../../i18n/navigation';
 import '../../landing.css';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: 'marketing' });
+  return {
+    title: `${t('title')} · CloudCrane`,
+    description: t('lede'),
+    alternates: {
+      canonical: locale === 'zh' ? '/zh' : '/',
+      languages: { en: '/', zh: '/zh' },
+    },
+    openGraph: {
+      title: t('title'),
+      description: t('lede'),
+      locale: locale === 'zh' ? 'zh_CN' : 'en_US',
+      type: 'website',
+    },
+  };
+}
 
 export default function Home() {
   const t = useTranslations('marketing');
@@ -22,24 +47,6 @@ export default function Home() {
   ];
   return (
     <main className="landing">
-      <header className="ld-nav ld-reveal ld-d1">
-        <Link className="ld-brand" href="/">
-          <span className="ld-brand-cn">筑云鹤</span>
-          <span className="ld-brand-en">CloudCrane</span>
-        </Link>
-        <nav className="ld-nav-links" aria-label={t('workflowLabel')}>
-          <Link className="ld-nav-link" href="#workflow">
-            {t('workflowLabel')}
-          </Link>
-          <Link className="ld-nav-link" href="#capability">
-            {t('capabilityLabel')}
-          </Link>
-          <Link className="ld-btn ld-btn-primary ld-btn-sm" href="/app/websites">
-            {t('cta')}
-          </Link>
-        </nav>
-      </header>
-
       <section className="ld-hero" aria-labelledby="page-title">
         <div>
           <p className="ld-tag ld-reveal ld-d2">
@@ -88,19 +95,19 @@ export default function Home() {
           <div className="ld-code">
             <div className="ld-code-line">
               <span className="ld-code-num">01</span>
-              <span>读取 index.html</span>
+              <span>{t('demoRead')}</span>
             </div>
             <div className="ld-code-line">
               <span className="ld-code-num">02</span>
-              <span className="ld-code-hl">修改 导航栏配色</span>
+              <span className="ld-code-hl">{t('demoUpdate')}</span>
             </div>
             <div className="ld-code-line">
               <span className="ld-code-num">03</span>
-              <span>启动 预览浏览器</span>
+              <span>{t('demoPreview')}</span>
             </div>
             <div className="ld-code-line">
               <span className="ld-code-num">04</span>
-              <span className="ld-code-hl">真实页面验收通过</span>
+              <span className="ld-code-hl">{t('demoVerified')}</span>
             </div>
           </div>
         </div>
@@ -140,11 +147,6 @@ export default function Home() {
           ))}
         </div>
       </section>
-
-      <footer className="ld-footer">
-        <span>筑云鹤 CloudCrane</span>
-        <span>{t('footer')}</span>
-      </footer>
     </main>
   );
 }

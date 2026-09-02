@@ -1,7 +1,7 @@
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/navigation';
 
-export function WorkbenchShell({ children }: { children: React.ReactNode; websiteId?: string }) {
+export function WorkbenchShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations('navigation');
   return (
     <div className="workbench-layout">

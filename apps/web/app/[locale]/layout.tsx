@@ -16,17 +16,16 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
-  const t = await getTranslations({ locale, namespace: 'marketing' });
+  const t = await getTranslations({ locale, namespace: 'common' });
   return {
-    title: `${t('title')} · CloudCrane`,
-    description: t('lede'),
+    title: t('brand'),
+    description: 'AI Website Coding Agent',
     alternates: {
-      canonical: locale === 'zh' ? '/zh' : '/',
       languages: { en: '/', zh: '/zh' },
     },
     openGraph: {
-      title: t('title'),
-      description: t('lede'),
+      title: t('brand'),
+      description: 'AI Website Coding Agent',
       locale: locale === 'zh' ? 'zh_CN' : 'en_US',
       type: 'website',
     },
