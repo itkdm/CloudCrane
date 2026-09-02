@@ -61,7 +61,7 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
    pnpm --filter @cloudcrane/db db:verify
    ```
 
-   然后打开 [http://localhost:3000/websites](http://localhost:3000/websites)，确认原 Website 列表出现。Workbench、Chat、Workspace 和 Preview 的用户流程继续使用 DEVTOOLS MCP 验证。
+   然后打开 [http://localhost:3000/app/websites](http://localhost:3000/app/websites)，确认原 Website 列表出现。Workbench、Chat、Workspace 和 Preview 的用户流程继续使用 DEVTOOLS MCP 验证。
 
 ## 排查清单
 
