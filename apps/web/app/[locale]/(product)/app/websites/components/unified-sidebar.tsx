@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PanelLeftClose, PanelLeftOpen, Settings, UserRound } from 'lucide-react';
+import { MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
@@ -190,16 +190,6 @@ export function UnifiedSidebar({
                     title={group.websiteName}
                   >
                     <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      {expanded ? <path d="m6 9 6 6 6-6" /> : <path d="m9 6 6 6-6 6" />}
-                    </svg>
-                    <svg
                       className="session-group-folder"
                       width="16"
                       height="16"
@@ -220,17 +210,7 @@ export function UnifiedSidebar({
                     title={websiteT('settings')}
                     aria-label={`${websiteT('settings')}: ${group.websiteName}`}
                   >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-                      <path d="m19.4 15 .1.1a2 2 0 0 1-2.8 2.8l-.1-.1a2 2 0 0 0-3.4 1.4v.2a2 2 0 0 1-4 0v-.2a2 2 0 0 0-3.4-1.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A2 2 0 0 0 4.4 11H4.2a2 2 0 0 1 0-4h.2A2 2 0 0 0 5.8 3.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A2 2 0 0 0 12 2.2V2a2 2 0 0 1 4 0v.2a2 2 0 0 0 3.4 1.4l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A2 2 0 0 0 23.6 10h.2a2 2 0 0 1 0 4h-.2a2 2 0 0 0-1.4 3.4Z" />
-                    </svg>
+                    <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
