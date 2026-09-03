@@ -13,13 +13,16 @@ function getStoredTheme(): Theme {
   }
 }
 
+function getCurrentTheme(): Theme {
+  const current = document.documentElement.dataset.theme;
+  return current === 'light' || current === 'dark' ? current : getStoredTheme();
+}
+
 export function ThemeSwitcher() {
   const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
-    const initial = getStoredTheme();
-    setTheme(initial);
-    document.documentElement.setAttribute('data-theme', initial);
+    setTheme(getCurrentTheme());
   }, []);
 
   const toggleTheme = () => {

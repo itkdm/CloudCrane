@@ -293,11 +293,24 @@ export function UnifiedSidebar({
       </div>
 
       <div className="unified-sidebar-footer">
-        <div className="unified-sidebar-account" ref={settingsRef}>
+        <div className="unified-sidebar-account">
           <span className="unified-sidebar-account-avatar" aria-hidden="true">
             <UserRound size={17} />
           </span>
           <span className="unified-sidebar-account-name">{t('user')}</span>
+        </div>
+        <div className="unified-sidebar-settings-anchor" ref={settingsRef}>
+          <button
+            type="button"
+            className="unified-sidebar-settings"
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-label={t('settings')}
+            aria-expanded={settingsOpen}
+            aria-haspopup="dialog"
+            title={t('settings')}
+          >
+            <Settings size={18} aria-hidden="true" />
+          </button>
           {settingsOpen ? (
             <div className="unified-sidebar-settings-popover" role="dialog" aria-label={t('settings')}>
               <div className="unified-sidebar-settings-row">
@@ -311,17 +324,6 @@ export function UnifiedSidebar({
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="unified-sidebar-settings"
-          onClick={() => setSettingsOpen((open) => !open)}
-          aria-label={t('settings')}
-          aria-expanded={settingsOpen}
-          aria-haspopup="dialog"
-          title={t('settings')}
-        >
-          <Settings size={18} aria-hidden="true" />
-        </button>
       </div>
     </aside>
   );
