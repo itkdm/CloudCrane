@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 type FakeText = { nodeType: number; textContent: string; parentElement: FakeElement };
 
@@ -67,8 +67,33 @@ async function runBridge(body: FakeElement | null = null) {
       return undefined;
     },
   };
+  const locationValue = {
+    href: 'http://site.example/',
+    pathname: '/',
+    search: '',
+    hash: '',
+    reload: vi.fn(),
+    assign: (value: string) => updateLocation(value),
+  };
+  function updateLocation(value: string): void {
+    const next = new URL(value, locationValue.href);
+    locationValue.href = next.toString();
+    locationValue.pathname = next.pathname;
+    locationValue.search = next.search;
+    locationValue.hash = next.hash;
+  }
+  const historyValue = {
+    pushState: (_state: unknown, _title: string, value?: string | URL | null) => {
+      if (value !== undefined && value !== null) updateLocation(String(value));
+    },
+    replaceState: (_state: unknown, _title: string, value?: string | URL | null) => {
+      if (value !== undefined && value !== null) updateLocation(String(value));
+    },
+  };
   const windowValue = {
     parent,
+    location: locationValue,
+    history: historyValue,
     innerWidth: 1280,
     innerHeight: 720,
     devicePixelRatio: 1,
@@ -102,7 +127,8 @@ async function runBridge(body: FakeElement | null = null) {
     Node: { TEXT_NODE: 3 },
     NodeFilter: { SHOW_TEXT: 4 },
     console: consoleValue,
-    location: { href: 'http://site.example/', pathname: '/', search: '', hash: '' },
+    location: locationValue,
+    history: historyValue,
     Date,
     setTimeout,
     clearTimeout,
@@ -217,6 +243,58 @@ describe('Preview Bridge browser boundary', () => {
       },
     });
     expect(JSON.stringify(bridge.messages.at(-1))).not.toContain('SCREENSHOT');
+  });
+
+  it('announces initial and browser-driven location changes', async () => {
+    const bridge = await runBridge();
+    expect(bridge.messages[1]).toMatchObject({
+      type: 'bridge.location.changed',
+      payload: { url: 'http://site.example/', path: '/' },
+    });
+
+    bridge.windowValue.history.pushState({}, '', '/contact?from=menu#top');
+    expect(bridge.messages.at(-1)).toMatchObject({
+      type: 'bridge.location.changed',
+      payload: { path: '/contact?from=menu#top' },
+    });
+
+    bridge.windowValue.location.hash = '#section';
+    bridge.listeners.get('hashchange')?.({});
+    expect(bridge.messages.at(-1)).toMatchObject({
+      type: 'bridge.location.changed',
+      payload: { path: '/contact?from=menu#section' },
+    });
+
+    bridge.windowValue.history.replaceState({}, '', '/replace');
+    bridge.listeners.get('popstate')?.({});
+    expect(bridge.messages.at(-1)).toMatchObject({
+      type: 'bridge.location.changed',
+      payload: { path: '/replace' },
+    });
+
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.navigate.request',
+        requestId: 'navigate-1',
+        payload: { path: '/about' },
+      },
+    });
+    expect(bridge.windowValue.location.href).toBe('http://site.example/about');
+
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.refresh.request',
+        requestId: 'refresh-1',
+        payload: {},
+      },
+    });
+    expect(bridge.windowValue.location.reload).toHaveBeenCalledTimes(1);
   });
 
   it('preserves wrapper siblings, filters hidden ancestors and sensitive input values', async () => {

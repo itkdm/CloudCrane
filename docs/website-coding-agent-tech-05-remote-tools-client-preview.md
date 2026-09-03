@@ -1232,6 +1232,11 @@ ELEMENT_SELECT
 
 Agent 需要 Observation 时使用触发本次 AgentRun 的 Browser Client。
 
+Browser iframe 是当前 Browser State 的 URL 真源。Bridge 初始化以及传统文档
+导航、history API、`popstate` 和 `hashchange` 发生后，向父页面发送
+`bridge.location.changed`，同步当前 `url` 与 `path`。该状态只属于当前 Tab，
+不写入 Website 或 Session。
+
 ---
 
 # 35. 多个 Client
@@ -1297,10 +1302,12 @@ Agent 修改文件成功以后，可以发送：
 PREVIEW_REFRESH
 ```
 
-当前 Client：
+当前 Client 向同一个 Preview Bridge 请求刷新当前 Document：
 
 ```text
-iframe reload
+bridge.refresh.request
+↓
+当前 document reload
 ```
 
 然后：
@@ -1316,6 +1323,10 @@ capture screenshot
 ```
 
 形成自然闭环。
+
+`preview_observe` 只读取当前 Bridge 状态，不刷新或改变页面；
+`preview_navigate` 只接受 Website-relative path，并由 iframe Browser 执行导航。
+刷新和导航完成后都等待新 Bridge ready，再返回最新 Observation。
 
 ---
 

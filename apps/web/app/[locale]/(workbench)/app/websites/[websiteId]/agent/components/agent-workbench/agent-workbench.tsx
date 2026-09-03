@@ -32,6 +32,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const previewBridge = useRef<PreviewBridgeClient | null>(null);
   const previewClientIdRef = useRef<string | undefined>(undefined);
+  const previewCurrentUrlRef = useRef<string | undefined>(undefined);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const activeRunRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -52,8 +53,10 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const [runId, setRunIdState] = useState<string>();
   const [error, setError] = useState<string>();
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
+  const [previewCurrentUrl, setPreviewCurrentUrl] = useState<string>();
+  const [previewCurrentPath, setPreviewCurrentPath] = useState<string>();
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewKey, setPreviewKey] = useState(0);
+  const previewKey = 0;
   const [bridgeStatus, setBridgeStatus] = useState('waiting');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarHydrated, setSidebarHydrated] = useState(false);
@@ -94,8 +97,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       void previewBridge.current.refresh().catch((cause) => {
         setError(cause instanceof Error ? cause.message : t('operationIncomplete'));
       });
-    } else setPreviewKey((current) => current + 1);
-  }, []);
+    }
+  }, [t]);
 
   const schedulePreviewRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -360,13 +363,25 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
 
   useEffect(() => {
     if (!previewOpen || preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
-    const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
-      previewCapabilitiesRef.current = capabilities;
-      setBridgeStatus('connected');
-      updatePreviewCapabilities();
-      previewReadyRef.current?.resolve(client);
-      previewReadyRef.current = null;
-    });
+    const client = new PreviewBridgeClient(
+      previewFrame.current,
+      previewCurrentUrlRef.current ?? preview.url,
+      {
+        onReady: (capabilities) => {
+          previewCapabilitiesRef.current = capabilities;
+          setBridgeStatus('connected');
+          updatePreviewCapabilities();
+          previewReadyRef.current?.resolve(client);
+          previewReadyRef.current = null;
+        },
+        onLocationChange: ({ url, path }) => {
+          previewCurrentUrlRef.current = url;
+          setPreviewCurrentUrl(url);
+          setPreviewCurrentPath(path);
+          setPreview((current) => ({ ...current, path }));
+        },
+      },
+    );
     previewBridge.current = client;
     return () => {
       client.dispose();
@@ -482,6 +497,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
           previewViewportMode={previewViewportMode}
           onPreviewViewportModeChange={setPreviewViewportMode}
+          currentPath={previewCurrentPath}
+          currentUrl={previewCurrentUrl}
         />
       </div>
     </main>

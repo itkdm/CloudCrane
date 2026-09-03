@@ -91,6 +91,23 @@ function installPreviewBridge(): void {
       postReady(parentOrigin, message.requestId);
       return;
     }
+    if (isRefreshRequest(message)) {
+      window.location.reload();
+      return;
+    }
+    if (isNavigateRequest(message)) {
+      if (!isWebsiteRelativePath(message.payload.path)) {
+        post(parentOrigin, {
+          version: BRIDGE_VERSION,
+          type: 'bridge.error',
+          requestId: message.requestId,
+          payload: { code: 'INVALID_ARGUMENT', message: 'invalid Website-relative path' },
+        });
+        return;
+      }
+      window.location.assign(new URL(message.payload.path, window.location.href).toString());
+      return;
+    }
     if (!isObserveRequest(message)) return;
     try {
       post(parentOrigin, {
@@ -111,6 +128,12 @@ function installPreviewBridge(): void {
     }
   });
   postReady(parentOrigin);
+  notifyLocation(parentOrigin);
+
+  const notifyHistoryChange = () => notifyLocation(parentOrigin);
+  patchHistory(notifyHistoryChange);
+  window.addEventListener('popstate', notifyHistoryChange);
+  window.addEventListener('hashchange', notifyHistoryChange);
 }
 
 function postReady(parentOrigin: string, requestId = `bridge:${Date.now()}`): void {
@@ -120,6 +143,38 @@ function postReady(parentOrigin: string, requestId = `bridge:${Date.now()}`): vo
     requestId,
     payload: { capabilities: PREVIEW_CAPABILITIES },
   });
+}
+
+let lastLocation = '';
+
+function notifyLocation(parentOrigin: string): void {
+  const url = window.location.href.slice(0, 2_048);
+  const path = `${window.location.pathname}${window.location.search}${window.location.hash}`.slice(
+    0,
+    2_048,
+  );
+  const key = `${url}\n${path}`;
+  if (key === lastLocation) return;
+  lastLocation = key;
+  post(parentOrigin, {
+    version: BRIDGE_VERSION,
+    type: 'bridge.location.changed',
+    requestId: `location:${Date.now()}`,
+    payload: { url, path },
+  });
+}
+
+function patchHistory(onChange: () => void): void {
+  const originalPushState = history.pushState.bind(history);
+  const originalReplaceState = history.replaceState.bind(history);
+  history.pushState = (...args) => {
+    originalPushState(...args);
+    onChange();
+  };
+  history.replaceState = (...args) => {
+    originalReplaceState(...args);
+    onChange();
+  };
 }
 
 function isOrigin(value: string): boolean {
@@ -142,6 +197,45 @@ function isObserveRequest(value: unknown): value is { requestId: string } {
     typeof (value as { requestId?: unknown }).requestId === 'string' &&
     (value as { requestId: string }).requestId.length < 128,
   );
+}
+
+function isRefreshRequest(value: unknown): value is { requestId: string } {
+  return isBridgeRequest(value, 'bridge.refresh.request');
+}
+
+function isNavigateRequest(
+  value: unknown,
+): value is { requestId: string; payload: { path: string } } {
+  return (
+    isBridgeRequest(value, 'bridge.navigate.request') &&
+    Boolean((value as unknown as { payload?: unknown }).payload) &&
+    typeof (value as unknown as { payload: { path?: unknown } }).payload.path === 'string' &&
+    (value as unknown as { payload: { path: string } }).payload.path.length <= 2_048
+  );
+}
+
+function isBridgeRequest(value: unknown, type: string): value is { requestId: string } {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    (value as { version?: unknown }).version === BRIDGE_VERSION &&
+    (value as { type?: unknown }).type === type &&
+    typeof (value as { requestId?: unknown }).requestId === 'string' &&
+    (value as { requestId: string }).requestId.length < 128,
+  );
+}
+
+function isWebsiteRelativePath(value: string): boolean {
+  if (!value || value.length > 2_048 || !value.startsWith('/') || value.startsWith('//'))
+    return false;
+  if ([...value].some((character) => character.charCodeAt(0) < 32) || value.includes('\\'))
+    return false;
+  try {
+    const parsed = new URL(value, 'https://preview.invalid');
+    return parsed.origin === 'https://preview.invalid';
+  } catch {
+    return false;
+  }
 }
 
 function isConnectRequest(value: unknown): value is { requestId: string } {

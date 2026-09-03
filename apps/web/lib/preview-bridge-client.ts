@@ -8,6 +8,11 @@ import {
 export const PREVIEW_READY_TIMEOUT_MS = 10_000;
 const PREVIEW_OBSERVE_TIMEOUT_MS = 10_000;
 
+export type PreviewBridgeClientOptions = {
+  onReady?: (capabilities: PreviewCapability[]) => void;
+  onLocationChange?: (change: { url: string; path: string }) => void;
+};
+
 export class PreviewBridgeClientError extends Error {
   constructor(
     public readonly code: 'PREVIEW_PROTOCOL_ERROR' | 'CLIENT_PREVIEW_TIMEOUT' | 'INVALID_ARGUMENT',
@@ -35,12 +40,17 @@ export class PreviewBridgeClient {
   private readonly pending = new Map<string, Pending>();
   private capabilities: PreviewCapability[] = [];
   private currentUrl: string;
+  private readonly onReady?: (capabilities: PreviewCapability[]) => void;
+  private readonly onLocationChange?: (change: { url: string; path: string }) => void;
 
   constructor(
     private readonly iframe: HTMLIFrameElement,
     previewUrl: string,
-    private readonly onReady?: (capabilities: PreviewCapability[]) => void,
+    options: PreviewBridgeClientOptions | ((capabilities: PreviewCapability[]) => void) = {},
   ) {
+    const callbacks = typeof options === 'function' ? { onReady: options } : options;
+    this.onReady = callbacks.onReady;
+    this.onLocationChange = callbacks.onLocationChange;
     this.currentUrl = cleanPreviewUrl(previewUrl);
     this.ready = this.createReadyPromise();
     window.addEventListener('message', this.handleMessage);
@@ -64,9 +74,17 @@ export class PreviewBridgeClient {
   }
 
   async refresh(): Promise<PreviewObservation> {
-    await this.observe();
+    await this.ready;
+    this.iframe.contentWindow?.postMessage(
+      {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.refresh.request',
+        requestId: `refresh:${crypto.randomUUID()}`,
+        payload: {},
+      },
+      this.origin(),
+    );
     this.invalidateReady();
-    this.iframe.src = cleanPreviewUrl(this.currentUrl);
     await this.ready;
     return this.observe();
   }
@@ -77,10 +95,18 @@ export class PreviewBridgeClient {
         'INVALID_ARGUMENT',
         'preview_navigate path must be a Website-relative path',
       );
+    await this.ready;
     const target = new URL(path, this.currentUrl);
+    this.iframe.contentWindow?.postMessage(
+      {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.navigate.request',
+        requestId: `navigate:${crypto.randomUUID()}`,
+        payload: { path: target.pathname + target.search + target.hash },
+      },
+      this.origin(),
+    );
     this.invalidateReady();
-    this.currentUrl = target.toString();
-    this.iframe.src = this.currentUrl;
     await this.ready;
     return this.observe();
   }
@@ -127,6 +153,14 @@ export class PreviewBridgeClient {
         this.readyNotifiedGeneration = this.readyGeneration;
         this.onReady?.(this.capabilities);
       }
+      return;
+    }
+    if (parsed.data.type === 'bridge.location.changed') {
+      this.currentUrl = cleanPreviewUrl(parsed.data.payload.url);
+      this.onLocationChange?.({
+        url: this.currentUrl,
+        path: parsed.data.payload.path,
+      });
       return;
     }
     if (parsed.data.type === 'bridge.observe.response') {

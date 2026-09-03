@@ -111,7 +111,11 @@ describe('PreviewBridgeClient lifecycle', () => {
   it('isolates stale READY messages and routes navigate input to the new generation', async () => {
     const { iframe, iframeWindow: oldWindow, emit, load } = setup();
     const client = new PreviewBridgeClient(iframe, 'https://preview.example/');
+    const initialConnect = oldWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    ready(emit, oldWindow, initialConnect.requestId);
     const navigation = client.navigate('/about?from=agent');
+    await Promise.resolve();
+    await Promise.resolve();
     const newWindow = { postMessage: vi.fn() };
     (iframe as { contentWindow: object }).contentWindow = newWindow;
 
@@ -120,11 +124,10 @@ describe('PreviewBridgeClient lifecycle', () => {
     ready(emit, newWindow, 'bridge:0');
     expect(newWindow.postMessage).not.toHaveBeenCalled();
     load();
-    const connect = newWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
+    const connect = newWindow.postMessage.mock.calls.at(-1)?.[0] as { requestId: string };
     ready(emit, newWindow, connect.requestId);
     await Promise.resolve();
     await Promise.resolve();
-    expect(newWindow.postMessage).toHaveBeenCalledTimes(2);
     const request = latestRequest(newWindow, 'bridge.observe.request');
     emit(newWindow, {
       version: 'cloudcrane.preview.v1',
@@ -134,7 +137,13 @@ describe('PreviewBridgeClient lifecycle', () => {
     });
 
     await expect(navigation).resolves.toMatchObject({ path: '/about?from=agent' });
-    expect(iframe.src).toBe('https://preview.example/about?from=agent');
+    expect(oldWindow.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'bridge.navigate.request',
+        payload: { path: '/about?from=agent' },
+      }),
+      'https://preview.example',
+    );
     client.dispose();
   });
 
@@ -159,15 +168,8 @@ describe('PreviewBridgeClient lifecycle', () => {
     const refresh = client.refresh();
     await Promise.resolve();
     await Promise.resolve();
-    const currentRequest = latestRequest(iframeWindow, 'bridge.observe.request');
-    emit(iframeWindow, {
-      version: 'cloudcrane.preview.v1',
-      type: 'bridge.observe.response',
-      requestId: currentRequest.requestId,
-      payload: { observation: observation('https://preview.example/about') },
-    });
-    await Promise.resolve();
-    await Promise.resolve();
+    const refreshRequest = latestRequest(iframeWindow, 'bridge.refresh.request');
+    expect(refreshRequest.type).toBe('bridge.refresh.request');
     const refreshedWindow = { postMessage: vi.fn() };
     (iframe as { contentWindow: object }).contentWindow = refreshedWindow;
     load();
@@ -186,16 +188,30 @@ describe('PreviewBridgeClient lifecycle', () => {
     });
 
     await expect(refresh).resolves.toMatchObject({ path: '/about' });
-    expect(iframe.src).toBe('https://preview.example/about');
+    expect(iframe.src).toBe('https://preview.example/');
     client.dispose();
   });
 
   it('recovers when the initial Bridge READY was sent before the parent listener', async () => {
     const { iframe, iframeWindow, emit } = setup();
     const onReady = vi.fn();
-    const client = new PreviewBridgeClient(iframe, 'https://preview.example/', onReady);
+    const onLocationChange = vi.fn();
+    const client = new PreviewBridgeClient(iframe, 'https://preview.example/', {
+      onReady,
+      onLocationChange,
+    });
     const connect = iframeWindow.postMessage.mock.calls[0]?.[0] as { requestId: string };
     ready(emit, iframeWindow, connect.requestId);
+    emit(iframeWindow, {
+      version: 'cloudcrane.preview.v1',
+      type: 'bridge.location.changed',
+      requestId: 'location-1',
+      payload: { url: 'https://preview.example/contact', path: '/contact' },
+    });
+    expect(onLocationChange).toHaveBeenCalledWith({
+      url: 'https://preview.example/contact',
+      path: '/contact',
+    });
 
     await expect(resolveObserve(client, iframeWindow, emit)).resolves.toMatchObject({
       title: 'Preview',

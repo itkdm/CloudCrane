@@ -45,6 +45,7 @@ export function PreviewPane({
 }: PreviewPaneProps) {
   const t = useTranslations('workbench');
   const path = resolvePreviewPath(preview, currentPath, currentUrl);
+  const previewSource = resolvePreviewSource(preview.url, currentUrl);
   const isUnavailable = preview.status === 'unavailable' || preview.status === 'stopped';
   const bridgeIssue = bridgeIssueMessage(bridgeStatus, t);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -155,7 +156,7 @@ export function PreviewPane({
       </header>
       <div className="preview-stage">
         <div ref={canvasRef} className="preview-canvas">
-          {preview.status === 'ready' && preview.url ? (
+          {preview.status === 'ready' && previewSource ? (
             <div
               className="preview-viewport-shell"
               style={{
@@ -175,7 +176,7 @@ export function PreviewPane({
                   key={previewKey}
                   ref={frameRef}
                   title={t('iframeTitle')}
-                  src={preview.url}
+                  src={previewSource}
                   sandbox="allow-scripts allow-forms allow-same-origin"
                 />
               </div>
@@ -203,6 +204,19 @@ export function PreviewPane({
       ) : null}
     </aside>
   );
+}
+
+function resolvePreviewSource(
+  baseUrl: string | undefined,
+  currentUrl?: string,
+): string | undefined {
+  if (!baseUrl) return undefined;
+  if (!currentUrl) return baseUrl;
+  try {
+    return new URL(currentUrl).origin === new URL(baseUrl).origin ? currentUrl : baseUrl;
+  } catch {
+    return baseUrl;
+  }
 }
 
 function previewMessage(status: PreviewState['status'], t: (key: string) => string): string {

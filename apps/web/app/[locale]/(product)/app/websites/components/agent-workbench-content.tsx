@@ -74,7 +74,9 @@ export function AgentWorkbenchContent({
   const [error, setError] = useState<string | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
-  const [previewKey, setPreviewKey] = useState(0);
+  const [previewCurrentUrl, setPreviewCurrentUrl] = useState<string>();
+  const [previewCurrentPath, setPreviewCurrentPath] = useState<string>();
+  const previewKey = 0;
   const [bridgeStatus, setBridgeStatus] = useState<
     'unavailable' | 'attached' | 'detached' | 'error'
   >('unavailable');
@@ -86,6 +88,7 @@ export function AgentWorkbenchContent({
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const previewClient = useRef<PreviewBridgeClient | null>(null);
   const previewClientIdRef = useRef<string | undefined>(undefined);
+  const previewCurrentUrlRef = useRef<string | undefined>(undefined);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const pendingConversationQueue = useRef<ConversationEvent[]>([]);
   const activeRunRef = useRef<string | undefined>(undefined);
@@ -163,7 +166,6 @@ export function AgentWorkbenchContent({
         .catch((cause) =>
           setError(cause instanceof Error ? cause.message : t('operationIncomplete')),
         );
-    else setPreviewKey((current) => current + 1);
   }, [t]);
 
   const schedulePreviewRefresh = useCallback(() => {
@@ -240,13 +242,25 @@ export function AgentWorkbenchContent({
 
   useEffect(() => {
     if (!previewOpen || preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
-    const client = new PreviewBridgeClient(previewFrame.current, preview.url, (capabilities) => {
-      previewCapabilitiesRef.current = capabilities;
-      setBridgeStatus('attached');
-      updatePreviewCapabilities();
-      previewReadyRef.current?.resolve(client);
-      previewReadyRef.current = null;
-    });
+    const client = new PreviewBridgeClient(
+      previewFrame.current,
+      previewCurrentUrlRef.current ?? preview.url,
+      {
+        onReady: (capabilities) => {
+          previewCapabilitiesRef.current = capabilities;
+          setBridgeStatus('attached');
+          updatePreviewCapabilities();
+          previewReadyRef.current?.resolve(client);
+          previewReadyRef.current = null;
+        },
+        onLocationChange: ({ url, path }) => {
+          previewCurrentUrlRef.current = url;
+          setPreviewCurrentUrl(url);
+          setPreviewCurrentPath(path);
+          setPreview((current) => ({ ...current, path }));
+        },
+      },
+    );
     previewClient.current = client;
     return () => {
       client.dispose();
@@ -577,6 +591,8 @@ export function AgentWorkbenchContent({
           onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
           previewViewportMode={previewViewportMode}
           onPreviewViewportModeChange={setPreviewViewportMode}
+          currentPath={previewCurrentPath}
+          currentUrl={previewCurrentUrl}
         />
       </div>
     </main>

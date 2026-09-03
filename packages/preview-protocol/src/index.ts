@@ -123,6 +123,30 @@ export const bridgeObserveResponseMessageSchema = z.object({
   payload: z.object({ observation: previewObservationSchema }),
 });
 
+export const bridgeLocationChangedMessageSchema = z.object({
+  version: z.literal('cloudcrane.preview.v1'),
+  type: z.literal('bridge.location.changed'),
+  requestId: z.string().min(1).max(128),
+  payload: z.object({
+    url: z.string().url().max(2_048),
+    path: z.string().startsWith('/').max(2_048),
+  }),
+});
+
+export const bridgeRefreshRequestMessageSchema = z.object({
+  version: z.literal('cloudcrane.preview.v1'),
+  type: z.literal('bridge.refresh.request'),
+  requestId: z.string().min(1).max(128),
+  payload: z.object({}),
+});
+
+export const bridgeNavigateRequestMessageSchema = z.object({
+  version: z.literal('cloudcrane.preview.v1'),
+  type: z.literal('bridge.navigate.request'),
+  requestId: z.string().min(1).max(128),
+  payload: z.object({ path: z.string().min(1).max(2_048) }),
+});
+
 export const bridgeErrorMessageSchema = z.object({
   version: z.literal('cloudcrane.preview.v1'),
   type: z.literal('bridge.error'),
@@ -133,6 +157,7 @@ export const bridgeErrorMessageSchema = z.object({
 export const bridgeMessageSchema = z.discriminatedUnion('type', [
   bridgeConnectRequestMessageSchema,
   bridgeReadyMessageSchema,
+  bridgeLocationChangedMessageSchema,
   bridgeObserveRequestMessageSchema,
   bridgeObserveResponseMessageSchema,
   bridgeErrorMessageSchema,
