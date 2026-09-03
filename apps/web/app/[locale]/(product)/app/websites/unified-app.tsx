@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { listAgentSessions } from '@/lib/agent-client';
+import { createAgentSession, listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
 import { TemplatesView } from './components/templates-view';
 import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-create-dialog';
 import { WebsiteSettingsDialog } from './components/website-settings-dialog';
+import { WorkspaceStart } from './components/workspace-start';
 import './websites.css';
 
 export type WorkspaceView = 'websites' | 'templates';
@@ -60,7 +61,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [createSessionRequest, setCreateSessionRequest] = useState(0);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -75,6 +75,14 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     'loading',
   );
   const [websiteLoadError, setWebsiteLoadError] = useState('');
+  const [startPrompt, setStartPrompt] = useState('');
+  const [startSubmitting, setStartSubmitting] = useState(false);
+  const [startError, setStartError] = useState('');
+  const [pendingStartPrompt, setPendingStartPrompt] = useState<{
+    id: string;
+    websiteId: string;
+    text: string;
+  } | null>(null);
 
   const loadWebsites = useCallback(async () => {
     setWebsiteLoadState('loading');
@@ -149,7 +157,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
 
   function handleViewChange(nextView: WorkspaceView) {
     setView(nextView);
-    setCreateSessionRequest(0);
   }
 
   function handleSessionSelect(websiteId: string, sessionId: string) {
@@ -158,7 +165,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       handleAuthorizeWebsite(websiteId);
       return;
     }
-    setCreateSessionRequest(0);
     setSelectedWebsite(websiteId);
     setSelectedSession(sessionId);
     setView('websites');
@@ -173,7 +179,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setSelectedWebsite(websiteId);
     setSelectedSession(null);
     setView('websites');
-    setCreateSessionRequest((current) => current + 1);
+    setStartError('');
   }
 
   function handleWebsiteCreated(website: Website) {
@@ -189,7 +195,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     }
     if (website.status === 'ready') {
       setSelectedWebsite(website.id);
-      setCreateSessionRequest((current) => current + 1);
+      setStartError('');
       return;
     }
     setSelectedWebsite(null);
@@ -214,9 +220,46 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       setSelectedWebsite(websiteId);
       setSelectedSession(null);
       setView('websites');
-      setCreateSessionRequest((current) => current + 1);
     }
   }
+
+  const handleStartPrompt = useCallback(async () => {
+    const website = selectedWebsite
+      ? websites.find((item) => item.id === selectedWebsite)
+      : undefined;
+    const text = startPrompt.trim();
+    if (!text || !canEnterWorkspace(website) || startSubmitting) return;
+
+    setStartSubmitting(true);
+    setStartError('');
+    try {
+      const created = await createAgentSession(website.id);
+      const promptId = crypto.randomUUID();
+      setSessions((current) => [
+        ...current,
+        {
+          id: created.session.id,
+          websiteId: website.id,
+          title: created.session.title ?? undefined,
+          createdAt: created.session.createdAt,
+          updatedAt: created.session.updatedAt,
+        },
+      ]);
+      setPendingStartPrompt({ id: promptId, websiteId: website.id, text });
+      setSelectedWebsite(website.id);
+      setSelectedSession(created.session.id);
+      setView('websites');
+      setStartPrompt('');
+    } catch (cause) {
+      setStartError(cause instanceof Error ? cause.message : t('operationIncomplete'));
+    } finally {
+      setStartSubmitting(false);
+    }
+  }, [selectedWebsite, startPrompt, startSubmitting, t, websites]);
+
+  const handleInitialPromptConsumed = useCallback((promptId: string) => {
+    setPendingStartPrompt((current) => (current?.id === promptId ? null : current));
+  }, []);
 
   const settingsWebsite = websites.find((website) => website.id === settingsWebsiteId) ?? null;
   const selectedWebsiteRecord = selectedWebsite
@@ -226,7 +269,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const handleSessionChange = useCallback(
     (change: SessionChange) => {
       const metadata = typeof change === 'string' ? { id: change } : change;
-      setCreateSessionRequest(0);
       setSelectedSession(metadata.id);
       setSessions((current) =>
         current.some((s) => s.id === metadata.id)
@@ -320,13 +362,16 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
               </button>
             </div>
           </main>
-        ) : selectedWebsite && canEnterWorkspace(selectedWebsiteRecord) ? (
-          <AgentWorkbenchContent
+        ) : selectedWebsite && selectedSession && canEnterWorkspace(selectedWebsiteRecord) ? (
+            <AgentWorkbenchContent
             websiteId={selectedWebsite}
-            sessionId={selectedSession || undefined}
+            sessionId={selectedSession}
             onSessionChange={handleSessionChange}
             onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
-            createSessionRequest={createSessionRequest}
+            initialPrompt={
+              pendingStartPrompt?.websiteId === selectedWebsite ? pendingStartPrompt : undefined
+            }
+            onInitialPromptConsumed={handleInitialPromptConsumed}
             onPreviewOpenChange={handlePreviewOpenChange}
           />
         ) : websites.length === 0 ? (
@@ -354,12 +399,21 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             </div>
           </main>
         ) : (
-          <main className="workspace-empty-state">
-            <div className="workspace-empty-state-inner">
-              <h1>{t('selectWorkspaceTitle')}</h1>
-              <p>{t('selectWorkspaceDescription')}</p>
-            </div>
-          </main>
+          <WorkspaceStart
+            websites={websites}
+            selectedWebsiteId={selectedWebsite}
+            prompt={startPrompt}
+            submitting={startSubmitting}
+            error={startError}
+            onWebsiteChange={(websiteId) => {
+              setSelectedWebsite(websiteId);
+              setSelectedSession(null);
+              setStartError('');
+            }}
+            onPromptChange={setStartPrompt}
+            onSubmit={() => void handleStartPrompt()}
+            onAuthorizeWebsite={handleAuthorizeWebsite}
+          />
         )}
       </div>
       <WebsiteCreateDialog

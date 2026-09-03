@@ -15,7 +15,6 @@ import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
   command,
-  createAgentSession,
   listAgentSessions,
   parseAgentEvent,
   parseAgentMessage,
@@ -54,14 +53,16 @@ export function AgentWorkbenchContent({
   sessionId,
   onSessionChange,
   onSettingsOpen,
-  createSessionRequest = 0,
+  initialPrompt,
+  onInitialPromptConsumed,
   onPreviewOpenChange,
 }: {
   websiteId: string;
   sessionId?: string;
   onSessionChange?: (change: SessionChange) => void;
   onSettingsOpen?: () => void;
-  createSessionRequest?: number;
+  initialPrompt?: { id: string; websiteId: string; text: string };
+  onInitialPromptConsumed?: (promptId: string) => void;
   onPreviewOpenChange?: (open: boolean) => void;
 }) {
   const t = useTranslations('workbench');
@@ -102,6 +103,8 @@ export function AgentWorkbenchContent({
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
+  const initialPromptConsumedRef = useRef<string | undefined>(undefined);
+  const [sessionSnapshotVersion, setSessionSnapshotVersion] = useState(0);
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
   const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
 
@@ -331,43 +334,14 @@ export function AgentWorkbenchContent({
     };
   }, [preview.status, previewOpen, updatePreviewCapabilities]);
 
-  // Load session list
+  // Load only the explicitly selected session list. Session creation belongs to UnifiedApp.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const result = await listAgentSessions(websiteId);
         if (cancelled) return;
-        if (createSessionRequest > 0) {
-          const created = await createAgentSession(websiteId);
-          if (cancelled) return;
-          const next = [...result.sessions, created.session];
-          setSessions(next);
-          setCurrentSessionId(created.session.id);
-          onSessionChange?.({
-            id: created.session.id,
-            title: created.session.title,
-            createdAt: created.session.createdAt,
-            updatedAt: created.session.updatedAt,
-          });
-        } else {
-          let next = result.sessions;
-          if (next.length === 0) next = [(await createAgentSession(websiteId)).session];
-          setSessions(next);
-          if (!sessionId) {
-            const firstSessionId = next[0]?.id;
-            if (firstSessionId) {
-              setCurrentSessionId(firstSessionId);
-              const firstSession = next[0];
-              onSessionChange?.({
-                id: firstSessionId,
-                title: firstSession?.title,
-                createdAt: firstSession?.createdAt,
-                updatedAt: firstSession?.updatedAt,
-              });
-            }
-          }
-        }
+        setSessions(result.sessions);
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : t('operationIncomplete'));
       }
@@ -376,7 +350,7 @@ export function AgentWorkbenchContent({
       cancelled = true;
       socket.current?.close();
     };
-  }, [createSessionRequest, websiteId, sessionId, onSessionChange, t]);
+  }, [websiteId, t]);
 
   // Listen to external sessionId changes
   useEffect(() => {
@@ -389,47 +363,77 @@ export function AgentWorkbenchContent({
     }
   }, [sessionId, currentSessionId, flushConversation, queueConversation, setRunIdState]);
 
-  function submit() {
-    const text = draft.trim();
+  const submitPrompt = useCallback(
+    (value: string) => {
+      const text = value.trim();
+      if (
+        !text ||
+        !currentSessionId ||
+        activeRunRef.current ||
+        hasRunningManualMaintenance(conversation)
+      )
+        return false;
+      const requestId = crypto.randomUUID();
+      queueConversation(
+        {
+          type: 'user.added',
+          payload: { message: { id: requestId, requestId, role: 'user', text, status: 'pending' } },
+        },
+        true,
+      );
+      if (socket.current?.readyState === WebSocket.OPEN) {
+        const currentSession = sessions.find((session) => session.id === currentSessionId);
+        if (!currentSession?.title?.trim())
+          pendingSessionTitlesRef.current.set(requestId, {
+            sessionId: currentSessionId,
+            title: deriveSessionTitle(text),
+          });
+        socket.current.send(
+          JSON.stringify({
+            ...command({
+              type: 'agent.prompt',
+              websiteId,
+              sessionId: currentSessionId,
+              payload: { text, promptRequestId: requestId },
+            }),
+            requestId,
+          }),
+        );
+      } else {
+        pendingSessionTitlesRef.current.delete(requestId);
+        queueConversation({ type: 'message.status', payload: { requestId, status: 'failed' } }, true);
+        setError(t('connectionInterrupted'));
+        return false;
+      }
+      setDraft('');
+      return true;
+    },
+    [conversation, currentSessionId, queueConversation, sessions, t, websiteId],
+  );
+
+  useEffect(() => {
     if (
-      !text ||
+      !initialPrompt ||
+      initialPrompt.websiteId !== websiteId ||
       !currentSessionId ||
-      activeRunRef.current ||
-      hasRunningManualMaintenance(conversation)
+      sessionSnapshotVersion === 0 ||
+      initialPromptConsumedRef.current === initialPrompt.id
     )
       return;
-    const requestId = crypto.randomUUID();
-    queueConversation(
-      {
-        type: 'user.added',
-        payload: { message: { id: requestId, requestId, role: 'user', text, status: 'pending' } },
-      },
-      true,
-    );
-    if (socket.current?.readyState === WebSocket.OPEN) {
-      const currentSession = sessions.find((session) => session.id === currentSessionId);
-      if (!currentSession?.title?.trim() && currentSessionId)
-        pendingSessionTitlesRef.current.set(requestId, {
-          sessionId: currentSessionId,
-          title: deriveSessionTitle(text),
-        });
-      socket.current.send(
-        JSON.stringify({
-          ...command({
-            type: 'agent.prompt',
-            websiteId,
-            sessionId: currentSessionId!,
-            payload: { text, promptRequestId: requestId },
-          }),
-          requestId,
-        }),
-      );
-    } else {
-      pendingSessionTitlesRef.current.delete(requestId);
-      queueConversation({ type: 'message.status', payload: { requestId, status: 'failed' } }, true);
-      setError(t('connectionInterrupted'));
-    }
-    setDraft('');
+    initialPromptConsumedRef.current = initialPrompt.id;
+    if (submitPrompt(initialPrompt.text)) onInitialPromptConsumed?.(initialPrompt.id);
+    else initialPromptConsumedRef.current = undefined;
+  }, [
+    currentSessionId,
+    initialPrompt,
+    onInitialPromptConsumed,
+    sessionSnapshotVersion,
+    submitPrompt,
+    websiteId,
+  ]);
+
+  function submit() {
+    submitPrompt(draft);
   }
 
   const stop = () => {
@@ -525,6 +529,7 @@ export function AgentWorkbenchContent({
 
         if (projected.event.type === 'session.snapshot') {
           const nextSession = projected.event.payload.session;
+          setSessionSnapshotVersion((current) => current + 1);
           setSessions((current) => {
             const existing = current.some((session) => session.id === nextSession.id);
             return existing
