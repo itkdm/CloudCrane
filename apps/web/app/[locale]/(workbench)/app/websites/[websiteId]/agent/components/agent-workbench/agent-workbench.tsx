@@ -21,6 +21,7 @@ import {
   type ConversationEvent,
 } from './conversation-reducer';
 import { PreviewPane } from './preview-pane';
+import { resolvePreviewSource } from '@/lib/preview-source';
 import type { PreviewViewportMode } from './preview-viewport';
 import { SessionSidebar } from './session-sidebar';
 import type { PreviewState, Session } from './types';
@@ -33,6 +34,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewBridge = useRef<PreviewBridgeClient | null>(null);
   const previewClientIdRef = useRef<string | undefined>(undefined);
   const previewCurrentUrlRef = useRef<string | undefined>(undefined);
+  const previewWebsiteIdRef = useRef(websiteId);
+  const previewStateWebsiteIdRef = useRef(websiteId);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const activeRunRef = useRef<string | undefined>(undefined);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -61,6 +64,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarHydrated, setSidebarHydrated] = useState(false);
   const [previewViewportMode, setPreviewViewportMode] = useState<PreviewViewportMode>('desktop');
+
+  previewWebsiteIdRef.current = websiteId;
 
   const flushConversation = useCallback(() => {
     if (conversationRafRef.current !== undefined) {
@@ -140,10 +145,12 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     if (!previewUrlPromiseRef.current) {
       previewUrlPromiseRef.current = getPreviewUrl(websiteId)
         .then(({ url }) => {
+          if (previewWebsiteIdRef.current !== websiteId) return url;
           setPreview({ status: 'ready', url });
           return url;
         })
         .catch((cause) => {
+          if (previewWebsiteIdRef.current !== websiteId) throw cause;
           const message = cause instanceof Error ? cause.message : t('unavailablePreview');
           setPreview({
             status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
@@ -153,6 +160,29 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
         });
     }
     return previewUrlPromiseRef.current;
+  }, [websiteId]);
+
+  useEffect(() => {
+    previewStateWebsiteIdRef.current = websiteId;
+    previewCurrentUrlRef.current = undefined;
+    setPreviewCurrentUrl(undefined);
+    setPreviewCurrentPath(undefined);
+    setPreview({ status: 'loading' });
+    setBridgeStatus('waiting');
+    previewCapabilitiesRef.current = undefined;
+    previewUrlPromiseRef.current = null;
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = undefined;
+    }
+    previewOperationRef.current = Promise.resolve();
+    const waiter = previewReadyRef.current;
+    if (waiter) {
+      window.clearTimeout(waiter.timer);
+      waiter.reject(new Error('Preview Website changed'));
+      previewReadyRef.current = null;
+    }
+    setPreviewOpen(false);
   }, [websiteId]);
 
   const ensurePreviewReady = useCallback(async () => {
@@ -461,6 +491,11 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     if (sessionId) sendCommand({ type: 'agent.abort', websiteId, sessionId, payload: {} });
   };
 
+  const previewBelongsToWebsite = previewStateWebsiteIdRef.current === websiteId;
+  const visiblePreview = previewBelongsToWebsite ? preview : { status: 'loading' as const };
+  const visiblePreviewCurrentUrl = previewBelongsToWebsite ? previewCurrentUrl : undefined;
+  const visiblePreviewCurrentPath = previewBelongsToWebsite ? previewCurrentPath : undefined;
+
   return (
     <main className="workbench">
       <div
@@ -487,18 +522,21 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           onExample={setDraft}
         />
         <PreviewPane
-          preview={preview}
+          preview={visiblePreview}
           open={previewOpen}
           previewKey={previewKey}
           frameRef={previewFrame}
           bridgeStatus={bridgeStatus}
           onClose={() => setPreviewOpen(false)}
           onRefresh={refreshPreview}
-          onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
+          onOpen={() => {
+            const url = resolvePreviewSource(visiblePreview.url, visiblePreviewCurrentUrl);
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          }}
           previewViewportMode={previewViewportMode}
           onPreviewViewportModeChange={setPreviewViewportMode}
-          currentPath={previewCurrentPath}
-          currentUrl={previewCurrentUrl}
+          currentPath={visiblePreviewCurrentPath}
+          currentUrl={visiblePreviewCurrentUrl}
         />
       </div>
     </main>

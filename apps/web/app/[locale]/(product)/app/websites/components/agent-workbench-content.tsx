@@ -29,6 +29,7 @@ import {
   type ConversationEvent,
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/conversation-reducer';
 import { PreviewPane } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-pane';
+import { resolvePreviewSource } from '@/lib/preview-source';
 import type { PreviewViewportMode } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-viewport';
 import type {
   PreviewState,
@@ -89,6 +90,8 @@ export function AgentWorkbenchContent({
   const previewClient = useRef<PreviewBridgeClient | null>(null);
   const previewClientIdRef = useRef<string | undefined>(undefined);
   const previewCurrentUrlRef = useRef<string | undefined>(undefined);
+  const previewWebsiteIdRef = useRef(websiteId);
+  const previewStateWebsiteIdRef = useRef(websiteId);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const pendingConversationQueue = useRef<ConversationEvent[]>([]);
   const activeRunRef = useRef<string | undefined>(undefined);
@@ -102,6 +105,7 @@ export function AgentWorkbenchContent({
   const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
 
   onPreviewOpenChangeRef.current = onPreviewOpenChange;
+  previewWebsiteIdRef.current = websiteId;
 
   activeRunRef.current = runId;
 
@@ -144,10 +148,12 @@ export function AgentWorkbenchContent({
     if (previewUrlPromiseRef.current) return previewUrlPromiseRef.current;
     const promise = getPreviewUrl(websiteId)
       .then(({ url }) => {
+        if (previewWebsiteIdRef.current !== websiteId) return url;
         setPreview({ status: 'ready', url });
         return url;
       })
       .catch((cause) => {
+        if (previewWebsiteIdRef.current !== websiteId) throw cause;
         const message = cause instanceof Error ? cause.message : t('unavailablePreview');
         setPreview({
           status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
@@ -158,6 +164,29 @@ export function AgentWorkbenchContent({
     previewUrlPromiseRef.current = promise;
     return promise;
   }, [t, websiteId]);
+
+  useEffect(() => {
+    previewStateWebsiteIdRef.current = websiteId;
+    previewCurrentUrlRef.current = undefined;
+    setPreviewCurrentUrl(undefined);
+    setPreviewCurrentPath(undefined);
+    setPreview({ status: 'loading' });
+    setBridgeStatus('unavailable');
+    previewCapabilitiesRef.current = undefined;
+    previewUrlPromiseRef.current = null;
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = undefined;
+    }
+    previewOperationRef.current = Promise.resolve();
+    const waiter = previewReadyRef.current;
+    if (waiter) {
+      window.clearTimeout(waiter.timer);
+      waiter.reject(new Error('Preview Website changed'));
+      previewReadyRef.current = null;
+    }
+    setPreviewOpen(false);
+  }, [websiteId]);
 
   const refreshPreview = useCallback(() => {
     if (previewClient.current)
@@ -542,6 +571,11 @@ export function AgentWorkbenchContent({
     t,
   ]);
 
+  const previewBelongsToWebsite = previewStateWebsiteIdRef.current === websiteId;
+  const visiblePreview = previewBelongsToWebsite ? preview : { status: 'loading' as const };
+  const visiblePreviewCurrentUrl = previewBelongsToWebsite ? previewCurrentUrl : undefined;
+  const visiblePreviewCurrentPath = previewBelongsToWebsite ? previewCurrentPath : undefined;
+
   return (
     <main className="workbench">
       <div
@@ -581,18 +615,21 @@ export function AgentWorkbenchContent({
           />
         ) : null}
         <PreviewPane
-          preview={preview}
+          preview={visiblePreview}
           open={previewOpen}
           previewKey={previewKey}
           frameRef={previewFrame}
           bridgeStatus={bridgeStatus}
           onClose={() => setPreviewOpen(false)}
           onRefresh={refreshPreview}
-          onOpen={() => preview.url && window.open(preview.url, '_blank', 'noopener,noreferrer')}
+          onOpen={() => {
+            const url = resolvePreviewSource(visiblePreview.url, visiblePreviewCurrentUrl);
+            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+          }}
           previewViewportMode={previewViewportMode}
           onPreviewViewportModeChange={setPreviewViewportMode}
-          currentPath={previewCurrentPath}
-          currentUrl={previewCurrentUrl}
+          currentPath={visiblePreviewCurrentPath}
+          currentUrl={visiblePreviewCurrentUrl}
         />
       </div>
     </main>

@@ -7,6 +7,7 @@ import {
   type PreviewViewportMode,
 } from './preview-viewport';
 import type { PreviewState } from './types';
+import { resolvePreviewSource } from '@/lib/preview-source';
 
 export type PreviewPaneProps = {
   preview: PreviewState;
@@ -204,19 +205,6 @@ export function PreviewPane({
       ) : null}
     </aside>
   );
-}
-
-function resolvePreviewSource(
-  baseUrl: string | undefined,
-  currentUrl?: string,
-): string | undefined {
-  if (!baseUrl) return undefined;
-  if (!currentUrl) return baseUrl;
-  try {
-    return new URL(currentUrl).origin === new URL(baseUrl).origin ? currentUrl : baseUrl;
-  } catch {
-    return baseUrl;
-  }
 }
 
 function previewMessage(status: PreviewState['status'], t: (key: string) => string): string {
