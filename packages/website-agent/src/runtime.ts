@@ -813,10 +813,10 @@ export class WebsiteAgentRuntime {
           if (!alreadyRunning) this.emitCompaction(current, 'started');
         } else if (event.type === 'compaction_end') {
           current.compactionStatus = undefined;
-          const status = event.aborted
-            ? 'failed'
-            : isCompactionNotNeededError(event.errorMessage)
-              ? 'not_needed'
+          const status = isCompactionNotNeededError(event.errorMessage)
+            ? 'not_needed'
+            : event.aborted
+              ? 'failed'
               : event.errorMessage
                 ? 'failed'
                 : 'completed';
