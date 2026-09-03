@@ -13,41 +13,6 @@ export function MarketingHero() {
           <Link className="marketing-button marketing-button-primary" href="/app/websites">
             {t('cta')}
           </Link>
-          <Link className="marketing-button marketing-button-secondary" href="#workflow">
-            {t('workflowLink')}
-          </Link>
-        </div>
-      </div>
-      <div className="product-visual" aria-label={t('visualLabel')}>
-        <div className="product-visual-topbar">
-          <span className="product-visual-dot" />
-          <span className="product-visual-dot" />
-          <span className="product-visual-dot" />
-          <span className="product-visual-url">preview.cloudcrane.dev</span>
-        </div>
-        <div className="product-visual-body">
-          <div className="product-chat">
-            <span className="product-label">{t('visualConversation')}</span>
-            <p>{t('visualPrompt')}</p>
-            <div className="product-progress">
-              <span />
-            </div>
-            <small>{t('visualWorking')}</small>
-          </div>
-          <div className="product-preview">
-            <span className="product-label">{t('visualPreview')}</span>
-            <div className="preview-browser">
-              <div className="preview-heading" />
-              <div className="preview-line preview-line-wide" />
-              <div className="preview-line" />
-              <div className="preview-button" />
-              <div className="preview-cards">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
