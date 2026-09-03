@@ -1188,7 +1188,9 @@ export class WebsiteAgentRuntime {
 
 function isCompactionNotNeededError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /^(Nothing to compact \(session too small\)|Already compacted)$/.test(message.trim());
+  return /^(?:Compaction failed: )?(Nothing to compact \(session too small\)|Already compacted)$/.test(
+    message.trim(),
+  );
 }
 
 function isFileNotFound(error: unknown): boolean {
