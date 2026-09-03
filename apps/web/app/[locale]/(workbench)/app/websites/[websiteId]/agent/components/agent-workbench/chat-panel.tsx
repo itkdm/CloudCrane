@@ -2,8 +2,7 @@ import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
-import type { ConversationTurn } from './types';
-import type { ContextMaintenance } from './conversation-reducer';
+import type { ConversationTurn, ManualMaintenanceItem } from './types';
 
 type ChatPanelProps = {
   turns: ConversationTurn[];
@@ -19,7 +18,8 @@ type ChatPanelProps = {
   previewOpen?: boolean;
   onPreviewToggle?: () => void;
   onSettingsOpen?: () => void;
-  contextMaintenance?: ContextMaintenance;
+  manualMaintenanceItems?: ManualMaintenanceItem[];
+  manualMaintenanceRunning?: boolean;
   onCompact?: () => void;
 };
 
@@ -37,7 +37,8 @@ export function ChatPanel({
   previewOpen,
   onPreviewToggle,
   onSettingsOpen,
-  contextMaintenance,
+  manualMaintenanceItems = [],
+  manualMaintenanceRunning = false,
   onCompact,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
@@ -62,7 +63,7 @@ export function ChatPanel({
               type="button"
               className="preview-toggle-button"
               onClick={onCompact}
-              disabled={running || contextMaintenance?.status === 'running' || disabled}
+              disabled={running || manualMaintenanceRunning || disabled}
               aria-label={t('compactContext')}
               title={t('compactContext')}
             >
@@ -94,11 +95,15 @@ export function ChatPanel({
           </button>
         </div>
       ) : null}
-      <MessageList turns={turns} onExample={onExample} contextMaintenance={contextMaintenance} />
+      <MessageList
+        turns={turns}
+        onExample={onExample}
+        manualMaintenanceItems={manualMaintenanceItems}
+      />
       <Composer
         draft={draft}
         running={running}
-        disabled={disabled || contextMaintenance?.status === 'running'}
+        disabled={disabled || manualMaintenanceRunning}
         onDraftChange={onDraftChange}
         onSubmit={onSubmit}
         onStop={onStop}

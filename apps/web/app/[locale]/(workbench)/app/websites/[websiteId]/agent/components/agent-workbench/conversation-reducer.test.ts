@@ -15,17 +15,20 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
-  it('keeps compaction as maintenance state instead of creating a chat turn', () => {
+  it('anchors manual compaction without creating a chat turn', () => {
     const state = reduce(
       user(),
       { type: 'context.compaction.started' },
       { type: 'context.compaction.completed' },
     );
 
-    expect(state.contextMaintenance).toEqual({
-      operation: 'compaction',
-      status: 'completed',
-    });
+    expect(state.manualMaintenanceItems).toEqual([
+      expect.objectContaining({
+        operation: 'compaction',
+        status: 'completed',
+        afterTurnId: 'user-1',
+      }),
+    ]);
     expect(state.turns).toHaveLength(1);
     expect(state.turns[0]?.userMessage.text).toBe('请修改首页');
   });
@@ -314,4 +317,99 @@ it('preserves assistant and tool ordering when rebuilding a snapshot', () => {
     'tool-2',
   ]);
   expect(state.turns[0]?.finalAnswer?.id).toBe('assistant-3');
+});
+
+describe('context maintenance timeline placement', () => {
+  it('places automatic maintenance in the matching run execution', () => {
+    const running = reduce(
+      user(),
+      { type: 'run.started', payload: { runId: 'run-1' } },
+      {
+        type: 'context.compaction.started',
+        payload: { runId: 'run-1' },
+      },
+    );
+    const step = running.turns[0]?.execution?.[0];
+    expect(step).toMatchObject({ kind: 'context-maintenance', status: 'running' });
+    const completed = reduce(
+      user(),
+      { type: 'run.started', payload: { runId: 'run-1' } },
+      {
+        type: 'context.compaction.started',
+        payload: { runId: 'run-1' },
+      },
+      { type: 'context.compaction.completed', payload: { runId: 'run-1' } },
+    );
+    expect(completed.turns[0]?.execution).toHaveLength(1);
+    expect(completed.turns[0]?.execution?.[0]).toMatchObject({ id: step?.id, status: 'completed' });
+    expect(completed.manualMaintenanceItems).toHaveLength(0);
+  });
+
+  it('marks automatic failure without creating a manual item', () => {
+    const state = reduce(
+      user(),
+      { type: 'run.started', payload: { runId: 'run-1' } },
+      {
+        type: 'context.compaction.started',
+        payload: { runId: 'run-1' },
+      },
+      { type: 'context.compaction.failed', payload: { runId: 'run-1' } },
+    );
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      kind: 'context-maintenance',
+      status: 'error',
+    });
+    expect(state.manualMaintenanceItems).toEqual([]);
+  });
+
+  it('anchors multiple manual items and preserves their positions', () => {
+    const state = reduce(
+      user('user-1'),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.completed' },
+      user('user-2'),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.failed' },
+      user('user-3'),
+    );
+    expect(state.manualMaintenanceItems).toEqual([
+      expect.objectContaining({
+        id: 'manual-compaction-0',
+        afterTurnId: 'user-1',
+        status: 'completed',
+      }),
+      expect.objectContaining({
+        id: 'manual-compaction-1',
+        afterTurnId: 'user-2',
+        status: 'error',
+      }),
+    ]);
+  });
+
+  it('restores running maintenance as automatic or manual from a snapshot', () => {
+    const automatic = reduce({
+      type: 'session.snapshot',
+      payload: {
+        messages: [{ id: 'user-1', role: 'user', text: '继续' }],
+        activeRun: { runId: 'run-snapshot', status: 'RUNNING' },
+        contextMaintenance: { operation: 'compaction', status: 'running' },
+      },
+    });
+    expect(automatic.turns[0]?.execution?.[0]).toMatchObject({
+      kind: 'context-maintenance',
+      status: 'running',
+    });
+    expect(automatic.manualMaintenanceItems).toHaveLength(0);
+    const manual = reduce({
+      type: 'session.snapshot',
+      payload: {
+        messages: [{ id: 'user-1', role: 'user', text: '继续' }],
+        contextMaintenance: { operation: 'compaction', status: 'running' },
+      },
+    });
+    expect(manual.manualMaintenanceItems[0]).toMatchObject({
+      status: 'running',
+      afterTurnId: 'user-1',
+    });
+  });
 });

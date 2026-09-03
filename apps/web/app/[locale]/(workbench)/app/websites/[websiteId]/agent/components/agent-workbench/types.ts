@@ -30,15 +30,31 @@ export type ToolExecutionStep = {
   status: 'running' | 'completed' | 'error';
 };
 
-export type ExecutionStep = AssistantNarrativeStep | ToolExecutionStep;
+export type ContextMaintenanceExecutionStep = {
+  kind: 'context-maintenance';
+  id: string;
+  operation: 'compaction';
+  status: 'running' | 'completed' | 'error';
+};
+
+export type ExecutionStep =
+  AssistantNarrativeStep | ToolExecutionStep | ContextMaintenanceExecutionStep;
 
 export type ConversationTurn = {
   userMessage: Message;
+  runId?: string;
   execution?: ExecutionStep[];
   finalAnswer?: Message;
   status: ConversationTurnStatus;
   error?: string;
   expanded: boolean;
+};
+
+export type ManualMaintenanceItem = {
+  id: string;
+  operation: 'compaction';
+  status: 'running' | 'completed' | 'error';
+  afterTurnId?: string;
 };
 
 export type Session = {

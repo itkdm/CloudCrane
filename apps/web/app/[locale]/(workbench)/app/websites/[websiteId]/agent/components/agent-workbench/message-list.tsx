@@ -4,19 +4,18 @@ import { AssistantMessage } from './assistant-message';
 import { useConversationScroll } from './conversation-scroll';
 import { ExecutionProcess } from './tool-execution';
 import { UserMessage } from './user-message';
-import type { ConversationTurn } from './types';
-import type { ContextMaintenance } from './conversation-reducer';
+import type { ConversationTurn, ManualMaintenanceItem } from './types';
 
 type MessageListProps = {
   turns: ConversationTurn[];
   onExample: (value: string) => void;
-  contextMaintenance?: ContextMaintenance;
+  manualMaintenanceItems?: ManualMaintenanceItem[];
 };
 
-export function MessageList({ turns, onExample, contextMaintenance }: MessageListProps) {
+export function MessageList({ turns, onExample, manualMaintenanceItems = [] }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
-  const contentVersion = JSON.stringify(turns);
+  const contentVersion = JSON.stringify({ turns, manualMaintenanceItems });
   const latestUserMessageId = turns.at(-1)?.userMessage.id;
   const { containerRef, endRef, onScroll, returnToLatest, showReturnToLatest } =
     useConversationScroll(contentVersion, latestUserMessageId);
@@ -40,30 +39,25 @@ export function MessageList({ turns, onExample, contextMaintenance }: MessageLis
             </div>
           </div>
         ) : (
-          turns.map((turn) => <ConversationTurnView key={turn.userMessage.id} turn={turn} />)
+          turns.map((turn) => (
+            <div key={turn.userMessage.id}>
+              <ConversationTurnView turn={turn} />
+              {manualMaintenanceItems
+                .filter((item) => item.afterTurnId === turn.userMessage.id)
+                .map((item) => (
+                  <MaintenanceItem key={item.id} item={item} />
+                ))}
+            </div>
+          ))
         )}
-        {contextMaintenance ? (
-          <div
-            className={`context-maintenance ${contextMaintenance.status}`}
-            role="status"
-            aria-live="polite"
-          >
-            <span aria-hidden="true">
-              {contextMaintenance.status === 'running'
-                ? '◌'
-                : contextMaintenance.status === 'completed'
-                  ? '✓'
-                  : '!'}
-            </span>
-            <span>
-              {contextMaintenance.status === 'running'
-                ? t('compactionRunning')
-                : contextMaintenance.status === 'completed'
-                  ? t('compactionCompleted')
-                  : t('compactionFailed')}
-            </span>
-          </div>
-        ) : null}
+        {manualMaintenanceItems
+          .filter(
+            (item) =>
+              !item.afterTurnId || !turns.some((turn) => turn.userMessage.id === item.afterTurnId),
+          )
+          .map((item) => (
+            <MaintenanceItem key={item.id} item={item} />
+          ))}
         <div ref={endRef} aria-hidden="true" />
       </div>
       {showReturnToLatest ? (
@@ -77,6 +71,24 @@ export function MessageList({ turns, onExample, contextMaintenance }: MessageLis
           {t('latest')}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function MaintenanceItem({ item }: { item: ManualMaintenanceItem }) {
+  const t = useTranslations('workbench');
+  return (
+    <div className={`context-maintenance ${item.status}`} role="status" aria-live="polite">
+      <span aria-hidden="true">
+        {item.status === 'running' ? '◌' : item.status === 'completed' ? '✓' : '!'}
+      </span>
+      <span>
+        {item.status === 'running'
+          ? t('compactionRunning')
+          : item.status === 'completed'
+            ? t('compactionCompleted')
+            : t('compactionFailed')}
+      </span>
     </div>
   );
 }

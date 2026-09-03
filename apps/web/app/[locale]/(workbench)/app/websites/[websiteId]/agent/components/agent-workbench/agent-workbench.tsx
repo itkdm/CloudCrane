@@ -609,7 +609,10 @@ function handleEvent(
   setError: (value: string | undefined) => void,
   schedulePreviewRefresh: () => void,
 ) {
-  if (event.type === 'run.started') setRunId(event.payload.runId);
+  if (event.type === 'run.started') {
+    setRunId(event.payload.runId);
+    queueConversation({ type: 'run.started', payload: { runId: event.payload.runId } }, true);
+  }
   if (event.type === 'run.settled') {
     flushConversation();
     queueConversation(

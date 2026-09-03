@@ -15,7 +15,12 @@ import { memo } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { AssistantMessage } from './assistant-message';
-import type { ConversationTurnStatus, ExecutionStep, ToolExecutionStep } from './types';
+import type {
+  ContextMaintenanceExecutionStep,
+  ConversationTurnStatus,
+  ExecutionStep,
+  ToolExecutionStep,
+} from './types';
 
 const toolLabels: Record<string, string> = {
   read: 'read',
@@ -98,8 +103,10 @@ export const ExecutionProcess = memo(function ExecutionProcess({
                 message={{ id: step.id, role: 'assistant', text: step.text, status: step.status }}
                 variant="narrative"
               />
-            ) : (
+            ) : step.kind === 'tool' ? (
               <ToolExecution key={step.id} step={step} />
+            ) : (
+              <ContextMaintenanceExecution key={step.id} step={step} />
             ),
           )}
           {status === 'error' || status === 'no-final-text' || status === 'aborted' ? (
@@ -111,6 +118,32 @@ export const ExecutionProcess = memo(function ExecutionProcess({
         </div>
       ) : null}
     </section>
+  );
+});
+
+const ContextMaintenanceExecution = memo(function ContextMaintenanceExecution({
+  step,
+}: {
+  step: ContextMaintenanceExecutionStep;
+}) {
+  const t = useTranslations('workbench');
+  return (
+    <div
+      className={`context-maintenance ${step.status === 'error' ? 'failed' : step.status}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span aria-hidden="true">
+        {step.status === 'running' ? '◌' : step.status === 'completed' ? '✓' : '!'}
+      </span>
+      <span>
+        {step.status === 'running'
+          ? t('compactionRunning')
+          : step.status === 'completed'
+            ? t('compactionCompleted')
+            : t('compactionFailed')}
+      </span>
+    </div>
   );
 });
 

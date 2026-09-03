@@ -25,6 +25,7 @@ import { PreviewBridgeClient, PreviewBridgeClientError } from '@/lib/preview-bri
 import { ChatPanel } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/chat-panel';
 import {
   conversationReducer,
+  hasRunningManualMaintenance,
   initialConversationState,
   type ConversationEvent,
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/conversation-reducer';
@@ -370,7 +371,7 @@ export function AgentWorkbenchContent({
       !text ||
       !currentSessionId ||
       activeRunRef.current ||
-      conversation.contextMaintenance?.status === 'running'
+      hasRunningManualMaintenance(conversation)
     )
       return;
     const requestId = crypto.randomUUID();
@@ -413,11 +414,7 @@ export function AgentWorkbenchContent({
   };
 
   const compactContext = useCallback(() => {
-    if (
-      !currentSessionId ||
-      activeRunRef.current ||
-      conversation.contextMaintenance?.status === 'running'
-    )
+    if (!currentSessionId || activeRunRef.current || hasRunningManualMaintenance(conversation))
       return;
     sendCommand({
       type: 'session.compact',
@@ -425,7 +422,7 @@ export function AgentWorkbenchContent({
       sessionId: currentSessionId,
       payload: {},
     });
-  }, [conversation.contextMaintenance?.status, currentSessionId, sendCommand, websiteId]);
+  }, [conversation, currentSessionId, sendCommand, websiteId]);
 
   const requestPreview = useCallback(
     (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
@@ -617,7 +614,8 @@ export function AgentWorkbenchContent({
           running={Boolean(runId)}
           error={error}
           disabled={!currentSessionId}
-          contextMaintenance={conversation.contextMaintenance}
+          manualMaintenanceItems={conversation.manualMaintenanceItems}
+          manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
           onCompact={compactContext}
           onDraftChange={setDraft}
           onSubmit={submit}
@@ -794,10 +792,13 @@ function handleEvent(
     event.type === 'context.compaction.completed' ||
     event.type === 'context.compaction.failed'
   ) {
-    queueConversation({ type: event.type }, true);
+    queueConversation({ type: event.type, payload: { runId: envelope.runId } }, true);
     return;
   }
-  if (event.type === 'run.started') setRunId(event.payload.runId);
+  if (event.type === 'run.started') {
+    setRunId(event.payload.runId);
+    queueConversation({ type: 'run.started', payload: { runId: event.payload.runId } }, true);
+  }
   if (event.type === 'run.settled') {
     flushConversation();
     queueConversation(

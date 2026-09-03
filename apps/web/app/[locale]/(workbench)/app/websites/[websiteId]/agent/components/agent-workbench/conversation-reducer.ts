@@ -4,25 +4,30 @@ import type {
   ConversationTurn,
   ConversationTurnStatus,
   ExecutionStep,
+  ManualMaintenanceItem,
   Message,
   ToolExecutionStep,
 } from './types';
 
 const MAX_PRESENTATION_TEXT = 32_000;
 
-export type ContextMaintenance = {
+export type ContextMaintenanceSnapshot = {
   operation: 'compaction';
-  status: 'running' | 'completed' | 'failed';
+  status: 'running';
 };
 
 /** `turns` is the source of truth; `messages` remains a renderer compatibility projection. */
 export type ConversationState = {
   turns: ConversationTurn[];
   messages: Message[];
-  contextMaintenance?: ContextMaintenance;
+  manualMaintenanceItems: ManualMaintenanceItem[];
 };
 
-export const initialConversationState: ConversationState = { turns: [], messages: [] };
+export const initialConversationState: ConversationState = {
+  turns: [],
+  messages: [],
+  manualMaintenanceItems: [],
+};
 
 export type ConversationEvent =
   | { type: 'batch'; actions: ConversationEvent[] }
@@ -32,7 +37,7 @@ export type ConversationEvent =
         messages: SnapshotMessage[];
         session?: unknown;
         activeRun?: unknown;
-        contextMaintenance?: ContextMaintenance | null;
+        contextMaintenance?: ContextMaintenanceSnapshot | null;
       };
     }
   | { type: 'user.added'; payload: { message: Message } }
@@ -41,6 +46,7 @@ export type ConversationEvent =
   | {
       type:
         'context.compaction.started' | 'context.compaction.completed' | 'context.compaction.failed';
+      payload?: { runId?: string };
     }
   | { type: 'turn.started'; payload: { turnIndex: number; turnId?: string } }
   | { type: 'turn.completed'; payload: { turnIndex: number; turnId?: string } }
@@ -71,17 +77,15 @@ export function conversationReducer(
   if (event.type === 'batch') return event.actions.reduce(conversationReducer, state);
 
   if (event.type === 'session.snapshot') {
-    if (event.payload.messages.length === 0)
-      return {
-        ...initialConversationState,
-        ...(event.payload.contextMaintenance
-          ? { contextMaintenance: event.payload.contextMaintenance }
-          : {}),
-      };
     const active = isActiveRun(event.payload.activeRun);
-    return present(
+    const next = present(
       mergeSnapshotTurns(state.turns, snapshotToTurns(event.payload.messages, active), active),
-      event.payload.contextMaintenance ?? undefined,
+      state.manualMaintenanceItems,
+    );
+    return restoreSnapshotMaintenance(
+      next,
+      event.payload.activeRun,
+      event.payload.contextMaintenance,
     );
   }
 
@@ -93,7 +97,7 @@ export function conversationReducer(
           ...state.turns,
           { userMessage: boundMessage(event.payload.message), status: 'running', expanded: true },
         ],
-        state.contextMaintenance,
+        state.manualMaintenanceItems,
       );
     const current = state.turns[index];
     return current
@@ -114,23 +118,28 @@ export function conversationReducer(
             ? { ...turn.userMessage, status: event.payload.status }
             : turn.userMessage,
       })),
-      state.contextMaintenance,
+      state.manualMaintenanceItems,
     );
   }
 
-  if (event.type === 'context.compaction.started')
-    return { ...state, contextMaintenance: { operation: 'compaction', status: 'running' } };
-  if (event.type === 'context.compaction.completed')
-    return { ...state, contextMaintenance: { operation: 'compaction', status: 'completed' } };
-  if (event.type === 'context.compaction.failed')
-    return { ...state, contextMaintenance: { operation: 'compaction', status: 'failed' } };
+  if (
+    event.type === 'context.compaction.started' ||
+    event.type === 'context.compaction.completed' ||
+    event.type === 'context.compaction.failed'
+  )
+    return reduceContextMaintenance(state, event.type, event.payload?.runId);
 
   if (event.type === 'run.started') {
     const index = latestTurnIndex(state.turns);
     const turn = state.turns[index];
     return !turn || isSettled(turn.status)
       ? state
-      : replaceTurn(state, index, { ...turn, status: 'running', expanded: true });
+      : replaceTurn(state, index, {
+          ...turn,
+          runId: event.payload?.runId ?? turn.runId,
+          status: 'running',
+          expanded: true,
+        });
   }
 
   // A Pi turn is a nested runtime boundary. The product turn remains the user
@@ -255,6 +264,109 @@ function settle(
     error: undefined,
     expanded: false,
   });
+}
+
+function reduceContextMaintenance(
+  state: ConversationState,
+  type: Extract<ConversationEvent, { type: `context.compaction.${string}` }>['type'],
+  runId?: string,
+): ConversationState {
+  if (runId) {
+    const index = state.turns.findIndex((turn) => turn.runId === runId);
+    const turnIndex = index >= 0 ? index : latestTurnIndex(state.turns);
+    const turn = state.turns[turnIndex];
+    if (!turn) return state;
+    const execution = [...(turn.execution ?? [])];
+    const runningIndex = [...execution]
+      .map((step, stepIndex) => ({ step, stepIndex }))
+      .reverse()
+      .find(
+        ({ step }) => step.kind === 'context-maintenance' && step.status === 'running',
+      )?.stepIndex;
+    if (type.endsWith('started')) {
+      const count = execution.filter((step) => step.kind === 'context-maintenance').length;
+      execution.push({
+        kind: 'context-maintenance',
+        id: `context-compaction-${runId}-${count}`,
+        operation: 'compaction',
+        status: 'running',
+      });
+    } else if (runningIndex !== undefined) {
+      const step = execution[runningIndex];
+      if (step?.kind === 'context-maintenance')
+        execution[runningIndex] = {
+          ...step,
+          status: type.endsWith('completed') ? 'completed' : 'error',
+        };
+    }
+    return replaceTurn(state, turnIndex, { ...turn, execution });
+  }
+
+  if (type.endsWith('started')) {
+    const id = `manual-compaction-${state.manualMaintenanceItems.length}`;
+    return {
+      ...state,
+      manualMaintenanceItems: [
+        ...state.manualMaintenanceItems,
+        {
+          id,
+          operation: 'compaction',
+          status: 'running',
+          afterTurnId: state.turns.at(-1)?.userMessage.id,
+        },
+      ],
+    };
+  }
+  const index = [...state.manualMaintenanceItems]
+    .map((item, itemIndex) => ({ item, itemIndex }))
+    .reverse()
+    .find(({ item }) => item.status === 'running')?.itemIndex;
+  if (index === undefined) return state;
+  return {
+    ...state,
+    manualMaintenanceItems: state.manualMaintenanceItems.map((item, itemIndex) =>
+      itemIndex === index
+        ? { ...item, status: type.endsWith('completed') ? 'completed' : 'error' }
+        : item,
+    ),
+  };
+}
+
+function restoreSnapshotMaintenance(
+  state: ConversationState,
+  activeRun: unknown,
+  maintenance: ContextMaintenanceSnapshot | null | undefined,
+): ConversationState {
+  if (!maintenance || !isActiveRun(activeRun)) {
+    if (!maintenance || isActiveRun(activeRun)) return state;
+    if (state.manualMaintenanceItems.some((item) => item.status === 'running')) return state;
+    return reduceContextMaintenance(state, 'context.compaction.started');
+  }
+  const runId = activeRunId(activeRun);
+  const matchingIndex = runId ? state.turns.findIndex((turn) => turn.runId === runId) : -1;
+  const index = matchingIndex >= 0 ? matchingIndex : latestTurnIndex(state.turns);
+  const turn = state.turns[index];
+  if (!turn) return state;
+  if (
+    (turn.execution ?? []).some(
+      (step) => step.kind === 'context-maintenance' && step.status === 'running',
+    )
+  )
+    return state;
+  const execution = [
+    ...(turn.execution ?? []),
+    {
+      kind: 'context-maintenance' as const,
+      id: `context-compaction-${runId ?? 'snapshot'}-snapshot`,
+      operation: 'compaction' as const,
+      status: 'running' as const,
+    },
+  ];
+  return replaceTurn(state, index, { ...turn, ...(runId ? { runId } : {}), execution });
+}
+
+export function hasRunningManualMaintenance(state: ConversationState): boolean {
+  return state.manualMaintenanceItems.some((item) => item.status === 'running');
 }
 
 function updateAssistant(
@@ -420,6 +532,7 @@ function mergeTurn(
         : next.status;
   return {
     userMessage: mergeMessage(current.userMessage, next.userMessage),
+    ...((current.runId ?? next.runId) ? { runId: current.runId ?? next.runId } : {}),
     ...(execution?.length ? { execution: withoutStep(execution, finalAnswer?.id) } : {}),
     ...(finalAnswer ? { finalAnswer } : {}),
     status,
@@ -499,33 +612,36 @@ function projectSnapshotMessage(message: SnapshotMessage): Message {
 }
 
 function flattenTurns(turns: ConversationTurn[]): Message[] {
-  return turns.flatMap((turn) => [
-    turn.userMessage,
-    ...(turn.execution ?? []).map((step) =>
-      step.kind === 'assistant'
-        ? { id: step.id, role: 'assistant' as const, text: step.text, status: step.status }
-        : {
-            id: step.id,
-            role: 'tool' as const,
-            toolCallId: step.toolCallId,
-            ...(step.toolName ? { toolName: step.toolName } : {}),
-            ...(step.toolInput !== undefined ? { toolInput: step.toolInput } : {}),
-            ...(step.toolOutput !== undefined ? { toolOutput: step.toolOutput } : {}),
-            status: step.status,
-          },
-    ),
-    ...(turn.finalAnswer ? [turn.finalAnswer] : []),
-  ]);
+  const messages: Message[] = [];
+  for (const turn of turns) {
+    messages.push(turn.userMessage);
+    for (const step of turn.execution ?? []) {
+      if (step.kind === 'assistant')
+        messages.push({ id: step.id, role: 'assistant', text: step.text, status: step.status });
+      if (step.kind === 'tool')
+        messages.push({
+          id: step.id,
+          role: 'tool',
+          toolCallId: step.toolCallId,
+          ...(step.toolName ? { toolName: step.toolName } : {}),
+          ...(step.toolInput !== undefined ? { toolInput: step.toolInput } : {}),
+          ...(step.toolOutput !== undefined ? { toolOutput: step.toolOutput } : {}),
+          status: step.status,
+        });
+    }
+    if (turn.finalAnswer) messages.push(turn.finalAnswer);
+  }
+  return messages;
 }
 
 function present(
   turns: ConversationTurn[],
-  contextMaintenance?: ContextMaintenance,
+  manualMaintenanceItems: ManualMaintenanceItem[],
 ): ConversationState {
   return {
     turns,
     messages: flattenTurns(turns),
-    ...(contextMaintenance ? { contextMaintenance } : {}),
+    manualMaintenanceItems,
   };
 }
 
@@ -541,7 +657,7 @@ function replaceTurn(
 ): ConversationState {
   return present(
     state.turns.map((current, currentIndex) => (currentIndex === index ? turn : current)),
-    state.contextMaintenance,
+    state.manualMaintenanceItems,
   );
 }
 function mergeMessage(current: Message, next: Message): Message {
@@ -575,8 +691,19 @@ function isActiveRun(value: unknown): boolean {
     value && typeof value === 'object' && (value as { status?: unknown }).status === 'RUNNING',
   );
 }
+function activeRunId(value: unknown): string | undefined {
+  return value &&
+    typeof value === 'object' &&
+    typeof (value as { runId?: unknown }).runId === 'string'
+    ? (value as { runId: string }).runId
+    : undefined;
+}
 function stepKey(step: ExecutionStep): string {
-  return step.kind === 'tool' ? `tool:${step.toolCallId}` : `assistant:${step.id}`;
+  return step.kind === 'tool'
+    ? `tool:${step.toolCallId}`
+    : step.kind === 'assistant'
+      ? `assistant:${step.id}`
+      : `context-maintenance:${step.id}`;
 }
 function normalizeToolStatus(status: string | undefined): ToolExecutionStep['status'] {
   return status === 'error' ? 'error' : status === 'running' ? 'running' : 'completed';
