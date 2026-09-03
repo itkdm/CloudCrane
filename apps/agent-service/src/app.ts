@@ -51,10 +51,11 @@ export function buildAgentServiceApp(
     const binding = await options.registry.resolve(request.params.websiteId);
     if (!binding.previewPort)
       throw new AgentServiceError('WORKSPACE_NOT_READY', 'website preview is not ready', 409);
+    const expiresAt = Math.floor(Date.now() / 1000) + options.config.previewTokenTtlSeconds;
     const token = signPreviewToken(
       {
         websiteId: binding.websiteId,
-        expiresAt: Math.floor(Date.now() / 1000) + options.config.previewTokenTtlSeconds,
+        expiresAt,
       },
       options.config.previewSigningSecret,
     );
@@ -62,7 +63,7 @@ export function buildAgentServiceApp(
       '{websiteId}',
       binding.websiteId,
     );
-    return { url: `${origin.replace(/\/$/, '')}/?token=${encodeURIComponent(token)}` };
+    return { url: `${origin.replace(/\/$/, '')}/?token=${encodeURIComponent(token)}`, expiresAt };
   });
   app.get<{ Params: { websiteId: string } }>(
     '/v1/websites/:websiteId/sessions',

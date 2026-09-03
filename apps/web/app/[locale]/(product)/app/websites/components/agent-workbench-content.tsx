@@ -16,7 +16,6 @@ import {
   agentWebSocketUrl,
   command,
   createAgentSession,
-  getPreviewUrl,
   listAgentSessions,
   parseAgentEvent,
   parseAgentMessage,
@@ -31,6 +30,7 @@ import {
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/conversation-reducer';
 import { PreviewPane } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-pane';
 import { resolvePreviewSource } from '@/lib/preview-source';
+import { authorizePreviewAccess, usePreviewAccess } from '@/lib/preview-access';
 import type { PreviewViewportMode } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-viewport';
 import type {
   PreviewState,
@@ -78,7 +78,7 @@ export function AgentWorkbenchContent({
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
   const [previewCurrentUrl, setPreviewCurrentUrl] = useState<string>();
   const [previewCurrentPath, setPreviewCurrentPath] = useState<string>();
-  const previewKey = 0;
+  const [previewKey, setPreviewKey] = useState(0);
   const [bridgeStatus, setBridgeStatus] = useState<
     'unavailable' | 'attached' | 'detached' | 'error'
   >('unavailable');
@@ -89,6 +89,7 @@ export function AgentWorkbenchContent({
   const socket = useRef<WebSocket | null>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
   const previewClient = useRef<PreviewBridgeClient | null>(null);
+  const previewUrlRef = useRef<string | undefined>(undefined);
   const previewClientIdRef = useRef<string | undefined>(undefined);
   const previewCurrentUrlRef = useRef<string | undefined>(undefined);
   const previewWebsiteIdRef = useRef(websiteId);
@@ -100,7 +101,6 @@ export function AgentWorkbenchContent({
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
-  const previewUrlPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
   const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
@@ -145,36 +145,34 @@ export function AgentWorkbenchContent({
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
   }, []);
 
-  const loadPreviewUrl = useCallback(async () => {
-    if (previewUrlPromiseRef.current) return previewUrlPromiseRef.current;
-    const promise = getPreviewUrl(websiteId)
-      .then(({ url }) => {
-        if (previewWebsiteIdRef.current !== websiteId) return url;
-        setPreview({ status: 'ready', url });
-        return url;
-      })
-      .catch((cause) => {
-        if (previewWebsiteIdRef.current !== websiteId) throw cause;
-        const message = cause instanceof Error ? cause.message : t('unavailablePreview');
-        setPreview({
-          status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
-          message,
-        });
-        throw cause;
+  const handlePreviewAccess = useCallback((access: { url: string }) => {
+    setPreview((current) => ({ ...current, status: 'ready', url: access.url }));
+  }, []);
+  const handlePreviewAccessError = useCallback(
+    (cause: unknown) => {
+      const message = cause instanceof Error ? cause.message : t('unavailablePreview');
+      setPreview({
+        status: /not ready|stopped/i.test(message) ? 'stopped' : 'unavailable',
+        message,
       });
-    previewUrlPromiseRef.current = promise;
-    return promise;
-  }, [t, websiteId]);
+    },
+    [t],
+  );
+  const { ensureFreshPreviewAccess } = usePreviewAccess(websiteId, {
+    enabled: previewOpen && bridgeStatus === 'attached',
+    onAccess: handlePreviewAccess,
+    onError: handlePreviewAccessError,
+  });
 
   useEffect(() => {
     previewStateWebsiteIdRef.current = websiteId;
     previewCurrentUrlRef.current = undefined;
+    previewUrlRef.current = undefined;
     setPreviewCurrentUrl(undefined);
     setPreviewCurrentPath(undefined);
     setPreview({ status: 'loading' });
     setBridgeStatus('unavailable');
     previewCapabilitiesRef.current = undefined;
-    previewUrlPromiseRef.current = null;
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = undefined;
@@ -189,14 +187,22 @@ export function AgentWorkbenchContent({
     setPreviewOpen(false);
   }, [websiteId]);
 
+  const ensurePreviewAuthorizationFresh = useCallback(
+    async ({ force = false }: { force?: boolean } = {}) => {
+      const access = await ensureFreshPreviewAccess({ force });
+      await authorizePreviewAccess(access);
+      return access;
+    },
+    [ensureFreshPreviewAccess],
+  );
+
   const refreshPreview = useCallback(() => {
-    if (previewClient.current)
-      void previewClient.current
-        .refresh()
-        .catch((cause) =>
-          setError(cause instanceof Error ? cause.message : t('operationIncomplete')),
-        );
-  }, [t]);
+    void ensurePreviewAuthorizationFresh()
+      .then(() => previewClient.current?.refresh())
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : t('operationIncomplete')),
+      );
+  }, [ensurePreviewAuthorizationFresh, t]);
 
   const schedulePreviewRefresh = useCallback(() => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -228,19 +234,32 @@ export function AgentWorkbenchContent({
     });
   }, [sendCommand, websiteId]);
 
-  const ensurePreviewReady = useCallback(async () => {
-    setPreviewOpen(true);
-    if (previewClient.current) return previewClient.current;
-    if (preview.status !== 'ready' || !preview.url) await loadPreviewUrl();
-    if (!previewReadyRef.current) {
-      const waiter = createPreviewReadyWaiter();
-      previewReadyRef.current = waiter;
-      void waiter.promise.catch(() => {
-        if (previewReadyRef.current === waiter) previewReadyRef.current = null;
-      });
+  const ensurePreviewReady = useCallback(
+    async ({ ensureAccess = true }: { ensureAccess?: boolean } = {}) => {
+      if (ensureAccess || !previewClient.current) await ensurePreviewAuthorizationFresh();
+      setPreviewOpen(true);
+      if (previewClient.current) return previewClient.current;
+      if (!previewReadyRef.current) {
+        const waiter = createPreviewReadyWaiter();
+        previewReadyRef.current = waiter;
+        void waiter.promise.catch(() => {
+          if (previewReadyRef.current === waiter) previewReadyRef.current = null;
+        });
+      }
+      return previewReadyRef.current.promise;
+    },
+    [ensurePreviewAuthorizationFresh],
+  );
+
+  const togglePreview = useCallback(() => {
+    if (previewOpen) {
+      setPreviewOpen(false);
+      return;
     }
-    return previewReadyRef.current.promise;
-  }, [loadPreviewUrl, preview.status, preview.url]);
+    void ensurePreviewAuthorizationFresh()
+      .then(() => setPreviewOpen(true))
+      .catch((cause) => setError(cause instanceof Error ? cause.message : t('unavailablePreview')));
+  }, [ensurePreviewAuthorizationFresh, previewOpen, t]);
 
   useEffect(() => {
     onPreviewOpenChangeRef.current?.(previewOpen);
@@ -255,13 +274,8 @@ export function AgentWorkbenchContent({
   }, [previewOpen]);
 
   useEffect(() => {
-    loadPreviewUrl()
-      .then((url) => setPreview((current) => ({ ...current, url })))
-      .catch(() => {});
-    return () => {
-      previewUrlPromiseRef.current = null;
-    };
-  }, [loadPreviewUrl]);
+    void ensureFreshPreviewAccess().catch(() => {});
+  }, [ensureFreshPreviewAccess]);
 
   useEffect(() => {
     const key = `cloudcrane.previewClientId.${websiteId}`;
@@ -271,10 +285,20 @@ export function AgentWorkbenchContent({
   }, [websiteId]);
 
   useEffect(() => {
-    if (!previewOpen || preview.status !== 'ready' || !preview.url || !previewFrame.current) return;
+    previewUrlRef.current = preview.url;
+  }, [preview.url]);
+
+  useEffect(() => {
+    if (
+      !previewOpen ||
+      preview.status !== 'ready' ||
+      !previewUrlRef.current ||
+      !previewFrame.current
+    )
+      return;
     const client = new PreviewBridgeClient(
       previewFrame.current,
-      previewCurrentUrlRef.current ?? preview.url,
+      previewCurrentUrlRef.current ?? previewUrlRef.current,
       {
         onReady: (capabilities) => {
           previewCapabilitiesRef.current = capabilities;
@@ -305,7 +329,7 @@ export function AgentWorkbenchContent({
       }
       setBridgeStatus('unavailable');
     };
-  }, [preview.status, preview.url, previewOpen, updatePreviewCapabilities]);
+  }, [preview.status, previewOpen, updatePreviewCapabilities]);
 
   // Load session list
   useEffect(() => {
@@ -427,15 +451,28 @@ export function AgentWorkbenchContent({
   const requestPreview = useCallback(
     (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
       const operation = previewOperationRef.current.then(async () => {
-        const client = await ensurePreviewReady();
-        const response = await handlePreviewRequest(client, payload);
-        if (response.ok) setPreview((current) => ({ ...current, path: response.observation.path }));
-        return response;
+        let recovered = false;
+        while (true) {
+          try {
+            const client = await ensurePreviewReady({
+              ensureAccess: payload.operation !== 'observe',
+            });
+            const response = await handlePreviewRequest(client, payload);
+            if (response.ok)
+              setPreview((current) => ({ ...current, path: response.observation.path }));
+            return response;
+          } catch (cause) {
+            if (recovered || !isPreviewTimeout(cause)) throw cause;
+            recovered = true;
+            await ensurePreviewAuthorizationFresh({ force: true });
+            setPreviewKey((current) => current + 1);
+          }
+        }
       });
       previewOperationRef.current = operation.catch(() => undefined);
       return operation;
     },
-    [ensurePreviewReady],
+    [ensurePreviewAuthorizationFresh, ensurePreviewReady],
   );
 
   // Handle WebSocket events
@@ -623,7 +660,7 @@ export function AgentWorkbenchContent({
           onDismissError={() => setError(undefined)}
           onExample={setDraft}
           previewOpen={previewOpen}
-          onPreviewToggle={() => setPreviewOpen((current) => !current)}
+          onPreviewToggle={togglePreview}
           onSettingsOpen={onSettingsOpen}
         />
         {previewOpen ? (
@@ -644,8 +681,21 @@ export function AgentWorkbenchContent({
           onClose={() => setPreviewOpen(false)}
           onRefresh={refreshPreview}
           onOpen={() => {
-            const url = resolvePreviewSource(visiblePreview.url, visiblePreviewCurrentUrl);
-            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+            const popup = window.open('about:blank', '_blank');
+            if (!popup) {
+              setError(t('operationIncomplete'));
+              return;
+            }
+            popup.opener = null;
+            void ensurePreviewAuthorizationFresh()
+              .then((access) => {
+                const url = resolvePreviewSource(access.url, visiblePreviewCurrentUrl);
+                if (url) popup.location.replace(url);
+              })
+              .catch((cause) => {
+                popup.close();
+                setError(cause instanceof Error ? cause.message : t('operationIncomplete'));
+              });
           }}
           previewViewportMode={previewViewportMode}
           onPreviewViewportModeChange={setPreviewViewportMode}
@@ -744,6 +794,10 @@ function previewErrorCode(
   if (cause instanceof Error && /timed out|not ready|closed/i.test(cause.message))
     return /timed out/i.test(cause.message) ? 'CLIENT_PREVIEW_TIMEOUT' : 'CLIENT_UNAVAILABLE';
   return 'PREVIEW_PROTOCOL_ERROR';
+}
+
+function isPreviewTimeout(cause: unknown): boolean {
+  return cause instanceof Error && /timed out|timeout/i.test(cause.message);
 }
 
 type PreviewReadyWaiter = {

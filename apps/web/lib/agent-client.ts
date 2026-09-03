@@ -50,7 +50,7 @@ export function parseAgentEvent(
 export async function getPreviewUrl(websiteId: string) {
   const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/preview`);
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as { url: string };
+  return (await response.json()) as { url: string; expiresAt: number };
 }
 
 export function command(input: Omit<AgentCommand, 'requestId' | 'timestamp'>): AgentCommand {
