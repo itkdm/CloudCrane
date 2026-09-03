@@ -4,6 +4,19 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.unified-content .workbench {
+  background: var(--cc-workspace-canvas-bg);
+}
+
+.unified-content .chat-panel,
+.unified-content .composer-wrap {
+  background: var(--cc-workspace-canvas-bg);
+}
+
+.unified-content .composer-box {
+  background: var(--cc-surface-0);
+}
+
 .workbench-body.no-session-sidebar.preview-open {
   grid-template-columns: minmax(0, var(--preview-chat-fr, 0.45fr)) 8px minmax(0, var(--preview-pane-fr, 0.55fr));
 }

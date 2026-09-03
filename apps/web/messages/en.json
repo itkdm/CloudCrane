@@ -18,7 +18,10 @@
     "language": "Language",
     "backToWebsites": "Websites",
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "user": "User",
+    "settings": "Settings",
+    "theme": "Theme"
   },
   "marketing": {
     "eyebrow": "Template · AI Customization · GEO · Growth",

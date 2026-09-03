@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Settings, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
@@ -54,6 +55,24 @@ export function UnifiedSidebar({
   const workbenchT = useTranslations('workbench');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (!settingsRef.current?.contains(event.target as Node)) setSettingsOpen(false);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setSettingsOpen(false);
+    }
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     setExpandedGroups((current) => {
@@ -274,8 +293,35 @@ export function UnifiedSidebar({
       </div>
 
       <div className="unified-sidebar-footer">
-        <LanguageSwitcher />
-        <ThemeSwitcher />
+        <div className="unified-sidebar-account" ref={settingsRef}>
+          <span className="unified-sidebar-account-avatar" aria-hidden="true">
+            <UserRound size={17} />
+          </span>
+          <span className="unified-sidebar-account-name">{t('user')}</span>
+          {settingsOpen ? (
+            <div className="unified-sidebar-settings-popover" role="dialog" aria-label={t('settings')}>
+              <div className="unified-sidebar-settings-row">
+                <span>{t('language')}</span>
+                <LanguageSwitcher />
+              </div>
+              <div className="unified-sidebar-settings-row">
+                <span>{t('theme')}</span>
+                <ThemeSwitcher />
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="unified-sidebar-settings"
+          onClick={() => setSettingsOpen((open) => !open)}
+          aria-label={t('settings')}
+          aria-expanded={settingsOpen}
+          aria-haspopup="dialog"
+          title={t('settings')}
+        >
+          <Settings size={18} aria-hidden="true" />
+        </button>
       </div>
     </aside>
   );
