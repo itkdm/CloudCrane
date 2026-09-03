@@ -746,6 +746,9 @@ button:disabled {
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-md);
 }
+.unified-sidebar:has(.unified-sidebar-settings-popover) {
+  overflow: visible;
+}
 .unified-sidebar-settings-row {
   display: flex;
   align-items: center;
@@ -785,7 +788,8 @@ button:disabled {
   display: none;
 }
 .unified-sidebar.collapsed .unified-sidebar-settings-popover {
-  right: -148px;
+  right: auto;
+  left: 56px;
 }
 .unified-sidebar.collapsed .unified-sidebar-sessions {
   display: none;
