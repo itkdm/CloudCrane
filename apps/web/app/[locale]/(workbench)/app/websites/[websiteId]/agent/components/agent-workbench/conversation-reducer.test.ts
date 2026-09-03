@@ -413,3 +413,53 @@ describe('context maintenance timeline placement', () => {
     });
   });
 });
+
+describe('empty session snapshot reset boundary', () => {
+  it('clears turns, manual items, and automatic execution steps', () => {
+    const state = reduce(
+      user('session-a-turn'),
+      { type: 'run.started', payload: { runId: 'session-a-run' } },
+      { type: 'context.compaction.started', payload: { runId: 'session-a-run' } },
+      { type: 'context.compaction.completed' },
+      { type: 'context.compaction.started' },
+      { type: 'session.snapshot', payload: { messages: [] } },
+    );
+    expect(state).toEqual({ turns: [], messages: [], manualMaintenanceItems: [] });
+  });
+
+  it('restores only current snapshot manual maintenance after an empty reset', () => {
+    const state = reduce(
+      user('session-a-turn'),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.completed' },
+      {
+        type: 'session.snapshot',
+        payload: {
+          messages: [],
+          contextMaintenance: { operation: 'compaction', status: 'running' },
+        },
+      },
+    );
+    expect(state.turns).toEqual([]);
+    expect(state.manualMaintenanceItems).toEqual([
+      expect.objectContaining({ status: 'running', afterTurnId: undefined }),
+    ]);
+  });
+
+  it('does not append session A turns to a later non-empty session B snapshot', () => {
+    const state = reduce(
+      user('session-a-turn'),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.completed' },
+      { type: 'session.snapshot', payload: { messages: [] } },
+      {
+        type: 'session.snapshot',
+        payload: {
+          messages: [{ id: 'session-b-turn', role: 'user', text: 'B' }],
+        },
+      },
+    );
+    expect(state.turns.map((turn) => turn.userMessage.id)).toEqual(['session-b-turn']);
+    expect(state.manualMaintenanceItems).toEqual([]);
+  });
+});

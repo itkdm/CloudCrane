@@ -78,9 +78,15 @@ export function conversationReducer(
 
   if (event.type === 'session.snapshot') {
     const active = isActiveRun(event.payload.activeRun);
+    const isEmptySnapshot = event.payload.messages.length === 0;
+    const currentTurns = isEmptySnapshot
+      ? []
+      : mergeSnapshotTurns(state.turns, snapshotToTurns(event.payload.messages, active), active);
     const next = present(
-      mergeSnapshotTurns(state.turns, snapshotToTurns(event.payload.messages, active), active),
-      state.manualMaintenanceItems,
+      currentTurns,
+      isEmptySnapshot
+        ? initialConversationState.manualMaintenanceItems
+        : state.manualMaintenanceItems,
     );
     return restoreSnapshotMaintenance(
       next,
