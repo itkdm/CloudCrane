@@ -1,10 +1,31 @@
 # CloudCrane 本地远程开发恢复记录
 
-本文记录本地 Workbench 与 ECS 远程运行环境的启动关系，以及网络中断后的恢复方法。文档不保存数据库密码、SSH 私钥、模型凭据、Preview Token 或 PbootCMS 授权码。
+本文记录 CloudCrane 默认验收拓扑与备用本地开发拓扑的启动关系，以及网络中断后的恢复方法。默认验收使用 ECS 上的完整服务栈，浏览器通过 SSH 隧道访问；文档不保存数据库密码、SSH 私钥、模型凭据、Preview Token 或 PbootCMS 授权码。
 
 ## 当前拓扑
 
-本地只运行 Workbench，数据和后端服务使用 ECS：
+## 默认流程：ECS Web + ECS 后端
+
+后续真实联调和 DEVTOOLS 验收默认使用这一流程。Web、Agent、Workspace、Preview 和 PostgreSQL
+均运行在 ECS，浏览器只访问本机 SSH 转发端口：
+
+```text
+浏览器 → http://localhost:3000
+             ↓ SSH 隧道
+ECS Web :3000
+ECS Agent :4101
+ECS Workspace Gateway :4102
+ECS Preview Gateway :4103
+ECS PostgreSQL :5432
+```
+
+这样浏览器侧的 Agent URL 与 ECS Web 的正式验收配置保持一致，避免把本地 Web 配置、本地数据库
+和远程服务混用。默认流程不启动本地 Web，也不要求本机存在远程数据库连接字符串。
+
+## 备用流程：本地 Web + ECS 后端
+
+只有需要实时查看本地未提交 Web 改动时才使用此流程。此时本地运行 Workbench，数据和后端服务
+仍使用 ECS：
 
 ```text
 浏览器 → http://localhost:3000
@@ -26,14 +47,14 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
 ## 恢复步骤
 
 1. 确认当前分支为 `main`，工作区没有无关改动。
-2. 建立 SSH 隧道（端口可按本机占用情况调整）：
+2. 默认验收建立完整 SSH 隧道（端口可按本机占用情况调整）：
 
    ```powershell
    ssh -N `
      -L 15432:127.0.0.1:5432 `
-     -L 14101:127.0.0.1:4101 `
-     -L 14102:127.0.0.1:4102 `
-     -L 14103:127.0.0.1:4103 `
+     -L 4101:127.0.0.1:4101 `
+     -L 4102:127.0.0.1:4102 `
+     -L 4103:127.0.0.1:4103 `
      aliyun
    ```
 
@@ -42,6 +63,8 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
    ```powershell
    $env:DATABASE_URL = 'postgresql://<remote-user>:<remote-password>@127.0.0.1:15432/<remote-database>'
    $env:WEB_ORIGIN = 'http://localhost:3000'
+   # 默认 ECS Web 流程不需要在本地设置这些变量。
+   # 仅使用备用“本地 Web + ECS 后端”流程时设置：
    $env:NEXT_PUBLIC_AGENT_SERVICE_URL = 'http://localhost:14101'
    $env:WORKSPACE_GATEWAY_ENDPOINT = 'http://127.0.0.1:14102'
    $env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://site-{websiteId}.preview.itkdm.com/'
@@ -83,7 +106,8 @@ Gateway 鉴权处失败并表现为 `502` 或 `provisioning_failed`。排查时�
 `401 Unauthorized` 可以是预期结果。这说明请求已到达 Preview Gateway；应继续检查
 Preview Cookie / PbootCMS 授权流程，不要因此把地址改回 localhost、绕过授权或重建数据库。
 
-4. 用当前项目的镜像依赖启动：
+4. 默认验收直接使用 ECS acceptance tmux 服务，不启动本地 Web。
+   只有备用本地 Web 流程才用当前项目的镜像依赖启动：
 
    ```powershell
    pnpm exec turbo dev --env-mode=loose
@@ -103,7 +127,12 @@ Preview Cookie / PbootCMS 授权流程，不要因此把地址改回 localhost�
 Get-NetTCPConnection -State Listen
 ```
 
-应看到本地 3000、14101、14102、14103 以及 SSH 隧道 15432。若 3000 未监听，Workbench 未启动；若 15432 未监听，远程数据库隧道未建立；若 Website 列表为空，先检查 `DATABASE_URL` 是否仍指向本机。
+默认 ECS Web 流程应看到本地 3000、4101、4102、4103；如果还需要执行数据库验证，额外建立
+15432 隧道。若 3000 未监听，SSH 到 ECS Web 的转发未建立；若 4101 未监听，浏览器无法连接
+Agent Service；若 Website 列表为空，先检查 ECS Web 的私密环境和数据库连接。
+
+备用本地 Web 流程才使用 14101、14102、14103 和 15432，并要求本地 Web 进程及远程数据库
+环境变量均正确设置。
 
 ECS 侧应检查：
 
