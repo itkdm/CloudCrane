@@ -467,7 +467,6 @@ export class WebsiteAgentRuntime {
         'SESSION_BUSY',
         'this WebsiteSession already has an active AgentRun; use steer or followUp',
       );
-    onAccepted?.();
     try {
       await managed.reloadResources();
       await this.ensureSessionTitle(managed, text);
@@ -498,6 +497,7 @@ export class WebsiteAgentRuntime {
           endedAt: null,
         });
         await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+        onAccepted?.();
         this.emitLifecycle(managed, {
           type: 'run_started',
           runId,

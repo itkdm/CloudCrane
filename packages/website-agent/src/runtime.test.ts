@@ -194,9 +194,17 @@ describe('WebsiteAgentRuntime', () => {
       if (event.type === 'run_settled' || event.type === 'run_started') lifecycleEvents.push(event);
     });
 
-    const result = await runtime.prompt(session.id, 'Read index.php');
+    const accepted = vi.fn();
+    const result = await runtime.prompt(
+      session.id,
+      'Read index.php',
+      undefined,
+      undefined,
+      accepted,
+    );
 
     expect(result.status).toBe('COMPLETED');
+    expect(accepted).toHaveBeenCalledTimes(1);
     expect(result.finalText).toBe('remote read completed');
     await expect(store.findSession(websiteId, session.id)).resolves.toMatchObject({
       title: 'Read index.php',
@@ -632,6 +640,62 @@ describe('WebsiteAgentRuntime', () => {
     release();
     await firstCompact;
     compact.mockRestore();
+    await runtime.disposeAll();
+  });
+
+  it('does not accept a prompt before run persistence and releases the reservation on failure', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-prompt-acceptance-'));
+    const faux = fauxProvider({
+      provider: 'cloudcrane-prompt-acceptance',
+      models: [{ id: 'deterministic' }],
+    });
+    faux.setResponses([fauxAssistantMessage('recovered')]);
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    const store = createInMemoryWebsiteAgentStore();
+    const createRun = store.createRun.bind(store);
+    let failCreateRun = true;
+    vi.spyOn(store, 'createRun').mockImplementation(async (input) => {
+      if (failCreateRun) throw new Error('persistence unavailable');
+      return createRun(input);
+    });
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store,
+      modelRuntime,
+      model: faux.getModel() as Model<'cloudcrane-prompt-acceptance'>,
+      workspaceClientFactory: () =>
+        ({
+          fs: {
+            read: vi.fn(async () => ({
+              content: '',
+              sha256: 'a'.repeat(64),
+              size: 0,
+              truncated: false,
+            })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
+          },
+        }) as never,
+    });
+    const session = await runtime.createSession();
+    const accepted = vi.fn();
+    await expect(
+      runtime.prompt(session.id, 'first attempt', undefined, undefined, accepted),
+    ).rejects.toThrow('persistence unavailable');
+    expect(accepted).not.toHaveBeenCalled();
+    failCreateRun = false;
+    await expect(runtime.prompt(session.id, 'second attempt')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
     await runtime.disposeAll();
   });
 
