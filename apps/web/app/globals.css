@@ -542,16 +542,16 @@ button:disabled {
 .session-group-toggle svg {
   flex-shrink: 0;
   color: var(--cc-text-tertiary);
-  opacity: 0.55;
+  opacity: 0.78;
 }
 .session-group-toggle .session-group-folder {
   color: var(--cc-text-secondary);
-  opacity: 0.8;
+  opacity: 0.9;
 }
 .session-group-title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--cc-text-secondary);
+  color: var(--cc-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -615,7 +615,7 @@ button:disabled {
   border-radius: var(--cc-radius-md);
   border: 0;
   background: transparent;
-  color: var(--cc-text-secondary);
+  color: color-mix(in srgb, var(--cc-text) 78%, var(--cc-text-secondary));
   font-size: 13px;
   text-decoration: none;
   transition: all 180ms ease;
@@ -652,14 +652,14 @@ button:disabled {
   padding: 6px 0 6px var(--session-title-offset);
   border: 0;
   border-radius: 5px;
-  color: var(--cc-text-tertiary);
+  color: var(--cc-brand);
   background: transparent;
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 .unified-sidebar .session-list-toggle:hover {
-  color: var(--cc-text-secondary);
+  color: var(--cc-brand-hover);
   background: var(--cc-surface-2);
 }
 .unified-sidebar-footer {
