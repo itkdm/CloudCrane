@@ -106,6 +106,13 @@ Gateway 鉴权处失败并表现为 `502` 或 `provisioning_failed`。排查时�
 `401 Unauthorized` 可以是预期结果。这说明请求已到达 Preview Gateway；应继续检查
 Preview Cookie / PbootCMS 授权流程，不要因此把地址改回 localhost、绕过授权或重建数据库。
 
+Preview URL 中的访问凭证是短期凭证，默认有效期为 600 秒。Workbench 如果长时间保持
+打开，前端可能仍持有已过期的 Preview URL：此时 Agent Service 的 `/preview` 请求仍会
+返回 200，但 iframe 请求 canonical host 会返回 `401` 和 `preview authorization is
+required`。先刷新 Workbench 获取新的 Preview URL，再复测；若新 URL 经 302 后返回 200
+且 `__cloudcrane/preview-bridge.js` 也返回 200，说明域名、TLS、Gateway 和工作区链路
+正常，问题是旧凭证过期而不是 DNS 或网站内容故障。
+
 4. 默认验收直接使用 ECS acceptance tmux 服务，不启动本地 Web。
    只有备用本地 Web 流程才用当前项目的镜像依赖启动：
 
