@@ -182,6 +182,7 @@ type RunContext = {
   promptRequestId?: string;
 };
 type ActiveRun = RunContext & { aborted: boolean };
+type PrimaryOperation = 'run' | 'manual-compaction';
 
 type RemoteAgentResources = {
   agentsFiles: Array<{ path: string; content: string }>;
@@ -248,6 +249,32 @@ class ManagedSession implements DisposableSession {
   private currentTurnId?: string;
   compactionStatus?: 'running';
   activeRun?: ActiveRun;
+  private primaryOperation?: PrimaryOperation;
+
+  tryReservePrimaryOperation(operation: PrimaryOperation): boolean {
+    if (
+      this.primaryOperation ||
+      this.activeRun ||
+      this.compactionStatus ||
+      this.piRuntime.session.isCompacting
+    )
+      return false;
+    this.primaryOperation = operation;
+    return true;
+  }
+
+  releasePrimaryOperation(operation: PrimaryOperation): void {
+    if (this.primaryOperation === operation) this.primaryOperation = undefined;
+  }
+
+  isSessionBusy(): boolean {
+    return Boolean(
+      this.primaryOperation ||
+      this.activeRun ||
+      this.compactionStatus ||
+      this.piRuntime.session.isCompacting,
+    );
+  }
 
   constructor(
     readonly websiteSessionId: string,
@@ -432,126 +459,134 @@ export class WebsiteAgentRuntime {
     text: string,
     previewClientId?: string,
     promptRequestId?: string,
+    onAccepted?: () => void,
   ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
-    if (managed.activeRun || managed.compactionStatus || managed.piRuntime.session.isCompacting)
+    if (!managed.tryReservePrimaryOperation('run'))
       throw new WebsiteAgentRuntimeError(
         'SESSION_BUSY',
         'this WebsiteSession already has an active AgentRun; use steer or followUp',
       );
-    await managed.reloadResources();
-    await this.ensureSessionTitle(managed, text);
-    const runId = randomUUID();
-    const traceId = randomUUID();
-    const startedAt = new Date().toISOString();
-    const activeRun: ActiveRun = {
-      runId,
-      traceId,
-      previewClientId,
-      promptRequestId,
-      aborted: false,
-    };
-    managed.activeRun = activeRun;
-    let run: AgentRunIndex | undefined;
+    onAccepted?.();
     try {
-      run = await this.options.store.createRun({
-        id: runId,
-        websiteId: this.options.websiteId,
-        sessionId: managed.websiteSessionId,
-        traceId,
-        status: 'PENDING',
-        model: this.options.model
-          ? `${this.options.model.provider}/${this.options.model.id}`
-          : null,
-        error: null,
-        startedAt: null,
-        endedAt: null,
-      });
-      await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
-      this.emitLifecycle(managed, {
-        type: 'run_started',
+      await managed.reloadResources();
+      await this.ensureSessionTitle(managed, text);
+      const runId = randomUUID();
+      const traceId = randomUUID();
+      const startedAt = new Date().toISOString();
+      const activeRun: ActiveRun = {
         runId,
         traceId,
         previewClientId,
-        ...(promptRequestId ? { promptRequestId } : {}),
-      });
-    } catch (error) {
-      if (run) {
-        await this.options.store
-          .updateRun(run.id, {
-            status: 'FAILED',
-            error: error instanceof Error ? error.message.slice(0, 500) : 'run bootstrap failed',
-            endedAt: new Date().toISOString(),
-          })
-          .catch(() => undefined);
-      }
-      if (managed.activeRun === activeRun) managed.activeRun = undefined;
-      throw error;
-    }
-    let settled = false;
-    let settledEventEmitted = false;
-    let resolveSettled!: () => void;
-    const settledPromise = new Promise<void>((resolve) => {
-      resolveSettled = resolve;
-    });
-    const onSettled: AgentSessionEventListener = (event) => {
-      if (event.type === 'agent_settled') {
-        settled = true;
-        resolveSettled();
-      }
-    };
-    const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
-    try {
-      await this.runContext.run(activeRun, () => managed.piRuntime.session.prompt(text));
-      if (!settled) await settledPromise;
-      const status = this.getRunStatus(managed.piRuntime.session, activeRun);
-      const endedAt = new Date().toISOString();
-      await this.options.store.updateRun(run.id, { status, endedAt });
-      const sessionStatus = managed.sessionManager.isPersisted() ? 'ACTIVE' : managed.record.status;
-      managed.record.status = sessionStatus;
-      await this.options.store.updateSession(managed.websiteSessionId, {
-        status: sessionStatus,
-        lastActiveAt: endedAt,
-      });
-      settledEventEmitted = true;
-      const finalMessageId = getFinalAssistantMessageId(
-        managed.piRuntime.session.agent.state.messages,
-      );
-      this.emitLifecycle(managed, {
-        type: 'run_settled',
-        runId,
-        traceId,
-        status,
-        ...(finalMessageId ? { finalMessageId } : {}),
-      });
-      return {
-        runId,
-        traceId,
-        status,
-        finalText: managed.piRuntime.session.getLastAssistantText(),
+        promptRequestId,
+        aborted: false,
       };
-    } catch (error) {
-      const status: AgentRunStatus = activeRun.aborted ? 'ABORTED' : 'FAILED';
-      const message = error instanceof Error ? error.message.slice(0, 500) : 'agent run failed';
-      await this.options.store.updateRun(run.id, {
-        status,
-        error: message,
-        endedAt: new Date().toISOString(),
+      managed.activeRun = activeRun;
+      let run: AgentRunIndex | undefined;
+      try {
+        run = await this.options.store.createRun({
+          id: runId,
+          websiteId: this.options.websiteId,
+          sessionId: managed.websiteSessionId,
+          traceId,
+          status: 'PENDING',
+          model: this.options.model
+            ? `${this.options.model.provider}/${this.options.model.id}`
+            : null,
+          error: null,
+          startedAt: null,
+          endedAt: null,
+        });
+        await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+        this.emitLifecycle(managed, {
+          type: 'run_started',
+          runId,
+          traceId,
+          previewClientId,
+          ...(promptRequestId ? { promptRequestId } : {}),
+        });
+      } catch (error) {
+        if (run) {
+          await this.options.store
+            .updateRun(run.id, {
+              status: 'FAILED',
+              error: error instanceof Error ? error.message.slice(0, 500) : 'run bootstrap failed',
+              endedAt: new Date().toISOString(),
+            })
+            .catch(() => undefined);
+        }
+        if (managed.activeRun === activeRun) managed.activeRun = undefined;
+        throw error;
+      }
+      let settled = false;
+      let settledEventEmitted = false;
+      let resolveSettled!: () => void;
+      const settledPromise = new Promise<void>((resolve) => {
+        resolveSettled = resolve;
       });
-      if (!settledEventEmitted) {
+      const onSettled: AgentSessionEventListener = (event) => {
+        if (event.type === 'agent_settled') {
+          settled = true;
+          resolveSettled();
+        }
+      };
+      const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
+      try {
+        await this.runContext.run(activeRun, () => managed.piRuntime.session.prompt(text));
+        if (!settled) await settledPromise;
+        const status = this.getRunStatus(managed.piRuntime.session, activeRun);
+        const endedAt = new Date().toISOString();
+        await this.options.store.updateRun(run.id, { status, endedAt });
+        const sessionStatus = managed.sessionManager.isPersisted()
+          ? 'ACTIVE'
+          : managed.record.status;
+        managed.record.status = sessionStatus;
+        await this.options.store.updateSession(managed.websiteSessionId, {
+          status: sessionStatus,
+          lastActiveAt: endedAt,
+        });
+        settledEventEmitted = true;
+        const finalMessageId = getFinalAssistantMessageId(
+          managed.piRuntime.session.agent.state.messages,
+        );
         this.emitLifecycle(managed, {
           type: 'run_settled',
           runId,
           traceId,
           status,
-          error: message,
+          ...(finalMessageId ? { finalMessageId } : {}),
         });
+        return {
+          runId,
+          traceId,
+          status,
+          finalText: managed.piRuntime.session.getLastAssistantText(),
+        };
+      } catch (error) {
+        const status: AgentRunStatus = activeRun.aborted ? 'ABORTED' : 'FAILED';
+        const message = error instanceof Error ? error.message.slice(0, 500) : 'agent run failed';
+        await this.options.store.updateRun(run.id, {
+          status,
+          error: message,
+          endedAt: new Date().toISOString(),
+        });
+        if (!settledEventEmitted) {
+          this.emitLifecycle(managed, {
+            type: 'run_settled',
+            runId,
+            traceId,
+            status,
+            error: message,
+          });
+        }
+        throw error;
+      } finally {
+        unsubscribe();
+        processMutationLeases.release(this.options.websiteId, activeRun.runId);
+        if (managed.activeRun === activeRun) managed.activeRun = undefined;
       }
-      throw error;
     } finally {
-      unsubscribe();
-      processMutationLeases.release(this.options.websiteId, activeRun.runId);
-      if (managed.activeRun === activeRun) managed.activeRun = undefined;
+      managed.releasePrimaryOperation('run');
     }
   }
 
@@ -563,7 +598,7 @@ export class WebsiteAgentRuntime {
 
   async compact(websiteSessionId: string): Promise<void> {
     const managed = await this.getManaged(websiteSessionId);
-    if (managed.activeRun || managed.compactionStatus || managed.piRuntime.session.isCompacting)
+    if (!managed.tryReservePrimaryOperation('manual-compaction'))
       throw new WebsiteAgentRuntimeError(
         'SESSION_BUSY',
         'this WebsiteSession is busy and cannot compact its context',
@@ -583,6 +618,8 @@ export class WebsiteAgentRuntime {
         this.emitCompaction(managed, 'failed');
       }
       throw error;
+    } finally {
+      managed.releasePrimaryOperation('manual-compaction');
     }
   }
 
@@ -641,6 +678,10 @@ export class WebsiteAgentRuntime {
 
   async hasActiveRun(websiteSessionId: string): Promise<boolean> {
     return Boolean((await this.getManaged(websiteSessionId)).activeRun);
+  }
+
+  async isSessionBusy(websiteSessionId: string): Promise<boolean> {
+    return (await this.getManaged(websiteSessionId)).isSessionBusy();
   }
 
   async getSystemPrompt(websiteSessionId: string): Promise<string> {

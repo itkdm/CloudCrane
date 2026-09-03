@@ -201,17 +201,21 @@ class AgentSocketConnection {
     if (command.type === 'agent.prompt') {
       if (!this.options.config.modelConfigured)
         throw new AgentServiceError('MODEL_NOT_CONFIGURED', 'agent model is not configured', 503);
-      if (await runtime.hasActiveRun(sessionId))
-        throw new AgentServiceError('SESSION_BUSY', 'this session already has an active run', 409);
-      this.ack(command);
+      let accepted = false;
       void runtime
         .prompt(
           sessionId,
           command.payload.text,
           this.previewClientId,
           command.payload.promptRequestId,
+          () => {
+            accepted = true;
+            this.ack(command);
+          },
         )
-        .catch(() => undefined);
+        .catch((error) => {
+          if (!accepted) this.sendError(command.requestId, asAgentServiceError(error), command);
+        });
       return;
     }
     if (command.type === 'session.compact') {

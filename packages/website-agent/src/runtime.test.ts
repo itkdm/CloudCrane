@@ -8,7 +8,7 @@ import {
   fauxToolCall,
   type Model,
 } from '@earendil-works/pi-ai';
-import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { AgentSession, ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { WorkspaceClientError, type WorkspaceClientContext } from '@cloudcrane/workspace-client';
 import {
   createInMemoryWebsiteAgentStore,
@@ -575,9 +575,63 @@ describe('WebsiteAgentRuntime', () => {
     await expect(runtime.prompt(session.id, 'second')).rejects.toMatchObject({
       code: 'SESSION_BUSY',
     });
+    await expect(runtime.compact(session.id)).rejects.toMatchObject({ code: 'SESSION_BUSY' });
     expect(createRun).toHaveBeenCalledTimes(1);
     release();
     await expect(firstRun).resolves.toMatchObject({ status: 'COMPLETED' });
+    await runtime.disposeAll();
+  });
+
+  it('reserves manual compaction before awaiting Pi and rejects concurrent prompts', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-compaction-busy-'));
+    const store = createInMemoryWebsiteAgentStore();
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store,
+      modelRuntime,
+      workspaceClientFactory: () =>
+        ({
+          fs: {
+            read: vi.fn(async () => ({
+              content: '',
+              sha256: 'f'.repeat(64),
+              size: 0,
+              truncated: false,
+            })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
+          },
+        }) as never,
+    });
+    const session = await runtime.createSession();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const compact = vi.spyOn(AgentSession.prototype, 'compact').mockImplementation(async () => {
+      await gate;
+      return {} as never;
+    });
+
+    const firstCompact = runtime.compact(session.id);
+    for (let attempt = 0; attempt < 40 && compact.mock.calls.length === 0; attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(runtime.compact(session.id)).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    await expect(runtime.prompt(session.id, 'should be rejected')).rejects.toMatchObject({
+      code: 'SESSION_BUSY',
+    });
+    release();
+    await firstCompact;
+    compact.mockRestore();
     await runtime.disposeAll();
   });
 

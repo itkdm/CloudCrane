@@ -38,6 +38,7 @@ describe('AgentSocketTransport', () => {
   let app: ReturnType<typeof buildAgentServiceApp>;
   let subscribeCount = 0;
   let unsubscribeCount = 0;
+  let runtimeBusy = false;
   let previewClients: PreviewClientRegistry;
   const runtime = {
     openSession: async () => session,
@@ -56,11 +57,23 @@ describe('AgentSocketTransport', () => {
         unsubscribeCount += 1;
       };
     },
-    prompt: vi.fn(async () => ({
-      runId: '00000000-0000-4000-8000-000000000003',
-      traceId: '00000000-0000-4000-8000-000000000004',
-      status: 'COMPLETED' as const,
-    })),
+    prompt: vi.fn(
+      async (
+        _sessionId: string,
+        _text: string,
+        _previewClientId?: string,
+        _promptRequestId?: string,
+        onAccepted?: () => void,
+      ) => {
+        if (runtimeBusy) throw { code: 'SESSION_BUSY', message: 'session is busy' };
+        onAccepted?.();
+        return {
+          runId: '00000000-0000-4000-8000-000000000003',
+          traceId: '00000000-0000-4000-8000-000000000004',
+          status: 'COMPLETED' as const,
+        };
+      },
+    ),
     abort: async () => undefined,
     compact: vi.fn(async () => undefined),
     steer: async () => undefined,
@@ -71,6 +84,7 @@ describe('AgentSocketTransport', () => {
   beforeEach(async () => {
     subscribeCount = 0;
     unsubscribeCount = 0;
+    runtimeBusy = false;
     previewClients = new PreviewClientRegistry({ observeMs: 1_000 });
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: {
@@ -180,6 +194,56 @@ describe('AgentSocketTransport', () => {
     });
     expect(runtime.compact).toHaveBeenCalledWith(sessionId);
     expect(runtime.prompt).not.toHaveBeenCalled();
+    client.close();
+  });
+
+  it('does not acknowledge a prompt rejected by the runtime busy boundary', async () => {
+    runtimeBusy = true;
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const messages: Array<{ type: string; requestId?: string; payload?: { code?: string } }> = [];
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as (typeof messages)[number];
+        messages.push(message);
+        if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'attach-busy',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId },
+            }),
+          );
+        } else if (message.type === 'session.snapshot') {
+          client.send(
+            JSON.stringify({
+              type: 'agent.prompt',
+              requestId: 'prompt-busy',
+              websiteId,
+              sessionId,
+              timestamp: new Date().toISOString(),
+              payload: { text: 'busy prompt' },
+            }),
+          );
+        } else if (message.type === 'command.error' && message.requestId === 'prompt-busy') {
+          resolve();
+        }
+      });
+    });
+    expect(
+      messages.some(
+        (message) => message.type === 'command.ack' && message.requestId === 'prompt-busy',
+      ),
+    ).toBe(false);
+    expect(messages.at(-1)).toMatchObject({
+      type: 'command.error',
+      requestId: 'prompt-busy',
+      payload: { code: 'SESSION_BUSY' },
+    });
     client.close();
   });
 
