@@ -64,7 +64,8 @@
 }
 .marketing-header nav a,
 .marketing-header nav .marketing-nav-disabled,
-.marketing-footer nav a {
+.marketing-footer nav a,
+.marketing-footer nav .marketing-nav-disabled {
   color: var(--marketing-text-muted);
   font-size: 15px;
   font-weight: 500;
