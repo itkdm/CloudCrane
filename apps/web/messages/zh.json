@@ -9,7 +9,7 @@
     "close": "关闭"
   },
   "navigation": {
-    "product": "产品",
+    "mainNavigation": "主导航",
     "templates": "模板",
     "docs": "文档",
     "home": "首页",

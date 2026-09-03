@@ -63,6 +63,7 @@
   white-space: nowrap;
 }
 .marketing-header nav a,
+.marketing-header nav .marketing-nav-disabled,
 .marketing-footer nav a {
   color: var(--marketing-text-muted);
   font-size: 15px;
@@ -71,6 +72,10 @@
 .marketing-header nav a:hover,
 .marketing-footer nav a:hover {
   color: var(--marketing-text);
+}
+.marketing-nav-disabled {
+  cursor: default;
+  white-space: nowrap;
 }
 .marketing-header .cc-brand,
 .marketing-footer .cc-brand {

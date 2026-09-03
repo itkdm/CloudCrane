@@ -9,7 +9,7 @@
     "close": "Close"
   },
   "navigation": {
-    "product": "Product",
+    "mainNavigation": "Main navigation",
     "templates": "Templates",
     "docs": "Docs",
     "home": "Home",

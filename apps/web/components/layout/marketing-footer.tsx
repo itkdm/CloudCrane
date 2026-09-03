@@ -13,10 +13,11 @@ export function MarketingFooter() {
         </Link>
         <p>{t('footerDescription')}</p>
       </div>
-      <nav aria-label={navigation('product')}>
-        <Link href="/">{navigation('product')}</Link>
-        <Link href="/templates">{navigation('templates')}</Link>
-        <Link href="/docs">{navigation('docs')}</Link>
+      <nav aria-label={navigation('mainNavigation')}>
+        <a href="https://muban.itkdm.com">{navigation('templates')}</a>
+        <span className="marketing-nav-disabled" aria-disabled="true">
+          {navigation('docs')}
+        </span>
       </nav>
       <small>{t('copyright')}</small>
     </footer>
