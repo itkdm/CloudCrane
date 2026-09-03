@@ -13,6 +13,14 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 - 先界定本轮任务和验收标准，只做最小必要改动。发现架构冲突、缺少凭据、远程状态不明或需要扩大范围时，停止并报告，不擅自替代设计。
 - 搜索文件优先使用 `rg` / `rg --files`；文件修改使用 `apply_patch`。不要用脚本把秘密写入仓库，也不要把临时运行产物混入提交。
 
+### 本地验收与远程服务硬规则
+
+- CloudCrane 默认真实联调、DEVTOOLS 验收和网站列表检查必须使用 ECS 完整服务栈：先确认 SSH 隧道正常，再访问 `http://localhost:3000`。其中 Web、Agent、Workspace Gateway、Preview Gateway 和 PostgreSQL 均应对应远程服务。
+- 不得把本地 `3001` 或其它端口的裸启动 Next Web 当作默认验收入口。特别是未加载远程 `DATABASE_URL`、Agent、Workspace Gateway 等环境变量时，禁止用它判断网站列表、数据库或部署是否正常；发现误启动时必须明确标记为本地备用进程，不得让用户继续使用该地址验收。
+- 只有用户明确要求“本地 Web + ECS 后端”时，才允许启动本地 Web；启动前必须按 [本地远程开发恢复记录](docs/cloudcrane-local-remote-dev-recovery.md) 配置当前进程的远程数据库、Agent、Workspace Gateway、Preview 和必要 Token，并检查变量只存在不回显值。启动后仍需用 DEVTOOLS 验证实际请求链路。
+- 每次启动、重启、调试或验收前，必须先检查 `3000`、SSH 转发端口和现有 Web 进程；不要为了显示 Website 列表切换到本机数据库。若 `localhost:3000` 与本地备用端口同时存在，默认只认 `3000` 的远程验收链路。
+- 看到 `/api/websites` 加载失败时，先记录实际访问端口，再通过 DEVTOOLS 检查 `/api/websites` 的状态、Console/Network，并查看对应 Web 进程日志；不得直接修改列表逻辑或猜测数据库为空。`DATABASE_URL is required` 等配置错误应归类为本地启动环境错误。
+
 ## CloudCrane 架构工作方式
 
 - `apps/` 是可部署进程和组合根；`packages/` 是协议、能力和适配器。Packages 不依赖 Apps，保持既有依赖方向，不为占位能力提前创建空层。
