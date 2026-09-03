@@ -7,7 +7,10 @@ export function MarketingHero() {
     <section className="marketing-hero" aria-labelledby="marketing-title">
       <div className="marketing-hero-copy">
         <p className="marketing-eyebrow">{t('eyebrow')}</p>
-        <h1 id="marketing-title">{t('title')}</h1>
+        <h1 id="marketing-title">
+          <span className="marketing-title-line">{t('heroTitleLine1')}</span>
+          <span className="marketing-title-line">{t('heroTitleLine2')}</span>
+        </h1>
         <p className="marketing-hero-lede">{t('lede')}</p>
         <div className="marketing-hero-actions">
           <Link className="marketing-button marketing-button-primary" href="/app/websites">

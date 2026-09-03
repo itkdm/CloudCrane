@@ -178,6 +178,10 @@
   color: var(--marketing-text);
   font-weight: 700;
 }
+.marketing-title-line {
+  display: block;
+  white-space: nowrap;
+}
 .marketing-hero-lede {
   max-width: 600px;
   margin: 28px auto 0;
@@ -439,6 +443,9 @@
   }
   .marketing-header .marketing-button-small {
     display: none;
+  }
+  .marketing-hero h1 {
+    font-size: clamp(34px, 10.5vw, 68px);
   }
   .product-visual-body {
     grid-template-columns: 1fr;
