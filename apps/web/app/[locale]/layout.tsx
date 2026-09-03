@@ -45,7 +45,28 @@ export default async function LocaleLayout({
   if (!hasLocale(routing.locales, locale)) notFound();
   const messages = await getMessages();
   return (
-    <html lang={locale === 'zh' ? 'zh-CN' : 'en'}>
+    <html lang={locale === 'zh' ? 'zh-CN' : 'en'} suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+        <script
+          id="theme-bootstrap"
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  try {
+    const stored = window.localStorage.getItem('cc-theme');
+    if (stored === 'light' || stored === 'dark') {
+      document.documentElement.dataset.theme = stored;
+    }
+  } catch {}
+})();`,
+          }}
+        />
+      </head>
       <body>
         <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
       </body>
