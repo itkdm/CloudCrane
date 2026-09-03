@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Settings, UserRound } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Settings, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
@@ -118,16 +118,11 @@ export function UnifiedSidebar({
           onClick={() => onCollapsedChange(!collapsed)}
           aria-label={collapsed ? t('expand') : t('collapse')}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            {collapsed ? <path d="M9 18l6-6-6-6" /> : <path d="M15 18l-6-6 6-6" />}
-          </svg>
+          {collapsed ? (
+            <PanelLeftOpen size={17} strokeWidth={1.8} aria-hidden="true" />
+          ) : (
+            <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
+          )}
         </button>
       </div>
 
@@ -174,6 +169,7 @@ export function UnifiedSidebar({
         </nav>
 
         <div className="unified-sidebar-sessions">
+          <div className="unified-sidebar-section-label">{websiteT('title')}</div>
           {groupedSessions.map((group) => {
             const expanded = expandedGroups[group.websiteId] ?? true;
             const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;
