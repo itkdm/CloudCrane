@@ -45,7 +45,10 @@ export type ConversationEvent =
   | { type: 'run.started'; payload?: { runId?: string } }
   | {
       type:
-        'context.compaction.started' | 'context.compaction.completed' | 'context.compaction.failed';
+        | 'context.compaction.started'
+        | 'context.compaction.completed'
+        | 'context.compaction.failed'
+        | 'context.compaction.not_needed';
       payload?: { runId?: string };
     }
   | { type: 'turn.started'; payload: { turnIndex: number; turnId?: string } }
@@ -131,7 +134,8 @@ export function conversationReducer(
   if (
     event.type === 'context.compaction.started' ||
     event.type === 'context.compaction.completed' ||
-    event.type === 'context.compaction.failed'
+    event.type === 'context.compaction.failed' ||
+    event.type === 'context.compaction.not_needed'
   )
     return reduceContextMaintenance(state, event.type, event.payload?.runId);
 
@@ -300,10 +304,12 @@ function reduceContextMaintenance(
     } else if (runningIndex !== undefined) {
       const step = execution[runningIndex];
       if (step?.kind === 'context-maintenance')
-        execution[runningIndex] = {
-          ...step,
-          status: type.endsWith('completed') ? 'completed' : 'error',
-        };
+        if (type.endsWith('not_needed')) execution.splice(runningIndex, 1);
+        else
+          execution[runningIndex] = {
+            ...step,
+            status: type.endsWith('completed') ? 'completed' : 'error',
+          };
     }
     return replaceTurn(state, turnIndex, { ...turn, execution });
   }
@@ -328,6 +334,13 @@ function reduceContextMaintenance(
     .reverse()
     .find(({ item }) => item.status === 'running')?.itemIndex;
   if (index === undefined) return state;
+  if (type.endsWith('not_needed'))
+    return {
+      ...state,
+      manualMaintenanceItems: state.manualMaintenanceItems.filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
+    };
   return {
     ...state,
     manualMaintenanceItems: state.manualMaintenanceItems.map((item, itemIndex) =>

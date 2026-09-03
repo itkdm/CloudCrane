@@ -33,6 +33,17 @@ describe('conversationReducer turn presentation model', () => {
     expect(state.turns[0]?.userMessage.text).toBe('请修改首页');
   });
 
+  it('removes a manual compaction that was not needed without adding an error item', () => {
+    const state = reduce(
+      user(),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.not_needed' },
+    );
+
+    expect(state.manualMaintenanceItems).toEqual([]);
+    expect(state.turns).toHaveLength(1);
+  });
+
   it('keeps chat-only turns free of an empty execution', () => {
     const state = reduce(
       user(),

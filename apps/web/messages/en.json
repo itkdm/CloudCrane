@@ -221,7 +221,8 @@
     "compactContext": "Organize conversation context",
     "compactionRunning": "Organizing earlier conversation context…",
     "compactionCompleted": "Earlier conversation context organized",
-    "compactionFailed": "Context organization was not completed"
+    "compactionFailed": "Context organization was not completed",
+    "compactContextNotNeeded": "This conversation does not need organizing yet"
   },
   "workspace": {
     "templatesTitle": "Templates",

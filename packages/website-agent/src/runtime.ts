@@ -161,7 +161,7 @@ export type WebsiteAgentLifecycleEvent =
 
 export type WebsiteAgentCompactionEvent = {
   type: 'context_compaction';
-  status: 'started' | 'completed' | 'failed';
+  status: 'started' | 'completed' | 'failed' | 'not_needed';
 };
 
 export type WebsiteAgentEvent = {
@@ -192,7 +192,8 @@ type RemoteAgentResources = {
 
 export class WebsiteAgentRuntimeError extends Error {
   constructor(
-    public readonly code: 'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY',
+    public readonly code:
+      'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY' | 'CONTEXT_COMPACTION_NOT_NEEDED',
     message: string,
   ) {
     super(message);
@@ -615,8 +616,14 @@ export class WebsiteAgentRuntime {
     } catch (error) {
       if (managed.compactionStatus) {
         managed.compactionStatus = undefined;
-        this.emitCompaction(managed, 'failed');
+        const notNeeded = isCompactionNotNeededError(error);
+        this.emitCompaction(managed, notNeeded ? 'not_needed' : 'failed');
       }
+      if (isCompactionNotNeededError(error))
+        throw new WebsiteAgentRuntimeError(
+          'CONTEXT_COMPACTION_NOT_NEEDED',
+          'this conversation has no earlier context that needs organizing',
+        );
       throw error;
     } finally {
       managed.releasePrimaryOperation('manual-compaction');
@@ -806,10 +813,14 @@ export class WebsiteAgentRuntime {
           if (!alreadyRunning) this.emitCompaction(current, 'started');
         } else if (event.type === 'compaction_end') {
           current.compactionStatus = undefined;
-          this.emitCompaction(
-            current,
-            event.aborted || event.errorMessage ? 'failed' : 'completed',
-          );
+          const status = event.aborted
+            ? 'failed'
+            : isCompactionNotNeededError(event.errorMessage)
+              ? 'not_needed'
+              : event.errorMessage
+                ? 'failed'
+                : 'completed';
+          this.emitCompaction(current, status);
         }
         if (event.type === 'session_info_changed') {
           const title = event.name?.trim() || null;
@@ -1173,6 +1184,11 @@ export class WebsiteAgentRuntime {
       );
     }
   }
+}
+
+function isCompactionNotNeededError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /^(Nothing to compact \(session too small\)|Already compacted)$/.test(message.trim());
 }
 
 function isFileNotFound(error: unknown): boolean {

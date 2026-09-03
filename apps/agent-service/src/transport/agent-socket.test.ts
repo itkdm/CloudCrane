@@ -39,6 +39,7 @@ describe('AgentSocketTransport', () => {
   let subscribeCount = 0;
   let unsubscribeCount = 0;
   let runtimeBusy = false;
+  let compactionError: unknown;
   let previewClients: PreviewClientRegistry;
   const runtime = {
     openSession: async () => session,
@@ -75,7 +76,9 @@ describe('AgentSocketTransport', () => {
       },
     ),
     abort: async () => undefined,
-    compact: vi.fn(async () => undefined),
+    compact: vi.fn(async () => {
+      if (compactionError) throw compactionError;
+    }),
     steer: async () => undefined,
     followUp: async () => undefined,
     shutdown: async () => undefined,
@@ -85,6 +88,7 @@ describe('AgentSocketTransport', () => {
     subscribeCount = 0;
     unsubscribeCount = 0;
     runtimeBusy = false;
+    compactionError = undefined;
     previewClients = new PreviewClientRegistry({ observeMs: 1_000 });
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: {
@@ -194,6 +198,69 @@ describe('AgentSocketTransport', () => {
     });
     expect(runtime.compact).toHaveBeenCalledWith(sessionId);
     expect(runtime.prompt).not.toHaveBeenCalled();
+    client.close();
+  });
+
+  it('keeps the socket usable after a not-needed compaction error', async () => {
+    compactionError = {
+      code: 'CONTEXT_COMPACTION_NOT_NEEDED',
+      message: 'this conversation has no earlier context that needs organizing',
+    };
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const messages: Array<{ type: string; requestId?: string; payload?: { code?: string } }> = [];
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as (typeof messages)[number];
+        messages.push(message);
+        if (message.type === 'connection.ready')
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'attach-not-needed',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId },
+            }),
+          );
+        else if (message.type === 'session.snapshot')
+          client.send(
+            JSON.stringify({
+              type: 'session.compact',
+              requestId: 'compact-not-needed',
+              websiteId,
+              sessionId,
+              timestamp: new Date().toISOString(),
+              payload: {},
+            }),
+          );
+        else if (message.type === 'command.error' && message.requestId === 'compact-not-needed')
+          client.send(
+            JSON.stringify({
+              type: 'agent.abort',
+              requestId: 'abort-after-error',
+              websiteId,
+              sessionId,
+              timestamp: new Date().toISOString(),
+              payload: {},
+            }),
+          );
+        else if (message.type === 'command.ack' && message.requestId === 'abort-after-error')
+          resolve();
+      });
+    });
+    expect(messages).toContainEqual(
+      expect.objectContaining({
+        type: 'command.error',
+        requestId: 'compact-not-needed',
+        payload: expect.objectContaining({ code: 'CONTEXT_COMPACTION_NOT_NEEDED' }),
+      }),
+    );
+    expect(messages).toContainEqual(
+      expect.objectContaining({ type: 'command.ack', requestId: 'abort-after-error' }),
+    );
     client.close();
   });
 

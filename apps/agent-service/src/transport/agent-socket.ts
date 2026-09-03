@@ -12,6 +12,9 @@ import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
 import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 import { projectWebsiteAgentEvent } from './agent-event-projector.js';
+import { createLogger } from '@cloudcrane/shared';
+
+const logger = createLogger('agent-service.socket');
 
 type AgentSocketOptions = {
   app: FastifyInstance;
@@ -72,7 +75,7 @@ class AgentSocketConnection {
     private readonly onClose: () => void,
   ) {
     socket.on('message', (raw) => void this.handleMessage(raw.toString()));
-    socket.on('close', () => this.dispose());
+    socket.on('close', (code, reason) => this.dispose(code, reason.toString()));
     socket.on('error', () => this.dispose());
     this.send('connection.ready', { connectionId: this.connectionId });
   }
@@ -105,7 +108,19 @@ class AgentSocketConnection {
     try {
       await this.dispatch(command);
     } catch (error) {
-      this.sendError(command.requestId, asAgentServiceError(error), command);
+      const serviceError = asAgentServiceError(error);
+      logger.warn(
+        {
+          connectionId: this.connectionId,
+          commandType: command.type,
+          requestId: command.requestId,
+          websiteId: command.websiteId,
+          sessionId: command.sessionId,
+          errorCode: serviceError.code,
+        },
+        'agent command dispatch failed',
+      );
+      this.sendError(command.requestId, serviceError, command);
     }
   }
 
@@ -279,9 +294,17 @@ class AgentSocketConnection {
       this.socket.send(JSON.stringify(message));
   }
 
-  private dispose(): void {
+  private dispose(code?: number, reason?: string): void {
     if (this.closed) return;
     this.closed = true;
+    logger.info(
+      {
+        connectionId: this.connectionId,
+        code: code ?? 'disposed',
+        ...(reason ? { reason: reason.slice(0, 256) } : {}),
+      },
+      'agent websocket closed',
+    );
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     if (this.previewWebsiteId && this.previewClientId)

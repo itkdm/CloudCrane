@@ -51,7 +51,12 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
   const key = assistantKey(event);
   if (value.type === 'context_compaction') {
     const status = value.status;
-    if (status === 'started' || status === 'completed' || status === 'failed')
+    if (
+      status === 'started' ||
+      status === 'completed' ||
+      status === 'failed' ||
+      status === 'not_needed'
+    )
       return createAgentEnvelope({
         ...base,
         type: `context.compaction.${status}`,

@@ -49,6 +49,19 @@ describe('agent event projector', () => {
     expect(JSON.stringify(started)).not.toMatch(/summary|reason|token/i);
   });
 
+  it('projects a not-needed compaction as a product event without Pi details', () => {
+    const message = projectWebsiteAgentEvent({
+      ...context,
+      event: { type: 'context_compaction', status: 'not_needed' },
+    });
+
+    expect(message).toMatchObject({
+      type: 'context.compaction.not_needed',
+      payload: { operation: 'compaction' },
+    });
+    expect(JSON.stringify(message)).not.toMatch(/summary|reason|token|Nothing|Already/i);
+  });
+
   it('assigns a fresh UUID to every assistant turn and keeps deltas correlated', () => {
     const message = { role: 'assistant', content: [] } as never;
     const first = projectWebsiteAgentEvent({

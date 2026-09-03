@@ -844,7 +844,8 @@ function handleEvent(
   if (
     event.type === 'context.compaction.started' ||
     event.type === 'context.compaction.completed' ||
-    event.type === 'context.compaction.failed'
+    event.type === 'context.compaction.failed' ||
+    event.type === 'context.compaction.not_needed'
   ) {
     queueConversation({ type: event.type, payload: { runId: envelope.runId } }, true);
     return;
@@ -877,7 +878,11 @@ function handleEvent(
       true,
     );
   if (event.type === 'command.error') {
-    setError(event.payload.message);
+    setError(
+      event.payload.code === 'CONTEXT_COMPACTION_NOT_NEEDED'
+        ? event.payload.code
+        : event.payload.message,
+    );
     queueConversation(
       { type: 'message.status', payload: { requestId: envelope.requestId, status: 'failed' } },
       true,

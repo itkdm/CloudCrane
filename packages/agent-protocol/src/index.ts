@@ -139,6 +139,10 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({ operation: z.literal('compaction') }),
   }),
   z.object({
+    type: z.literal('context.compaction.not_needed'),
+    payload: z.object({ operation: z.literal('compaction') }),
+  }),
+  z.object({
     type: z.literal('run.started'),
     payload: z.object({
       runId: z.string().uuid(),

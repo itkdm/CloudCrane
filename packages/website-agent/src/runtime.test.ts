@@ -643,6 +643,116 @@ describe('WebsiteAgentRuntime', () => {
     await runtime.disposeAll();
   });
 
+  it.each(['Nothing to compact (session too small)', 'Already compacted'])(
+    'classifies Pi no-op compaction errors as not needed: %s',
+    async (message) => {
+      const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-compaction-noop-'));
+      const store = createInMemoryWebsiteAgentStore();
+      const modelRuntime = await ModelRuntime.create({
+        modelsPath: null,
+        allowModelNetwork: false,
+        refreshOnCreate: false,
+      });
+      const runtime = new WebsiteAgentRuntime({
+        websiteId,
+        workspaceId,
+        workspaceGatewayEndpoint: 'http://gateway.invalid',
+        workspaceClientToken: 'client-only',
+        agentDataRoot: dataRoot,
+        store,
+        modelRuntime,
+        workspaceClientFactory: () =>
+          ({
+            fs: {
+              read: vi.fn(async () => ({
+                content: '',
+                sha256: 'n'.repeat(64),
+                size: 0,
+                truncated: false,
+              })),
+              list: vi.fn(async ({ path: remotePath }: { path: string }) => ({
+                path: remotePath,
+                entries: [],
+              })),
+              stat: vi.fn(missingReferenceStat),
+            },
+          }) as never,
+      });
+      const events: string[] = [];
+      const unsubscribe = runtime.subscribe((event) => {
+        if (event.event.type === 'context_compaction') events.push(event.event.status);
+      });
+      const compact = vi
+        .spyOn(AgentSession.prototype, 'compact')
+        .mockRejectedValue(new Error(message));
+
+      const session = await runtime.createSession();
+      await expect(runtime.compact(session.id)).rejects.toMatchObject({
+        code: 'CONTEXT_COMPACTION_NOT_NEEDED',
+      });
+      expect(events).toEqual(['started', 'not_needed']);
+      await expect(runtime.compact(session.id)).rejects.toMatchObject({
+        code: 'CONTEXT_COMPACTION_NOT_NEEDED',
+      });
+
+      compact.mockRestore();
+      unsubscribe();
+      await runtime.disposeAll();
+    },
+  );
+
+  it('keeps real compaction errors as failures', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-compaction-error-'));
+    const store = createInMemoryWebsiteAgentStore();
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store,
+      modelRuntime,
+      workspaceClientFactory: () =>
+        ({
+          fs: {
+            read: vi.fn(async () => ({
+              content: '',
+              sha256: 'e'.repeat(64),
+              size: 0,
+              truncated: false,
+            })),
+            list: vi.fn(async ({ path: remotePath }: { path: string }) => ({
+              path: remotePath,
+              entries: [],
+            })),
+            stat: vi.fn(missingReferenceStat),
+          },
+        }) as never,
+    });
+    const events: string[] = [];
+    const unsubscribe = runtime.subscribe((event) => {
+      if (event.event.type === 'context_compaction') events.push(event.event.status);
+    });
+    const compact = vi
+      .spyOn(AgentSession.prototype, 'compact')
+      .mockRejectedValue(new Error('Summarization failed: provider unavailable'));
+
+    const session = await runtime.createSession();
+    await expect(runtime.compact(session.id)).rejects.toThrow(
+      'Summarization failed: provider unavailable',
+    );
+    expect(events).toEqual(['started', 'failed']);
+
+    compact.mockRestore();
+    unsubscribe();
+    await runtime.disposeAll();
+  });
+
   it('does not accept a prompt before run persistence and releases the reservation on failure', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-prompt-acceptance-'));
     const faux = fauxProvider({

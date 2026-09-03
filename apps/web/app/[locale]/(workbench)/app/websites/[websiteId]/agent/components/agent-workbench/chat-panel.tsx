@@ -87,7 +87,10 @@ export function ChatPanel({
         </div>
       ) : null}
       {error ? (
-        <div className="error-banner" role="alert">
+        <div
+          className={`error-banner${error === 'CONTEXT_COMPACTION_NOT_NEEDED' ? ' notice' : ''}`}
+          role="alert"
+        >
           <AlertTriangle size={16} aria-hidden="true" />
           <span>{friendlyError(error, t)}</span>
           <button type="button" onClick={onDismissError} aria-label={t('closeNotice')}>
@@ -113,11 +116,11 @@ export function ChatPanel({
 }
 
 function friendlyError(error: string, t: (key: string) => string): string {
+  if (error === 'CONTEXT_COMPACTION_NOT_NEEDED') return t('compactContextNotNeeded');
   if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(error)) return t('errorPreview');
   if (/PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(error)) return t('errorPreview');
   if (/timeout/i.test(error)) return t('timeoutPreview');
-  if (/connect|socket|Agent Service|disconnected|连接/i.test(error))
-    return t('connectionInterrupted');
+  if (/connect|socket|disconnected|连接/i.test(error)) return t('connectionInterrupted');
   if (/INVALID_ARGUMENT|Website-relative path|路径/i.test(error)) return t('unsupportedPath');
   return t('operationIncomplete');
 }
