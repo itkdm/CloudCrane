@@ -675,6 +675,17 @@ Continue
 
 Website Agent 不重新实现一个独立 Compaction 系统。
 
+产品层只增加一层很薄的控制与事件投影：用户手动整理上下文对应
+`AgentSession.compact()`，并由 Runtime 在空闲时序列化该维护操作；运行中不创建
+`AgentRun`、用户消息或工具调用。Pi 的 `compaction_start/end` 只转换为
+`context.compaction.started/completed/failed`，不把 Pi 的 reason、summary 或 token
+统计暴露给产品协议。Pi 的自动 Compaction 保持启用。
+
+需要特别区分模型上下文与用户可见历史：模型请求使用 Pi 的 compaction-aware
+context，而 Session 历史快照使用 `SessionManager.getBranch()` 的当前活动分支，
+只投影 `type: message` 条目并忽略 `type: compaction` 摘要。这样整理上下文后刷新页面，
+用户仍能看到完整历史，同时不会把内部摘要当成聊天消息。
+
 如果未来 Website 场景还需要保留：
 
 ```text

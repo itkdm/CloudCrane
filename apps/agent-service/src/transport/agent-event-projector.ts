@@ -49,6 +49,16 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
   }
   const value = event.event as unknown as Record<string, unknown>;
   const key = assistantKey(event);
+  if (value.type === 'context_compaction') {
+    const status = value.status;
+    if (status === 'started' || status === 'completed' || status === 'failed')
+      return createAgentEnvelope({
+        ...base,
+        type: `context.compaction.${status}`,
+        payload: { operation: 'compaction' },
+      });
+    return null;
+  }
   if (value.type === 'turn_start' || value.type === 'turn_end') {
     const state = turnStates.get(key) ?? { nextIndex: 0 };
     const turnIndex = validTurnIndex(event.turnIndex) ?? state.currentIndex ?? state.nextIndex;

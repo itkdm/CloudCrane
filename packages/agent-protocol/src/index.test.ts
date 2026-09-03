@@ -57,6 +57,27 @@ describe('agent protocol', () => {
     expect(event.type).toBe('tool.completed');
   });
 
+  it('accepts the maintenance command and bounded compaction events', () => {
+    const command = agentCommandSchema.parse({
+      type: 'session.compact',
+      requestId: 'req-compact',
+      websiteId,
+      sessionId,
+      timestamp: new Date(),
+      payload: {},
+    });
+    expect(command.type).toBe('session.compact');
+    const event = agentEventSchema.parse({
+      type: 'context.compaction.completed',
+      payload: { operation: 'compaction' },
+    });
+    expect(event).toEqual({
+      type: 'context.compaction.completed',
+      payload: { operation: 'compaction' },
+    });
+    expect(JSON.stringify(event)).not.toMatch(/summary|reason|token/i);
+  });
+
   it('rejects non-finite and unbounded turn indexes', () => {
     expect(() =>
       agentEventSchema.parse({

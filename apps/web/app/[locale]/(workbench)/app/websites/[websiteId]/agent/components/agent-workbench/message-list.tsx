@@ -5,13 +5,15 @@ import { useConversationScroll } from './conversation-scroll';
 import { ExecutionProcess } from './tool-execution';
 import { UserMessage } from './user-message';
 import type { ConversationTurn } from './types';
+import type { ContextMaintenance } from './conversation-reducer';
 
 type MessageListProps = {
   turns: ConversationTurn[];
   onExample: (value: string) => void;
+  contextMaintenance?: ContextMaintenance;
 };
 
-export function MessageList({ turns, onExample }: MessageListProps) {
+export function MessageList({ turns, onExample, contextMaintenance }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
   const contentVersion = JSON.stringify(turns);
@@ -40,6 +42,28 @@ export function MessageList({ turns, onExample }: MessageListProps) {
         ) : (
           turns.map((turn) => <ConversationTurnView key={turn.userMessage.id} turn={turn} />)
         )}
+        {contextMaintenance ? (
+          <div
+            className={`context-maintenance ${contextMaintenance.status}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span aria-hidden="true">
+              {contextMaintenance.status === 'running'
+                ? '◌'
+                : contextMaintenance.status === 'completed'
+                  ? '✓'
+                  : '!'}
+            </span>
+            <span>
+              {contextMaintenance.status === 'running'
+                ? t('compactionRunning')
+                : contextMaintenance.status === 'completed'
+                  ? t('compactionCompleted')
+                  : t('compactionFailed')}
+            </span>
+          </div>
+        ) : null}
         <div ref={endRef} aria-hidden="true" />
       </div>
       {showReturnToLatest ? (

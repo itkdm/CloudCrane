@@ -3,6 +3,7 @@ import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
 import type { ConversationTurn } from './types';
+import type { ContextMaintenance } from './conversation-reducer';
 
 type ChatPanelProps = {
   turns: ConversationTurn[];
@@ -18,6 +19,8 @@ type ChatPanelProps = {
   previewOpen?: boolean;
   onPreviewToggle?: () => void;
   onSettingsOpen?: () => void;
+  contextMaintenance?: ContextMaintenance;
+  onCompact?: () => void;
 };
 
 export function ChatPanel({
@@ -34,11 +37,13 @@ export function ChatPanel({
   previewOpen,
   onPreviewToggle,
   onSettingsOpen,
+  contextMaintenance,
+  onCompact,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   return (
     <section className="chat-panel" aria-label={t('chat')}>
-      {onPreviewToggle || onSettingsOpen ? (
+      {onPreviewToggle || onSettingsOpen || onCompact ? (
         <div className="chat-toolbar">
           {onSettingsOpen ? (
             <button
@@ -50,6 +55,19 @@ export function ChatPanel({
             >
               <Settings size={15} aria-hidden="true" />
               <span>{t('settings')}</span>
+            </button>
+          ) : null}
+          {onCompact ? (
+            <button
+              type="button"
+              className="preview-toggle-button"
+              onClick={onCompact}
+              disabled={running || contextMaintenance?.status === 'running' || disabled}
+              aria-label={t('compactContext')}
+              title={t('compactContext')}
+            >
+              <span aria-hidden="true">↻</span>
+              <span>{t('compactContext')}</span>
             </button>
           ) : null}
           {onPreviewToggle ? (
@@ -76,11 +94,11 @@ export function ChatPanel({
           </button>
         </div>
       ) : null}
-      <MessageList turns={turns} onExample={onExample} />
+      <MessageList turns={turns} onExample={onExample} contextMaintenance={contextMaintenance} />
       <Composer
         draft={draft}
         running={running}
-        disabled={disabled}
+        disabled={disabled || contextMaintenance?.status === 'running'}
         onDraftChange={onDraftChange}
         onSubmit={onSubmit}
         onStop={onStop}

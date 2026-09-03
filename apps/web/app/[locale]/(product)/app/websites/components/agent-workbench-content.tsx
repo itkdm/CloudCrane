@@ -366,7 +366,13 @@ export function AgentWorkbenchContent({
 
   function submit() {
     const text = draft.trim();
-    if (!text || !currentSessionId || activeRunRef.current) return;
+    if (
+      !text ||
+      !currentSessionId ||
+      activeRunRef.current ||
+      conversation.contextMaintenance?.status === 'running'
+    )
+      return;
     const requestId = crypto.randomUUID();
     queueConversation(
       {
@@ -405,6 +411,21 @@ export function AgentWorkbenchContent({
     if (currentSessionId)
       sendCommand({ type: 'agent.abort', websiteId, sessionId: currentSessionId, payload: {} });
   };
+
+  const compactContext = useCallback(() => {
+    if (
+      !currentSessionId ||
+      activeRunRef.current ||
+      conversation.contextMaintenance?.status === 'running'
+    )
+      return;
+    sendCommand({
+      type: 'session.compact',
+      websiteId,
+      sessionId: currentSessionId,
+      payload: {},
+    });
+  }, [conversation.contextMaintenance?.status, currentSessionId, sendCommand, websiteId]);
 
   const requestPreview = useCallback(
     (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
@@ -596,6 +617,8 @@ export function AgentWorkbenchContent({
           running={Boolean(runId)}
           error={error}
           disabled={!currentSessionId}
+          contextMaintenance={conversation.contextMaintenance}
+          onCompact={compactContext}
           onDraftChange={setDraft}
           onSubmit={submit}
           onStop={stop}
@@ -766,6 +789,14 @@ function handleEvent(
   setError: (value: string | undefined) => void,
   schedulePreviewRefresh: () => void,
 ) {
+  if (
+    event.type === 'context.compaction.started' ||
+    event.type === 'context.compaction.completed' ||
+    event.type === 'context.compaction.failed'
+  ) {
+    queueConversation({ type: event.type }, true);
+    return;
+  }
   if (event.type === 'run.started') setRunId(event.payload.runId);
   if (event.type === 'run.settled') {
     flushConversation();
@@ -806,6 +837,7 @@ function handleEvent(
           messages: event.payload.messages,
           session: event.payload.session,
           activeRun: event.payload.activeRun,
+          contextMaintenance: event.payload.contextMaintenance,
         },
       },
       true,

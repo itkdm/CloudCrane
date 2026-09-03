@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { WebsiteAgentRuntime, WebsiteSessionIndex } from '@cloudcrane/website-agent';
 import { buildAgentServiceApp } from '../app.js';
@@ -43,7 +43,12 @@ describe('AgentSocketTransport', () => {
     openSession: async () => session,
     listSessions: async () => [session],
     createSession: async () => session,
-    getSessionSnapshot: async () => ({ session, messages: [], activeRun: null }),
+    getSessionSnapshot: async () => ({
+      session,
+      messages: [],
+      contextMaintenance: null,
+      activeRun: null,
+    }),
     hasActiveRun: async () => false,
     subscribe: () => {
       subscribeCount += 1;
@@ -51,12 +56,13 @@ describe('AgentSocketTransport', () => {
         unsubscribeCount += 1;
       };
     },
-    prompt: async () => ({
+    prompt: vi.fn(async () => ({
       runId: '00000000-0000-4000-8000-000000000003',
       traceId: '00000000-0000-4000-8000-000000000004',
       status: 'COMPLETED' as const,
-    }),
+    })),
     abort: async () => undefined,
+    compact: vi.fn(async () => undefined),
     steer: async () => undefined,
     followUp: async () => undefined,
     shutdown: async () => undefined,
@@ -138,6 +144,43 @@ describe('AgentSocketTransport', () => {
       headers: { origin: 'https://untrusted.example' },
     });
     expect(forbidden.statusCode).toBe(403);
+  });
+
+  it('dispatches session compaction as a control command without starting a run', async () => {
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as { type: string; requestId?: string };
+        if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'attach-compact',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId },
+            }),
+          );
+        } else if (message.type === 'session.snapshot') {
+          client.send(
+            JSON.stringify({
+              type: 'session.compact',
+              requestId: 'compact-1',
+              websiteId,
+              sessionId,
+              timestamp: new Date().toISOString(),
+              payload: {},
+            }),
+          );
+        } else if (message.type === 'command.ack' && message.requestId === 'compact-1') resolve();
+      });
+    });
+    expect(runtime.compact).toHaveBeenCalledWith(sessionId);
+    expect(runtime.prompt).not.toHaveBeenCalled();
+    client.close();
   });
 
   it('keeps an in-flight preview request across same-client re-registration', async () => {

@@ -216,6 +216,10 @@ describe('WebsiteAgentRuntime', () => {
     expect(jsonl).toContain('remote read completed');
     expect(jsonl).toContain('"type":"session_info"');
 
+    const beforeCompaction = await runtime.getSessionSnapshot(session.id);
+    expect(beforeCompaction.messages.map((message) => message.text)).toEqual(
+      expect.arrayContaining(['Read index.php', 'remote read completed']),
+    );
     await runtime.closeSession(session.id);
     expect(runtime.activeSessionCount).toBe(0);
     await runtime.openSession(session.id);

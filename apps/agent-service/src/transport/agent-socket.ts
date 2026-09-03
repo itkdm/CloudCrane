@@ -139,6 +139,7 @@ class AgentSocketConnection {
       this.send('session.snapshot', {
         session: toSessionView(snapshot.session),
         messages: snapshot.messages,
+        contextMaintenance: snapshot.contextMaintenance,
         activeRun: snapshot.activeRun,
       });
       return;
@@ -211,6 +212,11 @@ class AgentSocketConnection {
           command.payload.promptRequestId,
         )
         .catch(() => undefined);
+      return;
+    }
+    if (command.type === 'session.compact') {
+      await runtime.compact(sessionId);
+      this.ack(command);
       return;
     }
     if (command.type === 'agent.abort') {

@@ -15,6 +15,21 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
+  it('keeps compaction as maintenance state instead of creating a chat turn', () => {
+    const state = reduce(
+      user(),
+      { type: 'context.compaction.started' },
+      { type: 'context.compaction.completed' },
+    );
+
+    expect(state.contextMaintenance).toEqual({
+      operation: 'compaction',
+      status: 'completed',
+    });
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]?.userMessage.text).toBe('请修改首页');
+  });
+
   it('keeps chat-only turns free of an empty execution', () => {
     const state = reduce(
       user(),

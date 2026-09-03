@@ -217,7 +217,11 @@
     "currentPreview": "当前预览",
     "openPage": "打开页面 {path}",
     "sending": "正在发送",
-    "sendFailed": "发送失败"
+    "sendFailed": "发送失败",
+    "compactContext": "整理对话上下文",
+    "compactionRunning": "正在整理较早的对话上下文…",
+    "compactionCompleted": "已整理较早的对话上下文",
+    "compactionFailed": "上下文整理未完成"
   },
   "workspace": {
     "templatesTitle": "模板",

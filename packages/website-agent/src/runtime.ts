@@ -130,9 +130,15 @@ export type WebsiteAgentMessage = {
   status?: 'running' | 'completed' | 'error';
 };
 
+export type ContextMaintenanceState = {
+  operation: 'compaction';
+  status: 'running';
+};
+
 export type WebsiteAgentSessionSnapshot = {
   session: WebsiteSessionIndex;
   messages: WebsiteAgentMessage[];
+  contextMaintenance: ContextMaintenanceState | null;
   activeRun: (RunContext & { status: 'RUNNING' }) | null;
 };
 
@@ -153,6 +159,11 @@ export type WebsiteAgentLifecycleEvent =
       finalMessageId?: string;
     };
 
+export type WebsiteAgentCompactionEvent = {
+  type: 'context_compaction';
+  status: 'started' | 'completed' | 'failed';
+};
+
 export type WebsiteAgentEvent = {
   websiteId: string;
   websiteSessionId: string;
@@ -161,7 +172,7 @@ export type WebsiteAgentEvent = {
   traceId?: string;
   turnIndex?: number;
   turnId?: string;
-  event: AgentSessionEvent | WebsiteAgentLifecycleEvent;
+  event: AgentSessionEvent | WebsiteAgentLifecycleEvent | WebsiteAgentCompactionEvent;
 };
 
 type RunContext = {
@@ -235,6 +246,7 @@ class ManagedSession implements DisposableSession {
   private turnRunId?: string;
   private currentTurnIndex?: number;
   private currentTurnId?: string;
+  compactionStatus?: 'running';
   activeRun?: ActiveRun;
 
   constructor(
@@ -399,7 +411,10 @@ export class WebsiteAgentRuntime {
     const managed = await this.getManaged(websiteSessionId);
     return {
       session: { ...managed.record },
-      messages: projectMessages(managed.piRuntime.session.agent.state.messages),
+      messages: projectSessionHistory(managed.sessionManager.getBranch()),
+      contextMaintenance: managed.compactionStatus
+        ? { operation: 'compaction', status: 'running' }
+        : null,
       activeRun: managed.activeRun
         ? {
             runId: managed.activeRun.runId,
@@ -419,7 +434,7 @@ export class WebsiteAgentRuntime {
     promptRequestId?: string,
   ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
-    if (managed.activeRun)
+    if (managed.activeRun || managed.compactionStatus || managed.piRuntime.session.isCompacting)
       throw new WebsiteAgentRuntimeError(
         'SESSION_BUSY',
         'this WebsiteSession already has an active AgentRun; use steer or followUp',
@@ -544,6 +559,31 @@ export class WebsiteAgentRuntime {
     const managed = await this.getManaged(websiteSessionId);
     if (managed.activeRun) managed.activeRun.aborted = true;
     await managed.piRuntime.session.abort();
+  }
+
+  async compact(websiteSessionId: string): Promise<void> {
+    const managed = await this.getManaged(websiteSessionId);
+    if (managed.activeRun || managed.compactionStatus || managed.piRuntime.session.isCompacting)
+      throw new WebsiteAgentRuntimeError(
+        'SESSION_BUSY',
+        'this WebsiteSession is busy and cannot compact its context',
+      );
+
+    managed.compactionStatus = 'running';
+    this.emitCompaction(managed, 'started');
+    try {
+      await managed.piRuntime.session.compact();
+      if (managed.compactionStatus) {
+        managed.compactionStatus = undefined;
+        this.emitCompaction(managed, 'completed');
+      }
+    } catch (error) {
+      if (managed.compactionStatus) {
+        managed.compactionStatus = undefined;
+        this.emitCompaction(managed, 'failed');
+      }
+      throw error;
+    }
   }
 
   async steer(websiteSessionId: string, text: string): Promise<void> {
@@ -719,6 +759,17 @@ export class WebsiteAgentRuntime {
       },
       (current, event, metadata) => {
         this.emitEvent(current, event, metadata);
+        if (event.type === 'compaction_start') {
+          const alreadyRunning = current.compactionStatus === 'running';
+          current.compactionStatus = 'running';
+          if (!alreadyRunning) this.emitCompaction(current, 'started');
+        } else if (event.type === 'compaction_end') {
+          current.compactionStatus = undefined;
+          this.emitCompaction(
+            current,
+            event.aborted || event.errorMessage ? 'failed' : 'completed',
+          );
+        }
         if (event.type === 'session_info_changed') {
           const title = event.name?.trim() || null;
           if (current.record.title === title) return;
@@ -847,6 +898,22 @@ export class WebsiteAgentRuntime {
       runId: event.runId,
       traceId: event.traceId,
       event,
+    };
+    for (const listener of this.listeners) listener(payload);
+  }
+
+  private emitCompaction(
+    managed: ManagedSession,
+    status: WebsiteAgentCompactionEvent['status'],
+  ): void {
+    const context = this.runContext.getStore();
+    const payload: WebsiteAgentEvent = {
+      websiteId: this.options.websiteId,
+      websiteSessionId: managed.websiteSessionId,
+      piSessionId: managed.piRuntime.session.sessionId,
+      runId: context?.runId ?? managed.activeRun?.runId,
+      traceId: context?.traceId ?? managed.activeRun?.traceId,
+      event: { type: 'context_compaction', status },
     };
     for (const listener of this.listeners) listener(payload);
   }
@@ -1219,6 +1286,16 @@ export function projectMessages(messages: readonly unknown[]): WebsiteAgentMessa
     }
   });
   return projected;
+}
+
+function projectSessionHistory(entries: readonly unknown[]): WebsiteAgentMessage[] {
+  const messages = entries.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || (entry as { type?: unknown }).type !== 'message')
+      return [];
+    const message = (entry as { message?: unknown }).message;
+    return message ? [message] : [];
+  });
+  return projectMessages(messages);
 }
 
 function extractMessageText(content: unknown): string {

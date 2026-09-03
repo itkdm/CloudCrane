@@ -217,7 +217,11 @@
     "currentPreview": "Current preview",
     "openPage": "Open page {path}",
     "sending": "Sending",
-    "sendFailed": "Send failed"
+    "sendFailed": "Send failed",
+    "compactContext": "Organize conversation context",
+    "compactionRunning": "Organizing earlier conversation context…",
+    "compactionCompleted": "Earlier conversation context organized",
+    "compactionFailed": "Context organization was not completed"
   },
   "workspace": {
     "templatesTitle": "Templates",

@@ -86,6 +86,7 @@ export function buildAgentServiceApp(
       return sessionSnapshotSchema.parse({
         session: toSessionView(snapshot.session),
         messages: snapshot.messages,
+        contextMaintenance: snapshot.contextMaintenance,
         activeRun: snapshot.activeRun,
       });
     },

@@ -29,6 +29,26 @@ describe('agent event projector', () => {
     expect(projectWebsiteAgentEvent({ ...context, event: { type: 'agent_start' } })).toBeNull();
   });
 
+  it('projects compaction lifecycle without exposing Pi details', () => {
+    const started = projectWebsiteAgentEvent({
+      ...context,
+      event: { type: 'context_compaction', status: 'started' },
+    });
+    const completed = projectWebsiteAgentEvent({
+      ...context,
+      event: { type: 'context_compaction', status: 'completed' },
+    });
+    expect(started).toMatchObject({
+      type: 'context.compaction.started',
+      payload: { operation: 'compaction' },
+    });
+    expect(completed).toMatchObject({
+      type: 'context.compaction.completed',
+      payload: { operation: 'compaction' },
+    });
+    expect(JSON.stringify(started)).not.toMatch(/summary|reason|token/i);
+  });
+
   it('assigns a fresh UUID to every assistant turn and keeps deltas correlated', () => {
     const message = { role: 'assistant', content: [] } as never;
     const first = projectWebsiteAgentEvent({

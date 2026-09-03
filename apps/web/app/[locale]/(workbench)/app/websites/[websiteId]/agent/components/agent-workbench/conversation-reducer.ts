@@ -10,8 +10,17 @@ import type {
 
 const MAX_PRESENTATION_TEXT = 32_000;
 
+export type ContextMaintenance = {
+  operation: 'compaction';
+  status: 'running' | 'completed' | 'failed';
+};
+
 /** `turns` is the source of truth; `messages` remains a renderer compatibility projection. */
-export type ConversationState = { turns: ConversationTurn[]; messages: Message[] };
+export type ConversationState = {
+  turns: ConversationTurn[];
+  messages: Message[];
+  contextMaintenance?: ContextMaintenance;
+};
 
 export const initialConversationState: ConversationState = { turns: [], messages: [] };
 
@@ -19,11 +28,20 @@ export type ConversationEvent =
   | { type: 'batch'; actions: ConversationEvent[] }
   | {
       type: 'session.snapshot';
-      payload: { messages: SnapshotMessage[]; session?: unknown; activeRun?: unknown };
+      payload: {
+        messages: SnapshotMessage[];
+        session?: unknown;
+        activeRun?: unknown;
+        contextMaintenance?: ContextMaintenance | null;
+      };
     }
   | { type: 'user.added'; payload: { message: Message } }
   | { type: 'message.status'; payload: { requestId?: string; status: string } }
   | { type: 'run.started'; payload?: { runId?: string } }
+  | {
+      type:
+        'context.compaction.started' | 'context.compaction.completed' | 'context.compaction.failed';
+    }
   | { type: 'turn.started'; payload: { turnIndex: number; turnId?: string } }
   | { type: 'turn.completed'; payload: { turnIndex: number; turnId?: string } }
   | {
@@ -53,20 +71,30 @@ export function conversationReducer(
   if (event.type === 'batch') return event.actions.reduce(conversationReducer, state);
 
   if (event.type === 'session.snapshot') {
-    if (event.payload.messages.length === 0) return initialConversationState;
+    if (event.payload.messages.length === 0)
+      return {
+        ...initialConversationState,
+        ...(event.payload.contextMaintenance
+          ? { contextMaintenance: event.payload.contextMaintenance }
+          : {}),
+      };
     const active = isActiveRun(event.payload.activeRun);
     return present(
       mergeSnapshotTurns(state.turns, snapshotToTurns(event.payload.messages, active), active),
+      event.payload.contextMaintenance ?? undefined,
     );
   }
 
   if (event.type === 'user.added') {
     const index = state.turns.findIndex((turn) => turn.userMessage.id === event.payload.message.id);
     if (index < 0)
-      return present([
-        ...state.turns,
-        { userMessage: boundMessage(event.payload.message), status: 'running', expanded: true },
-      ]);
+      return present(
+        [
+          ...state.turns,
+          { userMessage: boundMessage(event.payload.message), status: 'running', expanded: true },
+        ],
+        state.contextMaintenance,
+      );
     const current = state.turns[index];
     return current
       ? replaceTurn(state, index, {
@@ -86,8 +114,16 @@ export function conversationReducer(
             ? { ...turn.userMessage, status: event.payload.status }
             : turn.userMessage,
       })),
+      state.contextMaintenance,
     );
   }
+
+  if (event.type === 'context.compaction.started')
+    return { ...state, contextMaintenance: { operation: 'compaction', status: 'running' } };
+  if (event.type === 'context.compaction.completed')
+    return { ...state, contextMaintenance: { operation: 'compaction', status: 'completed' } };
+  if (event.type === 'context.compaction.failed')
+    return { ...state, contextMaintenance: { operation: 'compaction', status: 'failed' } };
 
   if (event.type === 'run.started') {
     const index = latestTurnIndex(state.turns);
@@ -156,6 +192,7 @@ export function conversationReducer(
         status: 'running',
       };
     });
+  if (event.type !== 'tool.completed') return state;
   return updateTool(state, event.payload.toolCallId, (step) => ({
     kind: 'tool',
     id: event.payload.toolCallId,
@@ -481,8 +518,15 @@ function flattenTurns(turns: ConversationTurn[]): Message[] {
   ]);
 }
 
-function present(turns: ConversationTurn[]): ConversationState {
-  return { turns, messages: flattenTurns(turns) };
+function present(
+  turns: ConversationTurn[],
+  contextMaintenance?: ContextMaintenance,
+): ConversationState {
+  return {
+    turns,
+    messages: flattenTurns(turns),
+    ...(contextMaintenance ? { contextMaintenance } : {}),
+  };
 }
 
 function omitExecution(turn: ConversationTurn): Omit<ConversationTurn, 'execution'> {
@@ -497,6 +541,7 @@ function replaceTurn(
 ): ConversationState {
   return present(
     state.turns.map((current, currentIndex) => (currentIndex === index ? turn : current)),
+    state.contextMaintenance,
   );
 }
 function mergeMessage(current: Message, next: Message): Message {

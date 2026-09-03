@@ -26,5 +26,14 @@ export class AgentServiceError extends Error {
 
 export function asAgentServiceError(error: unknown): AgentServiceError {
   if (error instanceof AgentServiceError) return error;
+  if (
+    error &&
+    typeof error === 'object' &&
+    ((error as { code?: unknown }).code === 'SESSION_BUSY' ||
+      (error as { code?: unknown }).code === 'WEBSITE_MUTATION_BUSY')
+  ) {
+    const code = (error as { code: 'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY' }).code;
+    return new AgentServiceError(code, error instanceof Error ? error.message : 'session is busy');
+  }
   return new AgentServiceError('INTERNAL_ERROR', 'agent service operation failed', 500);
 }

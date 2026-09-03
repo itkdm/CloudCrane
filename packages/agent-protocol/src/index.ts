@@ -55,6 +55,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('agent.follow_up'),
     payload: z.object({ text: z.string().min(1).max(32_000) }),
   }),
+  commandBase.extend({ type: z.literal('session.compact'), payload: z.object({}) }),
   commandBase.extend({
     type: z.literal('preview.client.register'),
     payload: previewClientRegisterPayloadSchema,
@@ -99,6 +100,10 @@ export type SnapshotMessage = z.infer<typeof snapshotMessageSchema>;
 export const sessionSnapshotSchema = z.object({
   session: sessionViewSchema,
   messages: z.array(snapshotMessageSchema),
+  contextMaintenance: z
+    .object({ operation: z.literal('compaction'), status: z.literal('running') })
+    .nullable()
+    .optional(),
   activeRun: z
     .object({
       runId: z.string().uuid(),
@@ -121,6 +126,18 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({ session: sessionViewSchema }),
   }),
   z.object({ type: z.literal('session.snapshot'), payload: sessionSnapshotSchema }),
+  z.object({
+    type: z.literal('context.compaction.started'),
+    payload: z.object({ operation: z.literal('compaction') }),
+  }),
+  z.object({
+    type: z.literal('context.compaction.completed'),
+    payload: z.object({ operation: z.literal('compaction') }),
+  }),
+  z.object({
+    type: z.literal('context.compaction.failed'),
+    payload: z.object({ operation: z.literal('compaction') }),
+  }),
   z.object({
     type: z.literal('run.started'),
     payload: z.object({
