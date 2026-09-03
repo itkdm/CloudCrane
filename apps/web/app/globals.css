@@ -459,7 +459,7 @@ button:disabled {
   border-radius: var(--cc-radius-md);
   border: 0;
   background: transparent;
-  color: var(--cc-text-secondary);
+  color: color-mix(in srgb, var(--cc-text) 82%, var(--cc-text-secondary));
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
