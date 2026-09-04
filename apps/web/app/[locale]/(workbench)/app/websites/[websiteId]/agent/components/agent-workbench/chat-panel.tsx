@@ -2,14 +2,14 @@ import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
-import type { ConversationTurn, ManualMaintenanceItem } from './types';
+import type { ConversationTurn, ManualMaintenanceItem, WorkbenchError } from './types';
 
 type ChatPanelProps = {
   turns: ConversationTurn[];
   draft: string;
   running: boolean;
   disabled?: boolean;
-  error?: string;
+  error?: string | WorkbenchError;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
@@ -88,7 +88,7 @@ export function ChatPanel({
       ) : null}
       {error ? (
         <div
-          className={`error-banner${error === 'CONTEXT_COMPACTION_NOT_NEEDED' ? ' notice' : ''}`}
+          className={`error-banner${error === 'CONTEXT_COMPACTION_NOT_NEEDED' || (typeof error !== 'string' && error.code === 'CONTEXT_COMPACTION_NOT_NEEDED') ? ' notice' : ''}`}
           role="alert"
         >
           <AlertTriangle size={16} aria-hidden="true" />
@@ -115,10 +115,30 @@ export function ChatPanel({
   );
 }
 
-function friendlyError(error: string, t: (key: string) => string): string {
+function friendlyError(error: string | WorkbenchError, t: (key: string) => string): string {
+  if (typeof error === 'string') return friendlyLegacyError(error, t);
+  const code = error.code ?? '';
+  const message = error.message;
+  if (code === 'CONTEXT_COMPACTION_NOT_NEEDED') return t('compactContextNotNeeded');
+  if (error.source === 'preview-explicit') return t('errorPreview');
+  if (error.source === 'connection') return t('connectionInterrupted');
+  if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(message)) return t('errorPreview');
+  if (/PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(message)) return t('errorPreview');
+  if (/timeout/i.test(message)) return t('timeoutPreview');
+  if (/connect|socket|disconnected|连接/i.test(message)) return t('connectionInterrupted');
+  if (code === 'INVALID_ARGUMENT' || /Website-relative path|路径/i.test(message))
+    return t('unsupportedPath');
+  return t('operationIncomplete');
+}
+
+function friendlyLegacyError(error: string, t: (key: string) => string): string {
   if (error === 'CONTEXT_COMPACTION_NOT_NEEDED') return t('compactContextNotNeeded');
-  if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(error)) return t('errorPreview');
-  if (/PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(error)) return t('errorPreview');
+  if (
+    /CLIENT_UNAVAILABLE|Preview Client|preview client|PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(
+      error,
+    )
+  )
+    return t('errorPreview');
   if (/timeout/i.test(error)) return t('timeoutPreview');
   if (/connect|socket|disconnected|连接/i.test(error)) return t('connectionInterrupted');
   if (/INVALID_ARGUMENT|Website-relative path|路径/i.test(error)) return t('unsupportedPath');

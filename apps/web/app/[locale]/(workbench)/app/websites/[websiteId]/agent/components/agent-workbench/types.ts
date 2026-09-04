@@ -70,3 +70,20 @@ export type PreviewState = {
   path?: string;
   message?: string;
 };
+
+export type WorkbenchErrorSource = 'command' | 'connection' | 'session' | 'preview-explicit';
+
+export type WorkbenchError = {
+  source: WorkbenchErrorSource;
+  message: string;
+  code?: string;
+  requestId?: string;
+  runId?: string;
+};
+
+export function shouldClearErrorOnRunSettled(
+  error: WorkbenchError | undefined,
+  runId: string | undefined,
+): boolean {
+  return Boolean(error?.runId && runId && error.runId === runId);
+}

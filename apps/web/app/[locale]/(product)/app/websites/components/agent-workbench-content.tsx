@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type Dispatch,
   type RefObject,
+  type SetStateAction,
 } from 'react';
 import { useTranslations } from 'next-intl';
 import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
@@ -31,9 +33,11 @@ import { PreviewPane } from '@/app/[locale]/(workbench)/app/websites/[websiteId]
 import { resolvePreviewSource } from '@/lib/preview-source';
 import { authorizePreviewAccess, usePreviewAccess } from '@/lib/preview-access';
 import type { PreviewViewportMode } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-viewport';
-import type {
-  PreviewState,
-  Session,
+import {
+  shouldClearErrorOnRunSettled,
+  type PreviewState,
+  type Session,
+  type WorkbenchError,
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/types';
 import '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/agent-workbench.css';
 import './unified-agent-workbench.css';
@@ -74,7 +78,7 @@ export function AgentWorkbenchContent({
   const [sessions, setSessions] = useState<Session[]>([]);
   const [runId, setRunId] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
-  const [error, setError] = useState<string | undefined>();
+  const [error, setError] = useState<WorkbenchError | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
   const [previewCurrentUrl, setPreviewCurrentUrl] = useState<string>();
@@ -199,17 +203,22 @@ export function AgentWorkbenchContent({
     [ensureFreshPreviewAccess],
   );
 
-  const refreshPreview = useCallback(() => {
-    void ensurePreviewAuthorizationFresh()
-      .then(() => previewClient.current?.refresh())
-      .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : t('operationIncomplete')),
-      );
-  }, [ensurePreviewAuthorizationFresh, t]);
+  const refreshPreview = useCallback(
+    (source: 'user' | 'background' = 'user') => {
+      if (source === 'background' && !previewOpen) return;
+      void ensurePreviewAuthorizationFresh()
+        .then(() => previewClient.current?.refresh())
+        .catch((cause) => {
+          if (source === 'user')
+            setError(toWorkbenchError('preview-explicit', cause, t('operationIncomplete')));
+        });
+    },
+    [ensurePreviewAuthorizationFresh, previewOpen, t],
+  );
 
   const schedulePreviewRefresh = useCallback(() => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(refreshPreview, 300);
+    refreshTimerRef.current = setTimeout(() => refreshPreview('background'), 300);
   }, [refreshPreview]);
 
   const registerPreviewClient = useCallback(() => {
@@ -261,7 +270,9 @@ export function AgentWorkbenchContent({
     }
     void ensurePreviewAuthorizationFresh()
       .then(() => setPreviewOpen(true))
-      .catch((cause) => setError(cause instanceof Error ? cause.message : t('unavailablePreview')));
+      .catch((cause) =>
+        setError(toWorkbenchError('preview-explicit', cause, t('unavailablePreview'))),
+      );
   }, [ensurePreviewAuthorizationFresh, previewOpen, t]);
 
   useEffect(() => {
@@ -343,7 +354,7 @@ export function AgentWorkbenchContent({
         if (cancelled) return;
         setSessions(result.sessions);
       } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : t('operationIncomplete'));
+        if (!cancelled) setError(toWorkbenchError('session', cause, t('operationIncomplete')));
       }
     })();
     return () => {
@@ -373,6 +384,7 @@ export function AgentWorkbenchContent({
         hasRunningManualMaintenance(conversation)
       )
         return false;
+      setError(undefined);
       const requestId = crypto.randomUUID();
       queueConversation(
         {
@@ -401,8 +413,11 @@ export function AgentWorkbenchContent({
         );
       } else {
         pendingSessionTitlesRef.current.delete(requestId);
-        queueConversation({ type: 'message.status', payload: { requestId, status: 'failed' } }, true);
-        setError(t('connectionInterrupted'));
+        queueConversation(
+          { type: 'message.status', payload: { requestId, status: 'failed' } },
+          true,
+        );
+        setError(toWorkbenchError('connection', undefined, t('connectionInterrupted')));
         return false;
       }
       setDraft('');
@@ -507,7 +522,7 @@ export function AgentWorkbenchContent({
 
       ws.onerror = () => {
         if (disposed || socket.current !== ws) return;
-        setError(t('connectionInterrupted'));
+        setError(toWorkbenchError('connection', undefined, t('connectionInterrupted')));
       };
 
       ws.onmessage = (event) => {
@@ -528,6 +543,7 @@ export function AgentWorkbenchContent({
           return;
 
         if (projected.event.type === 'session.snapshot') {
+          setError((current) => (current?.source === 'session' ? undefined : current));
           const nextSession = projected.event.payload.session;
           setSessionSnapshotVersion((current) => current + 1);
           setSessions((current) => {
@@ -688,7 +704,7 @@ export function AgentWorkbenchContent({
           onOpen={() => {
             const popup = window.open('about:blank', '_blank');
             if (!popup) {
-              setError(t('operationIncomplete'));
+              setError(toWorkbenchError('preview-explicit', undefined, t('operationIncomplete')));
               return;
             }
             popup.opener = null;
@@ -699,7 +715,7 @@ export function AgentWorkbenchContent({
               })
               .catch((cause) => {
                 popup.close();
-                setError(cause instanceof Error ? cause.message : t('operationIncomplete'));
+                setError(toWorkbenchError('preview-explicit', cause, t('operationIncomplete')));
               });
           }}
           previewViewportMode={previewViewportMode}
@@ -843,7 +859,7 @@ function handleEvent(
   queueConversation: (action: ConversationEvent, immediate?: boolean) => void,
   flushConversation: () => void,
   setRunId: (value: string | undefined) => void,
-  setError: (value: string | undefined) => void,
+  setError: Dispatch<SetStateAction<WorkbenchError | undefined>>,
   schedulePreviewRefresh: () => void,
 ) {
   if (
@@ -857,9 +873,11 @@ function handleEvent(
   }
   if (event.type === 'run.started') {
     setRunId(event.payload.runId);
+    setError(undefined);
     queueConversation({ type: 'run.started', payload: { runId: event.payload.runId } }, true);
   }
   if (event.type === 'run.settled') {
+    const settledRunId = event.payload.runId ?? envelope.runId;
     flushConversation();
     queueConversation(
       {
@@ -868,7 +886,7 @@ function handleEvent(
           status: event.payload.status,
           ...(event.payload.error ? { error: event.payload.error } : {}),
           ...(event.payload.finalMessageId ? { finalMessageId: event.payload.finalMessageId } : {}),
-          runId: event.payload.runId ?? envelope.runId,
+          runId: settledRunId,
           traceId: event.payload.traceId ?? envelope.traceId,
         },
       },
@@ -876,6 +894,10 @@ function handleEvent(
     );
     setRunId(undefined);
     schedulePreviewRefresh();
+    if (event.payload.status === 'COMPLETED')
+      setError((current) =>
+        shouldClearErrorOnRunSettled(current, settledRunId) ? undefined : current,
+      );
   }
   if (event.type === 'command.ack')
     queueConversation(
@@ -884,9 +906,11 @@ function handleEvent(
     );
   if (event.type === 'command.error') {
     setError(
-      event.payload.code === 'CONTEXT_COMPACTION_NOT_NEEDED'
-        ? event.payload.code
-        : event.payload.message,
+      toWorkbenchError('command', event.payload.message, event.payload.message, {
+        code: event.payload.code,
+        requestId: envelope.requestId,
+        runId: envelope.runId,
+      }),
     );
     queueConversation(
       { type: 'message.status', payload: { requestId: envelope.requestId, status: 'failed' } },
@@ -927,4 +951,17 @@ function handleEvent(
     queueConversation({ type: 'tool.completed', payload: event.payload }, true);
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
   }
+}
+
+function toWorkbenchError(
+  source: WorkbenchError['source'],
+  cause: unknown,
+  fallback: string,
+  metadata: Pick<WorkbenchError, 'code' | 'requestId' | 'runId'> = {},
+): WorkbenchError {
+  return {
+    source,
+    message: cause instanceof Error ? cause.message : fallback,
+    ...metadata,
+  };
 }
