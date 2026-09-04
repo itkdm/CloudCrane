@@ -149,14 +149,15 @@ const ContextMaintenanceExecution = memo(function ContextMaintenanceExecution({
 
 export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolExecutionStep }) {
   const t = useTranslations('workbench');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const toolName = step.toolName ?? 'tool';
   const label = t(toolLabels[toolName] ?? 'tool');
   const Icon = toolIcons[toolName] ?? Terminal;
   const status = normalizeStatus(step.status);
   const target = toolTarget(toolName, step.toolInput, t);
-  const input = boundedDetail(step.toolInput);
-  const output = boundedDetail(step.toolOutput);
-  const hasDetails = Boolean(input || output);
+  const hasDetails = Boolean(step.toolInput?.trim() || step.toolOutput?.trim());
+  const input = detailsOpen ? boundedDetail(step.toolInput) : '';
+  const output = detailsOpen ? boundedDetail(step.toolOutput) : '';
   const row = (
     <>
       <span className="tool-icon" aria-hidden="true">
@@ -195,7 +196,10 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
     );
 
   return (
-    <details className={`tool-execution ${status}`}>
+    <details
+      className={`tool-execution ${status}`}
+      onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+    >
       <summary
         className="tool-execution-row"
         title={t('toolDetails')}

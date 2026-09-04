@@ -1687,6 +1687,83 @@
   background: var(--cc-surface-2);
 }
 
+/* Conversation-only neutral palette; product chrome keeps the CloudCrane brand tokens. */
+.message-list {
+  --cc-conversation-text: #e2e2e2;
+  --cc-conversation-secondary: #b7b7b7;
+  --cc-conversation-muted: #8f8f8f;
+  --cc-conversation-surface: #242424;
+  --cc-conversation-surface-subtle: #1f1f1f;
+  --cc-conversation-border: #3a3a3a;
+}
+
+:root[data-theme='light'] .message-list {
+  --cc-conversation-text: #1f1f1f;
+  --cc-conversation-secondary: #5f6368;
+  --cc-conversation-muted: #747775;
+  --cc-conversation-surface: #f5f5f5;
+  --cc-conversation-surface-subtle: #f1f1f1;
+  --cc-conversation-border: #e5e5e5;
+}
+
+.message-list .message-body,
+.message-list .tool-title-row strong {
+  color: var(--cc-conversation-text);
+}
+
+.message-list .assistant-narrative,
+.message-list .tool-target,
+.message-list .execution-summary,
+.message-list .tool-status-label {
+  color: var(--cc-conversation-secondary);
+}
+
+.message-list .tool-icon,
+.message-list .tool-details-chevron {
+  color: var(--cc-conversation-muted);
+}
+
+.message-list .user-message {
+  background: var(--cc-conversation-surface-subtle);
+  border-color: var(--cc-conversation-border);
+}
+
+.message-list .execution-summary:hover,
+.message-list .tool-execution-row:hover {
+  background: var(--cc-conversation-surface-subtle);
+}
+
+.message-list .tool-execution-row:focus-visible {
+  outline-color: var(--cc-conversation-secondary);
+}
+
+.message-list .tool-execution.running .tool-status-label,
+.message-list .execution-summary-icon,
+.message-list .execution-process.settled .execution-summary-icon {
+  color: var(--cc-conversation-secondary);
+}
+
+.message-list .tool-execution.failed .tool-status-label,
+.message-list .execution-process.settled:has(.execution-error) .execution-summary-icon {
+  color: var(--cc-danger);
+}
+
+.message-list .tool-detail-content {
+  max-height: min(360px, 45vh);
+  background: var(--cc-conversation-surface);
+  border-color: var(--cc-conversation-border);
+}
+
+.message-list .tool-detail-section > span {
+  color: var(--cc-conversation-secondary);
+}
+
+.message-list .tool-detail-content pre {
+  overflow-x: auto;
+  overflow-y: visible;
+  color: var(--cc-conversation-text);
+}
+
 .conversation-turn + .conversation-turn {
   padding-top: 20px;
 }
