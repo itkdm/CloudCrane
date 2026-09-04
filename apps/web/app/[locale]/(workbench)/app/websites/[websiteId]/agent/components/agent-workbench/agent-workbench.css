@@ -1561,3 +1561,33 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Conversation readability */
+.message-body {
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.user-message {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.assistant-narrative {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.tool-title-row strong {
+  font-size: 13px;
+}
+
+.tool-status-label,
+.tool-target {
+  font-size: 12px;
+}
+
+.tool-detail-content pre {
+  font-size: 11px;
+  line-height: 1.6;
+}
