@@ -98,33 +98,33 @@ export function PreviewPane({
             ) : null}
           </div>
         </div>
-        <div className="preview-actions">
-          <div className="preview-viewport-tools">
-            <div className="preview-viewport-controls" aria-label={t('previewSize')}>
-              <button
-                type="button"
-                className={previewViewportMode === 'desktop' ? 'active' : ''}
-                aria-pressed={previewViewportMode === 'desktop'}
-                onClick={() => onPreviewViewportModeChange('desktop')}
-                title={t('desktopTitle')}
-              >
-                {t('desktop')}
-              </button>
-              <button
-                type="button"
-                className={previewViewportMode === 'mobile' ? 'active' : ''}
-                aria-pressed={previewViewportMode === 'mobile'}
-                onClick={() => onPreviewViewportModeChange('mobile')}
-                title={t('mobileTitle')}
-              >
-                {t('mobile')}
-              </button>
-            </div>
-            <span className="preview-viewport-meta">
-              {viewport.width} × {viewportLayout.logicalHeight} ·{' '}
-              {Math.round(viewportLayout.scale * 100)}%
-            </span>
+        <div className="preview-viewport-tools">
+          <div className="preview-viewport-controls" aria-label={t('previewSize')}>
+            <button
+              type="button"
+              className={previewViewportMode === 'desktop' ? 'active' : ''}
+              aria-pressed={previewViewportMode === 'desktop'}
+              onClick={() => onPreviewViewportModeChange('desktop')}
+              title={t('desktopTitle')}
+            >
+              {t('desktop')}
+            </button>
+            <button
+              type="button"
+              className={previewViewportMode === 'mobile' ? 'active' : ''}
+              aria-pressed={previewViewportMode === 'mobile'}
+              onClick={() => onPreviewViewportModeChange('mobile')}
+              title={t('mobileTitle')}
+            >
+              {t('mobile')}
+            </button>
           </div>
+          <span className="preview-viewport-meta">
+            {viewport.width} × {viewportLayout.logicalHeight} ·{' '}
+            {Math.round(viewportLayout.scale * 100)}%
+          </span>
+        </div>
+        <div className="preview-actions">
           <button
             type="button"
             onClick={onRefresh}

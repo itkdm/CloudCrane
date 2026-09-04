@@ -668,10 +668,9 @@
 
 .preview-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   padding: 0 0 8px;
 }
 
@@ -681,7 +680,7 @@
 
 .preview-title-row {
   min-width: 0;
-  gap: 10px;
+  gap: 9px;
 }
 
 .preview-title-row h2 {
@@ -726,18 +725,30 @@
 .preview-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
   justify-content: flex-end;
 }
 
 .preview-actions button {
-  width: 29px;
-  height: 29px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--cc-text-secondary);
+  transition:
+    background 160ms ease,
+    color 160ms ease;
 }
 
-.preview-actions > button {
-  border-radius: 6px;
+.preview-actions button:hover:not(:disabled) {
+  background: var(--cc-surface-2);
+  color: var(--cc-text);
+}
+
+.preview-actions button:focus-visible {
+  outline: 2px solid var(--cc-brand);
+  outline-offset: 1px;
 }
 
 .preview-actions button:disabled {
@@ -750,32 +761,37 @@
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--cc-border);
-  border-radius: 7px;
-  background: var(--cc-surface-2);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cc-surface-2) 72%, transparent);
+  padding: 2px;
   white-space: nowrap;
 }
 
 .preview-viewport-tools {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-right: 5px;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
 }
 
 .preview-viewport-controls button {
   width: auto;
-  height: 27px;
+  height: 26px;
   border: 0;
-  border-radius: 0;
-  padding: 0 7px;
+  border-radius: 8px;
+  padding: 0 9px;
   color: var(--cc-text-secondary);
   font-size: 10px;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
 }
 
 .preview-viewport-controls button.active {
-  background: var(--cc-brand-muted);
+  background: var(--cc-surface-0);
   color: var(--cc-text);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 10%);
 }
 
 .preview-viewport-meta {
@@ -978,8 +994,12 @@
   }
 
   .preview-header {
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: 1fr auto;
+    gap: 10px 12px;
+  }
+
+  .preview-viewport-tools {
+    justify-content: flex-start;
   }
 
   .preview-actions {
