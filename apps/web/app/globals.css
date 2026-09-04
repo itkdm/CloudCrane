@@ -414,6 +414,7 @@ button:disabled {
 .unified-sidebar.collapsed .unified-sidebar-header {
   padding: 12px 10px;
   justify-content: center;
+  gap: 0;
 }
 .unified-sidebar .cc-brand {
   display: flex;
@@ -425,7 +426,7 @@ button:disabled {
   font-weight: 600;
   transition: opacity 180ms ease;
 }
-.unified-sidebar.collapsed .cc-brand span {
+.unified-sidebar.collapsed .cc-brand {
   display: none;
 }
 .sidebar-toggle {
