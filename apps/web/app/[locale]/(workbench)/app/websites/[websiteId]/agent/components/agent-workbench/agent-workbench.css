@@ -662,7 +662,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 10px 12px;
-  border-left: 1px solid var(--cc-border);
+  border-left: 0;
   background: var(--cc-surface-1);
 }
 
@@ -788,9 +788,9 @@
 .preview-stage {
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--cc-border);
-  border-radius: 7px;
-  background: var(--cc-surface-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .preview-canvas {
@@ -808,6 +808,7 @@
   flex: 0 0 auto;
   overflow: hidden;
   background: white;
+  border: 1px solid var(--cc-border);
   border-radius: 6px;
   box-shadow: none;
 }
