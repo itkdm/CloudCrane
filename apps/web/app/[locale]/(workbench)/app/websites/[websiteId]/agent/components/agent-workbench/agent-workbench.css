@@ -1591,3 +1591,59 @@
   font-size: 11px;
   line-height: 1.6;
 }
+
+/* Inline execution timeline: keep the process in the conversation flow. */
+.execution-process {
+  margin: 0 0 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.execution-process.running {
+  border-color: transparent;
+  background: transparent;
+}
+
+.execution-summary {
+  min-height: 34px;
+  padding: 4px 0;
+  color: var(--cc-text-secondary);
+}
+
+.execution-summary:hover {
+  border-radius: 7px;
+  background: var(--cc-surface-2);
+}
+
+.execution-summary-icon,
+.execution-process.settled .execution-summary-icon,
+.execution-process.settled:has(.execution-error) .execution-summary-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.execution-summary-icon {
+  color: var(--cc-brand);
+}
+
+.execution-process.settled .execution-summary-icon {
+  color: var(--cc-text-secondary);
+}
+
+.execution-process.settled:has(.execution-error) .execution-summary-icon {
+  color: var(--cc-danger);
+}
+
+.execution-content {
+  border-top: 0;
+  padding: 6px 0 0;
+}
+
+.execution-content > .assistant-narrative {
+  margin-top: 8px;
+  margin-bottom: 9px;
+}
