@@ -1647,3 +1647,46 @@
   margin-top: 8px;
   margin-bottom: 9px;
 }
+
+/* Conversation presentation stays neutral; brand color remains for product actions. */
+.message-list .user-message {
+  border-color: var(--cc-border);
+  background: var(--cc-surface-2);
+}
+
+.message-list .markdown-body code {
+  color: var(--cc-text);
+}
+
+.message-list .markdown-body a {
+  color: var(--cc-text);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.message-list .markdown-body a:hover {
+  color: var(--cc-text-secondary);
+}
+
+.message-list .markdown-body blockquote {
+  border-left-color: var(--cc-border-hover);
+}
+
+.message-list .tool-detail-section > span {
+  color: var(--cc-text-secondary);
+}
+
+.message-list .execution-summary-icon,
+.message-list .execution-process.settled .execution-summary-icon,
+.message-list .execution-process.running .execution-summary-icon,
+.message-list .tool-execution.running .tool-status-label {
+  color: var(--cc-text-secondary);
+}
+
+.message-list .tool-detail-content {
+  background: var(--cc-surface-2);
+}
+
+.conversation-turn + .conversation-turn {
+  margin-top: 20px;
+}

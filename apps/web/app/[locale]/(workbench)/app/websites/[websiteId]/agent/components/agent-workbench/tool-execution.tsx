@@ -15,6 +15,7 @@ import { memo } from 'react';
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { AssistantMessage } from './assistant-message';
+import { formatToolDetail } from './tool-detail-formatter';
 import type {
   ContextMaintenanceExecutionStep,
   ConversationTurnStatus,
@@ -293,31 +294,9 @@ function boundedPath(path: string): string {
 }
 
 function boundedDetail(text = ''): string {
-  const trimmed = sanitizeDetail(text.trim());
-  if (!trimmed) return '';
-  return trimmed.length > 900 ? `${trimmed.slice(0, 900)}\n…` : trimmed;
-}
-
-function sanitizeDetail(text: string): string {
-  if (!text) return '';
-  try {
-    const value: unknown = JSON.parse(text);
-    return JSON.stringify(stripInternalFields(value), null, 2);
-  } catch {
-    return text
-      .replace(/(?:agent\s*service|runId|traceId|turnIndex)\s*[:=]\s*[^,\s}]+,?/gi, '')
-      .trim();
-  }
-}
-
-function stripInternalFields(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripInternalFields);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !/^(agentservice|agent_service|runid|traceid|turnindex)$/i.test(key))
-      .map(([key, child]) => [key, stripInternalFields(child)]),
-  );
+  const formatted = formatToolDetail(text);
+  if (!formatted) return '';
+  return formatted.length > 1200 ? `${formatted.slice(0, 1200)}\n…` : formatted;
 }
 
 export const ToolFailure = memo(function ToolFailure({ message }: { message: string }) {
