@@ -38,6 +38,25 @@ type SessionChange =
       updatedAt?: string;
     };
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'cloudcrane.sidebar.collapsed';
+
+function readSidebarCollapsedPreference(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writeSidebarCollapsedPreference(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? 'true' : 'false');
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+}
+
 function canEnterWorkspace(website: Website | undefined): website is Website {
   return website?.status === 'ready';
 }
@@ -63,7 +82,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [sessions, setSessions] = useState<Session[]>([]);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsedPreference);
   const previewOpenRef = useRef(false);
   const sidebarBeforePreviewRef = useRef<boolean | null>(null);
   const sidebarAutoCollapsedRef = useRef(false);
@@ -300,6 +319,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const handleSidebarCollapsedChange = useCallback((collapsed: boolean) => {
     if (previewOpenRef.current) sidebarChangedDuringPreviewRef.current = true;
     setSidebarCollapsed(collapsed);
+    writeSidebarCollapsedPreference(collapsed);
   }, []);
 
   const handlePreviewOpenChange = useCallback(
