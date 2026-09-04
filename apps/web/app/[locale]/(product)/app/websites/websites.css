@@ -697,6 +697,8 @@
   font-weight: 500;
 }
 .website-settings-preview {
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: start;
   margin-top: 12px;
 }
 .website-settings-preview code {
@@ -707,7 +709,10 @@
   font-size: 12px;
 }
 .website-settings-preview .secondary-button {
+  grid-column: 3;
+  grid-row: 1;
   justify-self: start;
+  align-self: center;
   min-height: 34px;
   padding: 0 12px;
   font-size: 13px;
@@ -734,8 +739,9 @@
 .website-settings-authorization textarea {
   display: block;
   width: 100%;
-  min-height: 120px;
-  max-height: 240px;
+  min-height: 96px;
+  max-height: 180px;
+  margin: 0 0 22px;
   padding: 12px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-md);
@@ -748,4 +754,7 @@
 }
 .website-settings-authorization textarea:focus {
   border-color: var(--cc-brand);
+}
+.website-settings-authorization > .primary-button {
+  margin-top: 2px;
 }
