@@ -90,7 +90,6 @@ export const ExecutionProcess = memo(function ExecutionProcess({
         </span>
         <span className="execution-summary-copy">
           <strong>{processSummary}</strong>
-          <span>{open ? t('collapseDetails') : t('expandDetails')}</span>
         </span>
         <ChevronDown className={open ? 'expanded' : ''} size={16} aria-hidden="true" />
       </button>
@@ -159,22 +158,28 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
 
   return (
     <article className={`tool-execution ${status}`}>
-      <div className="tool-status-icon" aria-hidden="true">
-        {status === 'completed' ? <Check size={15} /> : null}
-        {status === 'running' ? <LoaderCircle className="spin" size={15} /> : null}
-        {status === 'failed' ? <X size={15} /> : null}
-        {status === 'waiting' ? <Clock3 size={15} /> : null}
-      </div>
       <div className="tool-icon" aria-hidden="true">
         <Icon size={15} strokeWidth={1.8} />
       </div>
       <div className="tool-copy">
         <div className="tool-title-row">
           <strong>{label}</strong>
-          <span className="tool-status-label">{t(statusLabelKeys[status])}</span>
+          {target ? (
+            <span className="tool-target" title={target}>
+              {target}
+            </span>
+          ) : null}
         </div>
-        {target ? <span className="tool-target">{target}</span> : null}
       </div>
+      <span className="tool-status-label">
+        {status === 'completed' ? <Check size={13} aria-hidden="true" /> : null}
+        {status === 'running' ? (
+          <LoaderCircle className="spin" size={13} aria-hidden="true" />
+        ) : null}
+        {status === 'failed' ? <X size={13} aria-hidden="true" /> : null}
+        {status === 'waiting' ? <Clock3 size={13} aria-hidden="true" /> : null}
+        <span>{t(statusLabelKeys[status])}</span>
+      </span>
       {(input || output) && (
         <details className="tool-details">
           <summary title={t('toolDetails')} aria-label={t('toolDetails')}>

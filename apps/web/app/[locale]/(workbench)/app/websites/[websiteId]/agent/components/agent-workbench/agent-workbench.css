@@ -1242,7 +1242,7 @@
 
 .conversation-turn {
   min-width: 0;
-  margin: 0 0 28px;
+  margin: 0 0 40px;
 }
 
 .conversation-turn:last-child {
@@ -1269,18 +1269,17 @@
 
 .user-message {
   max-width: min(84%, 760px);
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .assistant-message {
   max-width: 820px;
-  margin: 16px 0 0;
+  margin: 20px 0 0;
 }
 
 .assistant-narrative {
-  margin: 2px 0 5px 8px;
-  border-left: 2px solid var(--cc-border);
-  padding: 1px 0 1px 12px;
+  margin: 8px 0 9px 10px;
+  padding: 0;
   color: var(--cc-text-secondary);
   font-size: 12px;
   line-height: 1.6;
@@ -1297,8 +1296,8 @@
 .execution-process {
   margin: 0 0 0 8px;
   border: 1px solid var(--cc-border);
-  border-radius: 10px;
-  background: var(--cc-surface-1);
+  border-radius: 11px;
+  background: var(--cc-surface-0);
 }
 
 .context-maintenance {
@@ -1323,8 +1322,8 @@
 }
 
 .execution-process.running {
-  border-color: var(--cc-brand);
-  background: var(--cc-surface-2);
+  border-color: color-mix(in srgb, var(--cc-brand) 42%, var(--cc-border));
+  background: var(--cc-surface-0);
 }
 
 .execution-summary {
@@ -1335,7 +1334,8 @@
   gap: 9px;
   border: 0;
   border-radius: inherit;
-  padding: 10px 12px;
+  min-height: 42px;
+  padding: 8px 12px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -1367,8 +1367,7 @@
 
 .execution-summary-copy {
   min-width: 0;
-  display: grid;
-  gap: 2px;
+  display: block;
 }
 
 .execution-summary-copy strong {
@@ -1378,11 +1377,6 @@
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.execution-summary-copy span {
-  color: var(--cc-text-tertiary);
-  font-size: 10px;
 }
 
 .execution-summary > svg {
@@ -1396,36 +1390,37 @@
 
 .execution-content {
   border-top: 1px solid var(--cc-border);
-  padding: 6px 12px 10px;
+  padding: 7px 12px 10px;
 }
 
 .tool-execution {
-  min-height: 42px;
-  grid-template-columns: 18px 22px minmax(0, 1fr) auto;
-  gap: 7px;
+  min-height: 38px;
+  grid-template-columns: 24px minmax(0, 1fr) auto 28px;
+  gap: 8px;
   margin: 0;
   border-left: 0;
-  padding: 5px 0;
+  border-radius: 8px;
+  padding: 4px 5px;
   background: transparent;
-}
-
-.tool-status-icon {
-  width: 18px;
-  height: 18px;
 }
 
 .tool-icon {
   width: 22px;
   height: 22px;
+  border: 0;
+}
+
+.tool-execution:hover {
+  background: var(--cc-surface-2);
 }
 
 .tool-detail-content {
   position: static;
   width: auto;
   max-width: none;
-  max-height: 180px;
-  overflow: hidden;
-  margin: 7px 0 2px 47px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 7px 0 2px 32px;
   border-radius: 7px;
   padding: 8px;
 }
@@ -1444,8 +1439,44 @@
 }
 
 .tool-detail-content pre {
-  max-height: 78px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.tool-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.tool-target {
+  min-width: 0;
+  margin-top: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: end;
+  color: var(--cc-text-secondary);
+}
+
+.tool-execution.completed .tool-status-label {
+  color: var(--cc-text-secondary);
+}
+
+.tool-execution.running .tool-status-label {
+  color: var(--cc-brand);
+}
+
+.tool-execution.failed .tool-status-label {
+  color: var(--cc-danger);
 }
 
 .execution-error,
@@ -1521,6 +1552,15 @@
 
   .tool-execution .tool-details[open] {
     grid-column: 1 / -1;
+  }
+
+  .tool-status-label {
+    font-size: 0;
+  }
+
+  .tool-status-label svg {
+    width: 15px;
+    height: 15px;
   }
 
   .composer-wrap {
