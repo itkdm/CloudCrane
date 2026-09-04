@@ -1206,6 +1206,52 @@
   scrollbar-gutter: stable;
 }
 
+.message-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.message-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.message-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-viewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.message-viewport::-webkit-scrollbar-button {
+  display: none;
+}
+
+:root[data-theme='light'] .message-viewport:hover {
+  scrollbar-color: rgb(95 99 104 / 35%) transparent;
+}
+
+:root[data-theme='light'] .message-viewport:hover::-webkit-scrollbar-thumb {
+  background: rgb(95 99 104 / 35%);
+}
+
+:root[data-theme='light'] .message-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgb(95 99 104 / 52%);
+}
+
+:root:not([data-theme='light']) .message-viewport:hover {
+  scrollbar-color: rgb(190 190 190 / 30%) transparent;
+}
+
+:root:not([data-theme='light']) .message-viewport:hover::-webkit-scrollbar-thumb {
+  background: rgb(190 190 190 / 30%);
+}
+
+:root:not([data-theme='light']) .message-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgb(190 190 190 / 48%);
+}
+
 .message-list {
   width: min(100%, 900px);
   min-height: 100%;

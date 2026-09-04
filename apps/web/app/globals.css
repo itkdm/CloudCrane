@@ -401,6 +401,8 @@ button:disabled {
 }
 .unified-sidebar.collapsed {
   width: 64px;
+  border-right-color: transparent;
+  background: var(--cc-workspace-canvas-bg);
 }
 .unified-sidebar-header {
   padding: 16px 16px 12px;
