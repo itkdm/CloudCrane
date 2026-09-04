@@ -63,4 +63,12 @@ describe('formatToolDetail', () => {
       "ls: cannot access '/tmp/a': No such file\n--- exit: 2",
     );
   });
+
+  it('keeps the full available formatted output beyond 1200 characters', () => {
+    const tail = 'tail-content-that-must-remain';
+    const output = `${'x'.repeat(1300)}${tail}`;
+    const result = formatToolDetail(output);
+    expect(result.length).toBeGreaterThan(1200);
+    expect(result.endsWith(tail)).toBe(true);
+  });
 });

@@ -156,8 +156,8 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
   const status = normalizeStatus(step.status);
   const target = toolTarget(toolName, step.toolInput, t);
   const hasDetails = Boolean(step.toolInput?.trim() || step.toolOutput?.trim());
-  const input = detailsOpen ? boundedDetail(step.toolInput) : '';
-  const output = detailsOpen ? boundedDetail(step.toolOutput) : '';
+  const input = detailsOpen ? formatToolDetail(step.toolInput ?? '') : '';
+  const output = detailsOpen ? formatToolDetail(step.toolOutput ?? '') : '';
   const row = (
     <>
       <span className="tool-icon" aria-hidden="true">
@@ -295,12 +295,6 @@ function basename(path: string): string {
 function boundedPath(path: string): string {
   const normalized = path.replace(/[?#].*$/, '').trim();
   return normalized.length > 160 ? `${normalized.slice(0, 157)}…` : normalized;
-}
-
-function boundedDetail(text = ''): string {
-  const formatted = formatToolDetail(text);
-  if (!formatted) return '';
-  return formatted.length > 1200 ? `${formatted.slice(0, 1200)}\n…` : formatted;
 }
 
 export const ToolFailure = memo(function ToolFailure({ message }: { message: string }) {
