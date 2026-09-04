@@ -5,8 +5,13 @@ export function formatToolDetail(text = ''): string {
     return JSON.stringify(stripInternalFields(JSON.parse(trimmed)), null, 2);
   } catch {
     const sanitized = sanitizeDetail(trimmed);
-    return /^[{[]/.test(sanitized) ? prettyJsonLike(sanitized) : sanitized;
+    return looksJsonLike(sanitized) ? prettyJsonLike(sanitized) : sanitized;
   }
+}
+
+function looksJsonLike(text: string): boolean {
+  if (text.startsWith('{')) return /"[^"\n]+"\s*:/.test(text);
+  return text.startsWith('[') && (text.length === 1 || '[{"0123456789-'.includes(text[1]));
 }
 
 function sanitizeDetail(text: string): string {
