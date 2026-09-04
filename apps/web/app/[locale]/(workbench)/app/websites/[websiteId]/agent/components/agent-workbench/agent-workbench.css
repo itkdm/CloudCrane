@@ -1253,7 +1253,7 @@
 }
 
 .assistant-narrative {
-  margin: 8px 0 9px 10px;
+  margin: 8px 0 9px;
   padding: 0;
   color: var(--cc-text-secondary);
   font-size: 12px;
@@ -1269,7 +1269,7 @@
 }
 
 .execution-process {
-  margin: 0 0 0 8px;
+  margin: 0;
   border: 1px solid var(--cc-border);
   border-radius: 11px;
   background: var(--cc-surface-0);
@@ -1597,7 +1597,7 @@
 
 /* Inline execution timeline: keep the process in the conversation flow. */
 .execution-process {
-  margin: 0 0 0 8px;
+  margin: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
