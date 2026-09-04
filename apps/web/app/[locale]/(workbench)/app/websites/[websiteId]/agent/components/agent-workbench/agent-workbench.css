@@ -476,7 +476,7 @@
   place-items: center;
   border: 1px solid var(--cc-border);
   border-radius: 6px;
-  background: white;
+  background: transparent;
   color: var(--cc-text-secondary);
 }
 
@@ -531,33 +531,6 @@
 .tool-execution.failed .tool-status-icon,
 .tool-execution.failed .tool-status-label {
   color: var(--cc-danger);
-}
-
-.tool-details {
-  position: relative;
-}
-
-.tool-details summary {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  place-items: center;
-  border-radius: 6px;
-  color: var(--cc-text-tertiary);
-  list-style: none;
-}
-
-.tool-details summary::-webkit-details-marker {
-  display: none;
-}
-
-.tool-details summary:hover {
-  background: var(--cc-brand-muted);
-  color: var(--cc-brand-hover);
-}
-
-.tool-details[open] summary svg {
-  transform: rotate(180deg);
 }
 
 .tool-detail-content {
@@ -1092,7 +1065,6 @@
 .preview-actions button:focus-visible,
 .composer-send:focus-visible,
 .example-prompts button:focus-visible,
-.tool-details summary:focus-visible,
 .message-list button:focus-visible {
   outline: 2px solid var(--cc-brand);
   outline-offset: 2px;
@@ -1395,13 +1367,46 @@
 
 .tool-execution {
   min-height: 38px;
-  grid-template-columns: 24px minmax(0, 1fr) auto 28px;
-  gap: 8px;
+  display: block;
   margin: 0;
-  border-left: 0;
+  border: 0;
   border-radius: 8px;
-  padding: 4px 5px;
+  padding: 0;
   background: transparent;
+}
+
+.tool-execution-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 5px;
+  color: inherit;
+  text-align: left;
+  list-style: none;
+}
+
+.tool-execution-row::-webkit-details-marker {
+  display: none;
+}
+
+.tool-execution:has(.tool-details-chevron) .tool-execution-row {
+  cursor: pointer;
+}
+
+.tool-execution-row:hover {
+  border-radius: 8px;
+  background: var(--cc-surface-2);
+}
+
+.tool-execution-row:focus-visible {
+  outline: 2px solid var(--cc-brand);
+  outline-offset: 2px;
+}
+
+.tool-execution[open] .tool-details-chevron {
+  transform: rotate(180deg);
 }
 
 .tool-icon {
@@ -1410,37 +1415,19 @@
   border: 0;
 }
 
-.tool-execution:hover {
-  background: var(--cc-surface-2);
-}
-
 .tool-detail-content {
   position: static;
   width: auto;
   max-width: none;
   max-height: 280px;
   overflow: auto;
-  margin: 7px 0 2px 32px;
+  margin: 4px 5px 6px 32px;
   border-radius: 7px;
   padding: 8px;
 }
 
-.tool-execution:has(.tool-details[open]) {
-  display: grid;
-}
-
-.tool-execution .tool-details[open] {
-  grid-column: 3 / -1;
-  grid-row: 2;
-}
-
-.tool-execution .tool-details[open] .tool-detail-content {
-  margin-left: 0;
-}
-
 .tool-detail-content pre {
-  max-height: 180px;
-  overflow: auto;
+  overflow-x: auto;
 }
 
 .tool-title-row {
@@ -1548,10 +1535,6 @@
   .execution-content {
     padding-right: 9px;
     padding-left: 9px;
-  }
-
-  .tool-execution .tool-details[open] {
-    grid-column: 1 / -1;
   }
 
   .tool-status-label {

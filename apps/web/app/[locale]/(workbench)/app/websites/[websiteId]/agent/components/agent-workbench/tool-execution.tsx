@@ -155,22 +155,22 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
   const target = toolTarget(toolName, step.toolInput, t);
   const input = boundedDetail(step.toolInput);
   const output = boundedDetail(step.toolOutput);
-
-  return (
-    <article className={`tool-execution ${status}`}>
-      <div className="tool-icon" aria-hidden="true">
+  const hasDetails = Boolean(input || output);
+  const row = (
+    <>
+      <span className="tool-icon" aria-hidden="true">
         <Icon size={15} strokeWidth={1.8} />
-      </div>
-      <div className="tool-copy">
-        <div className="tool-title-row">
+      </span>
+      <span className="tool-copy">
+        <span className="tool-title-row">
           <strong>{label}</strong>
           {target ? (
             <span className="tool-target" title={target}>
               {target}
             </span>
           ) : null}
-        </div>
-      </div>
+        </span>
+      </span>
       <span className="tool-status-label">
         {status === 'completed' ? <Check size={13} aria-hidden="true" /> : null}
         {status === 'running' ? (
@@ -180,28 +180,43 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
         {status === 'waiting' ? <Clock3 size={13} aria-hidden="true" /> : null}
         <span>{t(statusLabelKeys[status])}</span>
       </span>
-      {(input || output) && (
-        <details className="tool-details">
-          <summary title={t('toolDetails')} aria-label={t('toolDetails')}>
-            <ChevronDown size={15} aria-hidden="true" />
-          </summary>
-          <div className="tool-detail-content">
-            {input && (
-              <div className="tool-detail-section">
-                <span>{t('input')}</span>
-                <pre>{input}</pre>
-              </div>
-            )}
-            {output && (
-              <div className="tool-detail-section">
-                <span>{t('output')}</span>
-                <pre>{output}</pre>
-              </div>
-            )}
+      {hasDetails ? (
+        <ChevronDown className="tool-details-chevron" size={15} aria-hidden="true" />
+      ) : null}
+    </>
+  );
+
+  if (!hasDetails)
+    return (
+      <article className={`tool-execution ${status}`}>
+        <div className="tool-execution-row">{row}</div>
+      </article>
+    );
+
+  return (
+    <details className={`tool-execution ${status}`}>
+      <summary
+        className="tool-execution-row"
+        title={t('toolDetails')}
+        aria-label={t('toolDetails')}
+      >
+        {row}
+      </summary>
+      <div className="tool-detail-content">
+        {input && (
+          <div className="tool-detail-section">
+            <span>{t('input')}</span>
+            <pre>{input}</pre>
           </div>
-        </details>
-      )}
-    </article>
+        )}
+        {output && (
+          <div className="tool-detail-section">
+            <span>{t('output')}</span>
+            <pre>{output}</pre>
+          </div>
+        )}
+      </div>
+    </details>
   );
 });
 
