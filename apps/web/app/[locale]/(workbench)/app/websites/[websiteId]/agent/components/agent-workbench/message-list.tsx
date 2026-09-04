@@ -40,7 +40,7 @@ export function MessageList({ turns, onExample, manualMaintenanceItems = [] }: M
           </div>
         ) : (
           turns.map((turn) => (
-            <div key={turn.userMessage.id}>
+            <div key={turn.userMessage.id} className="conversation-turn-slot">
               <ConversationTurnView turn={turn} />
               {manualMaintenanceItems
                 .filter((item) => item.afterTurnId === turn.userMessage.id)
