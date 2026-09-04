@@ -11,7 +11,7 @@ export function formatToolDetail(text = ''): string {
 
 function looksJsonLike(text: string): boolean {
   if (text.startsWith('{')) return /"[^"\n]+"\s*:/.test(text);
-  return text.startsWith('[') && (text.length === 1 || '[{"0123456789-'.includes(text[1]));
+  return text.startsWith('[') && (text.length === 1 || '[{"0123456789-'.includes(text.charAt(1)));
 }
 
 function sanitizeDetail(text: string): string {
