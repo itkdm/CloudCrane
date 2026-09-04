@@ -87,9 +87,6 @@ export function WebsiteCreateDialog({
             </p>
           ) : null}
           <div className="website-dialog-actions">
-            <button className="primary-button" type="submit" disabled={creating}>
-              {creating ? t('creating') : t('create')}
-            </button>
             <button
               className="secondary-button"
               type="button"
@@ -97,6 +94,9 @@ export function WebsiteCreateDialog({
               disabled={creating}
             >
               {common('cancel')}
+            </button>
+            <button className="primary-button" type="submit" disabled={creating}>
+              {creating ? t('creating') : t('create')}
             </button>
           </div>
         </form>

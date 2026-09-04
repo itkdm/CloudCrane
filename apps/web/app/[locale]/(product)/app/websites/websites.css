@@ -574,21 +574,23 @@
 }
 .website-dialog-panel {
   position: relative;
-  width: min(480px, calc(100vw - 32px));
-  padding: 32px;
+  width: min(520px, calc(100vw - 32px));
+  padding: 30px 32px 28px;
   border: 1px solid var(--cc-border);
-  border-radius: var(--cc-radius-lg);
+  border-radius: 18px;
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-lg);
 }
 .website-dialog-panel h2 {
-  margin: 0 0 24px;
+  margin: 0 0 28px;
   color: var(--cc-text);
-  font-size: 24px;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
 }
 .website-dialog-panel label {
   display: block;
-  margin-bottom: 10px;
+  margin-bottom: 9px;
   color: var(--cc-text);
   font-size: 14px;
   font-weight: 600;
@@ -596,37 +598,44 @@
 .website-dialog-panel input {
   display: block;
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   border: 1px solid var(--cc-border);
-  border-radius: var(--cc-radius-md);
-  padding: 0 14px;
+  border-radius: 10px;
+  padding: 0 15px;
   background: var(--cc-surface-0);
   color: var(--cc-text);
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 .website-dialog-panel input:focus {
   border-color: var(--cc-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-brand) 12%, transparent);
 }
 .website-dialog-actions {
   display: flex;
+  justify-content: flex-end;
   gap: 12px;
-  margin-top: 24px;
+  margin-top: 28px;
+}
+.website-dialog-actions .primary-button,
+.website-dialog-actions .secondary-button {
+  min-width: 96px;
 }
 .website-dialog-close {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 18px;
+  right: 18px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border: 0;
-  border-radius: var(--cc-radius-md);
+  border-radius: 8px;
   background: transparent;
   color: var(--cc-text-tertiary);
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
 }
