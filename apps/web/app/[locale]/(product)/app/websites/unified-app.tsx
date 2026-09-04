@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { createAgentSession, listAgentSessions } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
@@ -82,7 +82,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [sessions, setSessions] = useState<Session[]>([]);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsedPreference);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const previewOpenRef = useRef(false);
   const sidebarBeforePreviewRef = useRef<boolean | null>(null);
   const sidebarAutoCollapsedRef = useRef(false);
@@ -102,6 +102,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     websiteId: string;
     text: string;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    const storedPreference = readSidebarCollapsedPreference();
+    setSidebarCollapsed((current) =>
+      current === storedPreference ? current : storedPreference,
+    );
+  }, []);
 
   const loadWebsites = useCallback(async () => {
     setWebsiteLoadState('loading');
