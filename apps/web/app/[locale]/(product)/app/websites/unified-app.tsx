@@ -379,7 +379,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             <div className="workspace-empty-state-inner">
               <span className="workspace-empty-state-eyebrow">CloudCrane</span>
               <h1>{t('onboardingTitle')}</h1>
-              <p>{t('onboardingDescription')}</p>
               <div className="workspace-empty-state-actions">
                 <button
                   className="primary-button"
