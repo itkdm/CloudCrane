@@ -17,6 +17,7 @@ import {
   type WorkspaceClientFactory,
   type WebsiteAgentLifecycleEvent,
 } from './runtime.js';
+import type { QuestionInteraction } from './human-interaction-broker.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const workspaceId = '00000000-0000-4000-8000-000000000002';
@@ -35,6 +36,42 @@ async function missingReferenceStat({ path: remotePath }: { path: string }) {
 }
 
 describe('WebsiteAgentRuntime', () => {
+  it('emits the real Pi session identity for interaction requests', () => {
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: os.tmpdir(),
+      store: createInMemoryWebsiteAgentStore(),
+      modelRuntime: {} as never,
+    });
+    const events: unknown[] = [];
+    runtime.subscribe((event) => events.push(event));
+    const interaction = {
+      interactionId: '00000000-0000-4000-8000-000000000003',
+      kind: 'question' as const,
+      websiteId,
+      sessionId: '00000000-0000-4000-8000-000000000004',
+      piSessionId: 'pi-session-b',
+      runId: '00000000-0000-4000-8000-000000000005',
+      toolCallId: 'call-1',
+      question: '继续吗？',
+      options: [{ label: '继续' }],
+      allowCustom: true as const,
+      createdAt: new Date().toISOString(),
+    } satisfies QuestionInteraction;
+    (runtime as unknown as { emitInteraction(value: QuestionInteraction): void }).emitInteraction(
+      interaction,
+    );
+    expect(events[0]).toMatchObject({
+      websiteSessionId: interaction.sessionId,
+      piSessionId: interaction.piSessionId,
+      event: { type: 'interaction_requested' },
+    });
+    expect(interaction.sessionId).not.toBe(interaction.piSessionId);
+  });
+
   it('rebuilds user, assistant, and paired tool messages from Pi AgentMessage history', () => {
     const messages = projectMessages([
       { role: 'user', content: 'Read index.php', timestamp: 1 },

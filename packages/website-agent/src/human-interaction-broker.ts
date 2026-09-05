@@ -16,6 +16,7 @@ export type QuestionInteraction = {
   options: HumanInteractionOption[];
   allowCustom: true;
   createdAt: string;
+  piSessionId?: string;
 };
 
 export type QuestionResponse =
@@ -98,6 +99,7 @@ export class HumanInteractionBroker {
         kind: item.kind,
         websiteId: item.websiteId,
         sessionId: item.sessionId,
+        ...(item.piSessionId ? { piSessionId: item.piSessionId } : {}),
         runId: item.runId,
         toolCallId: item.toolCallId,
         question: item.question,

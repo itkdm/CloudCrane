@@ -15,6 +15,122 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
+  it('renders a cancelled question as a terminal state in live and snapshot flows', () => {
+    let state = reduce(
+      user(),
+      {
+        type: 'interaction.requested',
+        payload: {
+          interactionId: 'interaction-1',
+          toolCallId: 'tool-1',
+          question: '继续吗？',
+          options: [{ label: '继续' }],
+          allowCustom: true,
+        },
+      },
+      {
+        type: 'tool.completed',
+        payload: {
+          toolCallId: 'tool-1',
+          toolName: 'question',
+          output: 'User cancelled the question',
+          status: 'completed',
+        },
+      },
+    );
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      interaction: { status: 'cancelled' },
+    });
+
+    state = conversationReducer(state, {
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'user-1', role: 'user', text: '请修改首页' },
+          {
+            id: 'tool-1',
+            role: 'tool',
+            text: 'User cancelled the question',
+            toolCallId: 'tool-1',
+            toolName: 'question',
+            input: JSON.stringify({ question: '继续吗？', options: [{ label: '继续' }] }),
+            output: 'User cancelled the question',
+            status: 'completed',
+          },
+        ],
+      },
+    });
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      interaction: { status: 'cancelled' },
+    });
+  });
+
+  it('does not treat a question response as answered before tool completion', () => {
+    const state = reduce(user(), {
+      type: 'interaction.requested',
+      payload: {
+        interactionId: 'interaction-1',
+        toolCallId: 'tool-1',
+        question: '继续吗？',
+        options: [{ label: '继续' }],
+        allowCustom: true,
+      },
+    });
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      interaction: { status: 'pending' },
+      status: 'running',
+    });
+    expect(state.turns[0]?.execution?.[0]).not.toHaveProperty('interaction.answer');
+  });
+
+  it('returns a question to pending when the response command fails', () => {
+    const state = reduce(
+      user(),
+      {
+        type: 'interaction.requested',
+        payload: {
+          interactionId: 'interaction-1',
+          toolCallId: 'tool-1',
+          question: '继续吗？',
+          options: [{ label: '继续' }],
+          allowCustom: true,
+        },
+      },
+      {
+        type: 'interaction.failed',
+        payload: { interactionId: 'interaction-1', error: 'interaction is no longer pending' },
+      },
+    );
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      status: 'running',
+      interaction: { status: 'pending', error: 'interaction is no longer pending' },
+    });
+  });
+
+  it('restores custom question answers from completed tool output', () => {
+    const state = reduce({
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'user-1', role: 'user', text: '请修改首页' },
+          {
+            id: 'tool-1',
+            role: 'tool',
+            text: 'User provided: 米白色杂志风',
+            toolCallId: 'tool-1',
+            toolName: 'question',
+            input: JSON.stringify({ question: '风格？', options: [{ label: '简洁' }] }),
+            output: 'User provided: 米白色杂志风',
+            status: 'completed',
+          },
+        ],
+      },
+    });
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      interaction: { status: 'answered', answer: '米白色杂志风', wasCustom: true },
+    });
+  });
+
   it('anchors manual compaction without creating a chat turn', () => {
     const state = reduce(
       user(),

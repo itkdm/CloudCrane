@@ -153,26 +153,44 @@ const QuestionExecution = memo(function QuestionExecution({
   ) => void;
   onCancel?: (interactionId: string) => void;
 }) {
+  const t = useTranslations('workbench');
   const interaction = step.interaction;
   const [selected, setSelected] = useState<number | 'custom'>();
   const [custom, setCustom] = useState('');
-  const [submitted, setSubmitted] = useState<string>(interaction.answer ?? '');
-  const submitting = Boolean(submitted) || step.status !== 'running';
+  const [submitting, setSubmitting] = useState(false);
+  const completed = interaction.status === 'answered' || Boolean(interaction.answer);
+  const cancelled = interaction.status === 'cancelled' || (step.status !== 'running' && !completed);
+  const failed = interaction.status === 'pending' && interaction.error;
+  useEffect(() => {
+    if (completed || cancelled || failed) setSubmitting(false);
+  }, [cancelled, completed, failed]);
   const submit = () => {
     if (selected === undefined || !onRespond) return;
     const value = selected === 'custom' ? custom.trim() : interaction.options[selected]?.label;
     if (!value) return;
-    setSubmitted(value);
+    setSubmitting(true);
     onRespond(
       interaction.interactionId,
       selected === 'custom' ? { type: 'custom', value } : { type: 'option', optionIndex: selected },
     );
   };
+  const cancel = () => {
+    if (!onCancel) return;
+    setSubmitting(true);
+    onCancel(interaction.interactionId);
+  };
   return (
     <article className="question-execution" aria-live="polite">
       <p className="question-execution-title">{interaction.question}</p>
-      {submitted ? (
-        <p className="question-execution-answer">✓ 已选择：{submitted}</p>
+      {cancelled ? (
+        <p className="question-execution-answer">{t('questionCancelled')}</p>
+      ) : completed ? (
+        <p className="question-execution-answer">
+          ✓{' '}
+          {interaction.wasCustom
+            ? t('questionCustomAnswer', { answer: interaction.answer ?? '' })
+            : t('questionSelected', { answer: interaction.answer ?? '' })}
+        </p>
       ) : (
         <>
           <div className="question-execution-options" role="radiogroup">
@@ -198,24 +216,20 @@ const QuestionExecution = memo(function QuestionExecution({
               className={selected === 'custom' ? 'selected' : ''}
               onClick={() => setSelected('custom')}
             >
-              <strong>其他</strong>
+              <strong>{t('questionOther')}</strong>
             </button>
           </div>
           {selected === 'custom' ? (
             <textarea
               value={custom}
               onChange={(event) => setCustom(event.target.value)}
-              placeholder="输入你的答案"
+              placeholder={t('questionCustomPlaceholder')}
               disabled={submitting}
             />
           ) : null}
           <div className="question-execution-actions">
-            <button
-              type="button"
-              onClick={() => onCancel?.(interaction.interactionId)}
-              disabled={submitting}
-            >
-              取消
+            <button type="button" onClick={cancel} disabled={submitting}>
+              {submitting ? t('questionSubmitting') : t('questionCancel')}
             </button>
             <button
               type="button"
@@ -224,9 +238,12 @@ const QuestionExecution = memo(function QuestionExecution({
                 submitting || selected === undefined || (selected === 'custom' && !custom.trim())
               }
             >
-              确认
+              {submitting ? t('questionSubmitting') : t('questionConfirm')}
             </button>
           </div>
+          {interaction.error ? (
+            <p className="question-execution-error">{t('questionSubmitFailed')}</p>
+          ) : null}
         </>
       )}
     </article>

@@ -44,6 +44,10 @@ export type ConversationEvent =
           question: string;
           options: Array<{ label: string; description?: string }>;
           allowCustom: true;
+          status?: 'pending' | 'answered' | 'cancelled';
+          answer?: string;
+          wasCustom?: boolean;
+          error?: string;
         }>;
       };
     }
@@ -88,7 +92,8 @@ export type ConversationEvent =
         options: Array<{ label: string; description?: string }>;
         allowCustom: true;
       };
-    };
+    }
+  | { type: 'interaction.failed'; payload: { interactionId: string; error: string } };
 
 export function conversationReducer(
   state: ConversationState,
@@ -232,8 +237,27 @@ export function conversationReducer(
         question: event.payload.question,
         options: event.payload.options,
         allowCustom: true,
+        status: 'pending',
       },
     }));
+  if (event.type === 'interaction.failed') {
+    const index = latestTurnIndex(state.turns);
+    const turn = state.turns[index];
+    if (!turn?.execution) return state;
+    const execution = turn.execution.map((step) =>
+      step.kind === 'tool' && step.interaction?.interactionId === event.payload.interactionId
+        ? {
+            ...step,
+            interaction: {
+              ...step.interaction,
+              status: 'pending' as const,
+              error: event.payload.error,
+            },
+          }
+        : step,
+    );
+    return replaceTurn(state, index, { ...turn, execution });
+  }
   if (event.type === 'tool.updated')
     return updateTool(state, event.payload.toolCallId, (step) => {
       if (step && step.status !== 'running') return step;
@@ -260,7 +284,9 @@ export function conversationReducer(
     ...(event.payload.output !== undefined || step?.toolOutput !== undefined
       ? { toolOutput: boundText(event.payload.output ?? step?.toolOutput) }
       : {}),
-    ...(step?.interaction ? { interaction: step.interaction } : {}),
+    ...(step?.interaction
+      ? { interaction: applyQuestionCompletion(step.interaction, event.payload.output) }
+      : {}),
     status:
       step?.status === 'completed' || step?.status === 'error'
         ? step.status
@@ -576,9 +602,8 @@ function questionFromSnapshot(message: SnapshotMessage): Pick<ToolExecutionStep,
         question: value.question,
         options,
         allowCustom: true,
-        ...(message.output?.startsWith('User provided:')
-          ? { answer: message.output.slice('User provided:'.length).trim(), wasCustom: true }
-          : {}),
+        ...questionAnswerFromOutput(message.output ?? message.text ?? ''),
+        status: questionAnswerFromOutput(message.output ?? message.text ?? '')?.status ?? 'pending',
       },
     };
   } catch {
@@ -588,12 +613,23 @@ function questionFromSnapshot(message: SnapshotMessage): Pick<ToolExecutionStep,
 
 function questionAnswerFromOutput(
   value: string,
-): Pick<NonNullable<ToolExecutionStep['interaction']>, 'answer' | 'wasCustom'> | undefined {
+):
+  | Pick<NonNullable<ToolExecutionStep['interaction']>, 'answer' | 'wasCustom' | 'status'>
+  | undefined {
+  if (/^User cancelled the question\s*$/s.test(value)) return { status: 'cancelled' };
   const custom = value.match(/^User provided:\s*(.+)$/s);
-  if (custom?.[1]) return { answer: custom[1].trim(), wasCustom: true };
+  if (custom?.[1]) return { answer: custom[1].trim(), wasCustom: true, status: 'answered' };
   const selected = value.match(/^User selected:\s*(?:\d+\.\s*)?(.+)$/s);
-  if (selected?.[1]) return { answer: selected[1].trim(), wasCustom: false };
+  if (selected?.[1]) return { answer: selected[1].trim(), wasCustom: false, status: 'answered' };
   return undefined;
+}
+
+function applyQuestionCompletion(
+  interaction: NonNullable<ToolExecutionStep['interaction']>,
+  output?: string,
+): NonNullable<ToolExecutionStep['interaction']> {
+  const answer = questionAnswerFromOutput(output ?? '');
+  return answer ? { ...interaction, ...answer } : { ...interaction, status: 'cancelled' };
 }
 
 function mergeSnapshotTurns(

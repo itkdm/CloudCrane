@@ -231,7 +231,16 @@
     "compactionRunning": "Organizing earlier conversation context…",
     "compactionCompleted": "Earlier conversation context organized",
     "compactionFailed": "Context organization was not completed",
-    "compactContextNotNeeded": "This conversation does not need organizing yet"
+    "compactContextNotNeeded": "This conversation does not need organizing yet",
+    "questionOther": "Other",
+    "questionCustomPlaceholder": "Enter your answer",
+    "questionCancel": "Cancel",
+    "questionConfirm": "Confirm",
+    "questionSubmitting": "Submitting…",
+    "questionCancelled": "Cancelled",
+    "questionSelected": "Selected: {answer}",
+    "questionCustomAnswer": "Answered: {answer}",
+    "questionSubmitFailed": "Submission failed. Try again."
   },
   "workspace": {
     "templatesTitle": "Templates",

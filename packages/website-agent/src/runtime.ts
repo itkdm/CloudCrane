@@ -795,7 +795,13 @@ export class WebsiteAgentRuntime {
         this.interactionBroker,
         () => {
           const run = this.runContext.getStore();
-          return run ? { runId: run.runId, sessionId: record.id } : undefined;
+          return run
+            ? {
+                runId: run.runId,
+                sessionId: record.id,
+                piSessionId: sessionManager.getSessionId(),
+              }
+            : undefined;
         },
         this.options.websiteId,
       ),
@@ -1011,7 +1017,7 @@ export class WebsiteAgentRuntime {
       listener({
         websiteId: this.options.websiteId,
         websiteSessionId: interaction.sessionId,
-        piSessionId: interaction.sessionId,
+        piSessionId: interaction.piSessionId ?? interaction.sessionId,
         runId: interaction.runId,
         event: { type: 'interaction_requested', interaction },
       }),
@@ -1446,7 +1452,7 @@ const questionParameters = Type.Object({
 
 function createQuestionTool(
   broker: HumanInteractionBroker,
-  getContext: () => { runId: string; sessionId: string } | undefined,
+  getContext: () => { runId: string; sessionId: string; piSessionId: string } | undefined,
   websiteId: string,
 ): ToolDefinition<typeof questionParameters> {
   return {
@@ -1474,6 +1480,7 @@ function createQuestionTool(
           question: params.question,
           options: params.options as HumanInteractionOption[],
           allowCustom: true,
+          piSessionId: context.piSessionId,
         },
         signal,
       );

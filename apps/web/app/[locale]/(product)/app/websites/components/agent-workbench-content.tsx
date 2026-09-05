@@ -107,6 +107,7 @@ export function AgentWorkbenchContent({
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
+  const pendingInteractionRequestsRef = useRef(new Map<string, string>());
   const initialPromptConsumedRef = useRef<string | undefined>(undefined);
   const [sessionSnapshotVersion, setSessionSnapshotVersion] = useState(0);
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
@@ -157,24 +158,34 @@ export function AgentWorkbenchContent({
       interactionId: string,
       response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
     ) => {
-      sendCommand({
-        type: 'interaction.respond',
-        websiteId,
-        sessionId: currentSessionId,
-        payload: { interactionId, response },
-      });
+      const requestId = crypto.randomUUID();
+      pendingInteractionRequestsRef.current.set(requestId, interactionId);
+      sendCommand(
+        {
+          type: 'interaction.respond',
+          websiteId,
+          sessionId: currentSessionId,
+          payload: { interactionId, response },
+        },
+        requestId,
+      );
     },
     [currentSessionId, sendCommand, websiteId],
   );
 
   const cancelInteraction = useCallback(
     (interactionId: string) => {
-      sendCommand({
-        type: 'interaction.cancel',
-        websiteId,
-        sessionId: currentSessionId,
-        payload: { interactionId },
-      });
+      const requestId = crypto.randomUUID();
+      pendingInteractionRequestsRef.current.set(requestId, interactionId);
+      sendCommand(
+        {
+          type: 'interaction.cancel',
+          websiteId,
+          sessionId: currentSessionId,
+          payload: { interactionId },
+        },
+        requestId,
+      );
     },
     [currentSessionId, sendCommand, websiteId],
   );
@@ -638,6 +649,19 @@ export function AgentWorkbenchContent({
         }
 
         if (projected.event.type === 'command.error') {
+          const interactionId = pendingInteractionRequestsRef.current.get(
+            projected.envelope.requestId,
+          );
+          if (interactionId) {
+            pendingInteractionRequestsRef.current.delete(projected.envelope.requestId);
+            queueConversation(
+              {
+                type: 'interaction.failed',
+                payload: { interactionId, error: projected.event.payload.message },
+              },
+              true,
+            );
+          }
           pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
         }
 

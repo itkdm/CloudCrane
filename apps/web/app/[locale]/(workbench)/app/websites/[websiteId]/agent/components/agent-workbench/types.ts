@@ -33,8 +33,10 @@ export type ToolExecutionStep = {
     question: string;
     options: Array<{ label: string; description?: string }>;
     allowCustom: true;
+    status?: 'pending' | 'submitting' | 'answered' | 'cancelled';
     answer?: string;
     wasCustom?: boolean;
+    error?: string;
   };
 };
 

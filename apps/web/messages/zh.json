@@ -231,7 +231,16 @@
     "compactionRunning": "正在整理较早的对话上下文…",
     "compactionCompleted": "已整理较早的对话上下文",
     "compactionFailed": "上下文整理未完成",
-    "compactContextNotNeeded": "当前对话暂时无需整理"
+    "compactContextNotNeeded": "当前对话暂时无需整理",
+    "questionOther": "其他",
+    "questionCustomPlaceholder": "输入你的答案",
+    "questionCancel": "取消",
+    "questionConfirm": "确认",
+    "questionSubmitting": "正在提交…",
+    "questionCancelled": "已取消",
+    "questionSelected": "已选择：{answer}",
+    "questionCustomAnswer": "已回答：{answer}",
+    "questionSubmitFailed": "提交失败，请重试"
   },
   "workspace": {
     "templatesTitle": "模板",
