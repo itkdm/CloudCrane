@@ -246,6 +246,7 @@
     "referenceUploadChoose": "上传 ZIP",
     "referenceUploadUploading": "正在上传…",
     "referenceUploadFailed": "上传失败，请重试",
+    "referenceUploadTooLarge": "文件不能超过 {size} MB",
     "referenceUploadCancel": "取消",
     "referenceUploadCancelled": "已取消上传",
     "referenceUploadReady": "参考资料已就绪"

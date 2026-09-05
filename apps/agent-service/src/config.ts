@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { DEFAULT_REFERENCE_UPLOAD_MAX_BYTES } from '@cloudcrane/website-agent';
 import { z } from 'zod';
 
 const configSchema = z.object({
@@ -18,7 +19,7 @@ const configSchema = z.object({
     .number()
     .int()
     .positive()
-    .default(100 * 1024 * 1024),
+    .default(DEFAULT_REFERENCE_UPLOAD_MAX_BYTES),
 });
 
 export type AgentServiceConfig = z.infer<typeof configSchema> & {

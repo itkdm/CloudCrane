@@ -39,6 +39,7 @@ const registry = new WebsiteRuntimeRegistry({
       modelRuntime,
       model,
       previewObservationProvider: new ClientPreviewProvider(previewClients),
+      referenceUploadMaxBytes: config.referenceUploadMaxBytes,
     }),
 });
 const app = buildAgentServiceApp({ config, registry, previewClientRegistry: previewClients });

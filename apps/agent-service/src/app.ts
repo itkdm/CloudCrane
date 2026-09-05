@@ -3,6 +3,7 @@ import multipart from '@fastify/multipart';
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
+import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { sessionSnapshotSchema, sessionViewSchema } from '@cloudcrane/agent-protocol';
@@ -15,6 +16,7 @@ import { AgentSocketTransport } from './transport/agent-socket.js';
 import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 import {
   materializeReference,
+  removeReference,
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
 
@@ -71,7 +73,7 @@ export function buildAgentServiceApp(
           409,
         );
       const staging = `${options.config.referenceRoot}/.staging/upload-${randomUUID()}.zip`;
-      await mkdir(options.config.referenceRoot, { recursive: true });
+      await mkdir(path.dirname(staging), { recursive: true });
       let fileSeen = false;
       let size = 0;
       const hash = createHash('sha256');
@@ -106,11 +108,20 @@ export function buildAgentServiceApp(
             sha256: hash.digest('hex'),
             size,
           });
-          runtime.resolveReferenceUpload(
-            request.params.interactionId,
-            request.params.sessionId,
-            result,
-          );
+          try {
+            runtime.resolveReferenceUpload(
+              request.params.interactionId,
+              request.params.sessionId,
+              result,
+            );
+          } catch (error) {
+            await removeReference({
+              referenceRoot: options.config.referenceRoot,
+              workspaceId: runtime.workspaceId,
+              referenceId: result.referenceId,
+            });
+            throw error;
+          }
           return reply.code(201).send(result);
         }
         throw new AgentServiceError('INVALID_ARGUMENT', 'file field is required', 400);

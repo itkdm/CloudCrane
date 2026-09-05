@@ -183,7 +183,7 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string>();
   const cancelled = interaction.status === 'cancelled';
-  const completed = interaction.status === 'completed' || step.status === 'completed';
+  const completed = interaction.status === 'completed';
   const submit = async () => {
     if (!file || !onUpload) return;
     setUploading(true);
@@ -199,7 +199,12 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
   return (
     <article className="reference-upload-execution" aria-live="polite">
       <strong>{t('referenceUploadTitle')}</strong>
-      {completed ? <p>{t('referenceUploadReady')}</p> : null}
+      {completed ? (
+        <p>
+          {t('referenceUploadReady')}
+          {interaction.name ? ` · ${interaction.name}` : ''}
+        </p>
+      ) : null}
       {cancelled ? <p>{t('referenceUploadCancelled')}</p> : null}
       {!completed && !cancelled ? (
         <>
@@ -208,7 +213,17 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
             type="file"
             accept={interaction.accept.join(',')}
             disabled={uploading}
-            onChange={(event) => setFile(event.target.files?.[0])}
+            onChange={(event) => {
+              const next = event.target.files?.[0];
+              setFile(next);
+              setUploadError(
+                next && next.size > interaction.maxBytes
+                  ? t('referenceUploadTooLarge', {
+                      size: Math.round(interaction.maxBytes / 1024 / 1024),
+                    })
+                  : undefined,
+              );
+            }}
           />
           <div className="reference-upload-actions">
             <button
@@ -218,7 +233,11 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
             >
               {t('referenceUploadCancel')}
             </button>
-            <button type="button" onClick={submit} disabled={!file || uploading}>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!file || Boolean(uploadError) || uploading}
+            >
               {uploading ? t('referenceUploadUploading') : t('referenceUploadChoose')}
             </button>
           </div>

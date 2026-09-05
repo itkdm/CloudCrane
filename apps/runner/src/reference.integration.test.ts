@@ -9,7 +9,7 @@ import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-
 
 const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
 const referenceFile = (workspaceId: string) =>
-  `/workspace/.cloudcrane/references/ref_test/template/demo/${workspaceId}.html`;
+  `/workspace/.cloudcrane/references/ref_A/template/demo/${workspaceId}.html`;
 
 async function initialize(client: WorkspaceDaemonClient, executionId: string): Promise<void> {
   await expect(
@@ -31,19 +31,6 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
     const workspaceB = '00000000-0000-4000-8000-000000000032';
     const referenceRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-reference-'));
     const workspaceRoot = path.join(referenceRoot, 'workspaces');
-    for (const [workspaceId, marker] of [
-      [workspaceA, 'REFERENCE_A'],
-      [workspaceB, 'REFERENCE_B'],
-    ] as const) {
-      const reference = path.join(referenceRoot, workspaceId);
-      await mkdir(path.join(reference, 'template/demo'), { recursive: true });
-      await mkdir(path.join(reference, 'skin/css'), { recursive: true });
-      await writeFile(
-        path.join(reference, `template/demo/${workspaceId}.html`),
-        `<h1>${marker}</h1>`,
-      );
-      await writeFile(path.join(reference, 'skin/css/site.css'), 'body{}');
-    }
     const docker = new Docker();
     const provider = new DockerWorkspaceProvider(
       { ...loadRunnerConfig(), referenceRoot, workspaceRoot },
@@ -55,6 +42,19 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
       runtimes.push(workspaceA);
       const runtimeB = await provider.create(workspaceB);
       runtimes.push(workspaceB);
+      for (const [workspaceId, marker] of [
+        [workspaceA, 'REFERENCE_A'],
+        [workspaceB, 'REFERENCE_B'],
+      ] as const) {
+        const reference = path.join(referenceRoot, workspaceId, 'ref_A');
+        await mkdir(path.join(reference, 'template/demo'), { recursive: true });
+        await mkdir(path.join(reference, 'skin/css'), { recursive: true });
+        await writeFile(
+          path.join(reference, `template/demo/${workspaceId}.html`),
+          `<h1>${marker}</h1>`,
+        );
+        await writeFile(path.join(reference, 'skin/css/site.css'), 'body{}');
+      }
       const containerA = await docker.getContainer(runtimeA.containerRef!).inspect();
       expect(containerA.HostConfig?.Binds).toContain(
         `${path.join(referenceRoot, workspaceA)}:/workspace/.cloudcrane/references:ro`,
@@ -71,7 +71,7 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
           content: `<h1>${marker}</h1>`,
         });
         await expect(
-          client.list({ path: '/workspace/.cloudcrane/references/ref_test/template/demo' }),
+          client.list({ path: '/workspace/.cloudcrane/references/ref_A/template/demo' }),
         ).resolves.toMatchObject({ entries: [expect.objectContaining({ type: 'file' })] });
         await expect(
           client.exec({

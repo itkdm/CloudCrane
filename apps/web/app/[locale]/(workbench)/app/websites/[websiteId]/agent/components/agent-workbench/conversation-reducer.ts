@@ -8,6 +8,7 @@ import type {
   Message,
   ToolExecutionStep,
   QuestionInteraction,
+  ReferenceUploadInteraction,
 } from './types';
 
 const MAX_PRESENTATION_TEXT = 32_000;
@@ -595,6 +596,11 @@ function snapshotTurn(
           const answer = questionAnswerFromOutput(message.output ?? message.text ?? '');
           if (existing.interaction.kind === 'question' && answer)
             existing.interaction = { ...existing.interaction, ...answer };
+          if (existing.interaction.kind === 'reference_upload')
+            existing.interaction = {
+              ...existing.interaction,
+              ...referenceUploadResultFromOutput(message.output ?? message.text ?? ''),
+            };
         }
         existing.status = normalizeToolStatus(message.status);
       } else
@@ -680,15 +686,41 @@ function applyQuestionCompletion(
 function referenceUploadFromSnapshot(
   message: SnapshotMessage,
 ): Pick<ToolExecutionStep, 'interaction'> {
+  const result = referenceUploadResultFromOutput(message.output ?? message.text ?? '');
   return {
     interaction: {
       kind: 'reference_upload',
       interactionId: `history:${message.toolCallId}`,
       accept: ['.zip'],
       maxBytes: 100 * 1024 * 1024,
-      status: 'completed',
+      ...result,
     },
   };
+}
+
+function referenceUploadResultFromOutput(
+  value: string,
+): Pick<ReferenceUploadInteraction, 'status' | 'referenceId' | 'name' | 'logicalPath'> {
+  if (/^User cancelled the reference upload\s*$/s.test(value)) return { status: 'cancelled' };
+  const match = value.match(/^CLOUDCRANE_REFERENCE_RESULT\s+(\{.*\})$/m);
+  if (!match?.[1]) return { status: 'pending' };
+  try {
+    const parsed = JSON.parse(match[1]) as Record<string, unknown>;
+    if (
+      typeof parsed.referenceId === 'string' &&
+      typeof parsed.name === 'string' &&
+      typeof parsed.logicalPath === 'string'
+    )
+      return {
+        status: 'completed',
+        referenceId: parsed.referenceId,
+        name: parsed.name,
+        logicalPath: parsed.logicalPath,
+      };
+  } catch {
+    // Keep malformed or partial history non-successful.
+  }
+  return { status: 'pending' };
 }
 
 function mergeSnapshotTurns(

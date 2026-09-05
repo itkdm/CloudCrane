@@ -8,7 +8,7 @@ description: Rebuild a read-only PbootCMS reference snapshot in the managed Clou
 You work with two deliberately separate trees:
 
 - `TARGET`: `/workspace`, the writable CloudCrane Website Workspace running the managed PbootCMS runtime.
-- `REFERENCE`: `/workspace/.cloudcrane/references/template-source`, an older complete template snapshot mounted read-only.
+- `REFERENCE`: the path returned by the active `reference_upload` tool, for example `/workspace/.cloudcrane/references/ref_xxx`, mounted read-only. Do not assume a fixed reference id or a `template-source` directory.
 
 The task is to understand the reference site and rebuild its visual structure, content presentation, assets, and required site data in TARGET. It is not a request to upgrade or wholesale-copy the old site.
 
@@ -22,7 +22,7 @@ Compare the managed PbootCMS runtime in TARGET with the reference and choose nor
 
 ## Hard boundaries
 
-REFERENCE is filesystem read-only. Never write, edit, delete, chmod, execute PHP or shell from it, start its old Pboot site, use its old admin, or use its authorization. Never try to escape the reference mount or access host files.
+REFERENCE is filesystem read-only. First read the active `reference_upload` tool result or the current context to identify its path. Never write, edit, delete, chmod, execute PHP or shell from it, start its old Pboot site, use its old admin, or use its authorization. Never try to escape the reference mount or access host files.
 
 TARGET is the only writable site. CloudCrane-managed runtime remains authoritative: do not wholesale-copy or replace `core/`, `apps/`, `admin.php`, `index.php`, core `config/`, authorization logic, runtime/system state, or upgrade state. If a feature depends on changed old Core or apps and cannot be safely recreated in the managed version, stop and report `CORE_COMPATIBILITY_BLOCKER` with the relevant source path and reason.
 

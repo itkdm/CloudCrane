@@ -246,6 +246,7 @@
     "referenceUploadChoose": "Upload ZIP",
     "referenceUploadUploading": "Uploading…",
     "referenceUploadFailed": "Upload failed. Try again.",
+    "referenceUploadTooLarge": "The file must be smaller than {size} MB",
     "referenceUploadCancel": "Cancel",
     "referenceUploadCancelled": "Upload cancelled",
     "referenceUploadReady": "Reference material is ready"

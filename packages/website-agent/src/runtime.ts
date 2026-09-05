@@ -48,7 +48,7 @@ const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
 const REMOTE_SKILLS_ROOT = '/workspace/.agents/skills';
 const REMOTE_REFERENCE_ROOT = '/workspace/.cloudcrane/references';
-export const REFERENCE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+export const DEFAULT_REFERENCE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const MAX_TURN_INDEX = 1_000_000;
@@ -117,6 +117,7 @@ export type WebsiteAgentRuntimeOptions = {
   model?: Model<Api>;
   workspaceClientFactory?: WorkspaceClientFactory;
   previewObservationProvider?: PreviewObservationProvider;
+  referenceUploadMaxBytes?: number;
 };
 
 export type AgentRunResult = {
@@ -825,6 +826,7 @@ export class WebsiteAgentRuntime {
             : undefined;
         },
         this.options.websiteId,
+        this.options.referenceUploadMaxBytes ?? DEFAULT_REFERENCE_UPLOAD_MAX_BYTES,
       ),
     };
     const modelFacingCwdExtension: InlineExtension = {
@@ -1561,6 +1563,7 @@ function createReferenceUploadTool(
   broker: HumanInteractionBroker,
   getContext: () => { runId: string; sessionId: string; piSessionId: string } | undefined,
   websiteId: string,
+  maxBytes: number,
 ): ToolDefinition<typeof referenceUploadParameters> {
   return {
     name: 'reference_upload',
@@ -1586,7 +1589,7 @@ function createReferenceUploadTool(
           runId: run.runId,
           toolCallId: _toolCallId,
           accept: ['.zip'],
-          maxBytes: REFERENCE_UPLOAD_MAX_BYTES,
+          maxBytes,
         },
         signal,
       );
@@ -1602,6 +1605,11 @@ function createReferenceUploadTool(
             text: [
               'Reference uploaded successfully.',
               `Reference path: ${(interaction as ReferenceUploadResult).logicalPath}`,
+              `CLOUDCRANE_REFERENCE_RESULT ${JSON.stringify({
+                referenceId: (interaction as ReferenceUploadResult).referenceId,
+                name: (interaction as ReferenceUploadResult).name,
+                logicalPath: (interaction as ReferenceUploadResult).logicalPath,
+              })}`,
               'This is a read-only design and implementation reference.',
               'The writable CloudCrane target remains /workspace.',
               'Inspect the reference before modifying the target.',

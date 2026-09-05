@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { lstat, mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import unzipper from 'unzipper';
 
@@ -48,6 +50,7 @@ export async function materializeReference(input: {
       throw new ReferenceMaterializationError('ZIP contains too many files', 422);
     const wrapper = singleWrapper(files.map((entry) => entry.path));
     let expanded = 0;
+    let actualExpanded = 0;
     for (const entry of files) {
       const relative = normalizeEntryPath(entry.path, wrapper);
       if (!relative || (entry.type as string) === 'SymbolicLink')
@@ -60,9 +63,19 @@ export async function materializeReference(input: {
         throw new ReferenceMaterializationError('Expanded ZIP is too large', 422);
       const target = path.join(stagingRoot, relative);
       await mkdir(path.dirname(target), { recursive: true });
-      await new Promise<void>((resolve, reject) => {
-        entry.stream().pipe(createWriteStream(target)).on('finish', resolve).on('error', reject);
+      let actualFileBytes = 0;
+      const counter = new Transform({
+        transform(chunk, _encoding, callback) {
+          actualFileBytes += chunk.length;
+          actualExpanded += chunk.length;
+          if (actualFileBytes > REFERENCE_FILE_MAX_BYTES)
+            return callback(new ReferenceMaterializationError('Expanded file is too large', 422));
+          if (actualExpanded > REFERENCE_EXPANDED_MAX_BYTES)
+            return callback(new ReferenceMaterializationError('Expanded ZIP is too large', 422));
+          callback(null, chunk);
+        },
       });
+      await pipeline(entry.stream(), counter, createWriteStream(target));
       const info = await lstat(target);
       if (info.isSymbolicLink())
         throw new ReferenceMaterializationError('ZIP symlinks are not allowed', 422);
@@ -96,6 +109,20 @@ export async function materializeReference(input: {
     await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export async function removeReference(input: {
+  referenceRoot: string;
+  workspaceId: string;
+  referenceId: string;
+}): Promise<void> {
+  if (!/^ref_[0-9a-f-]+$/i.test(input.referenceId))
+    throw new ReferenceMaterializationError('Invalid reference id', 400);
+  const workspaceRoot = path.resolve(input.referenceRoot, input.workspaceId);
+  const target = path.resolve(workspaceRoot, input.referenceId);
+  if (!target.startsWith(`${workspaceRoot}${path.sep}`))
+    throw new ReferenceMaterializationError('Invalid reference path', 400);
+  await rm(target, { recursive: true, force: true });
 }
 
 function normalizeEntryPath(value: string, wrapper?: string): string {
