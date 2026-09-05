@@ -46,10 +46,14 @@ function textNodes(root: FakeElement): FakeText[] {
   return root.childNodes.flatMap((child) => ('nodeType' in child ? [child] : textNodes(child)));
 }
 
-async function runBridge(body: FakeElement | null = null) {
+async function runBridge(
+  body: FakeElement | null = null,
+  options: { readyState?: 'loading' | 'interactive' | 'complete'; autoSettle?: boolean } = {},
+) {
   const script = await readFile(path.join(process.cwd(), 'dist', 'browser.js'), 'utf8');
   const messages: unknown[] = [];
   const listeners = new Map<string, (event: unknown) => void>();
+  const animationFrames: Array<() => void> = [];
   const targetOrigins: unknown[] = [];
   const parent = {
     postMessage: (message: unknown, targetOrigin: unknown) => {
@@ -101,6 +105,10 @@ async function runBridge(body: FakeElement | null = null) {
     scrollY: 12,
     addEventListener: (type: string, listener: (event: unknown) => void) =>
       listeners.set(type, listener),
+    requestAnimationFrame: (callback: () => void) => {
+      animationFrames.push(callback);
+      return animationFrames.length;
+    },
     getComputedStyle: (element: FakeElement) => ({
       display: element.getStyle().display ?? 'block',
       visibility: element.getStyle().visibility ?? 'visible',
@@ -115,6 +123,9 @@ async function runBridge(body: FakeElement | null = null) {
     document: {
       currentScript,
       body,
+      readyState: options.readyState ?? 'complete',
+      addEventListener: (type: string, listener: () => void) =>
+        listeners.set(`document:${type}`, listener),
       title: 'CloudCrane Preview',
       createTreeWalker: () => {
         const nodes = body ? textNodes(body) : [];
@@ -134,10 +145,66 @@ async function runBridge(body: FakeElement | null = null) {
     clearTimeout,
   };
   vm.runInNewContext(script, context);
-  return { messages, listeners, parent, targetOrigins, windowValue, consoleValue };
+  const settle = async () => {
+    for (let index = 0; index < 8; index += 1) {
+      while (animationFrames.length) animationFrames.shift()?.();
+      await Promise.resolve();
+    }
+  };
+  if (options.autoSettle !== false) await settle();
+  return {
+    messages,
+    listeners,
+    parent,
+    targetOrigins,
+    windowValue,
+    consoleValue,
+    settle,
+    dispatchDOMContentLoaded: () => {
+      (context.document as { readyState: string }).readyState = 'interactive';
+      listeners.get('document:DOMContentLoaded')?.({});
+    },
+  };
 }
 
 describe('Preview Bridge browser boundary', () => {
+  it('waits for DOMContentLoaded and render settle before announcing initial READY', async () => {
+    const bridge = await runBridge(null, { readyState: 'loading', autoSettle: false });
+    expect(bridge.messages).toHaveLength(0);
+
+    bridge.dispatchDOMContentLoaded();
+    await bridge.settle();
+    expect(bridge.messages[0]).toMatchObject({ type: 'bridge.ready' });
+  });
+
+  it('waits for DOMContentLoaded before answering a connect request', async () => {
+    const bridge = await runBridge(null, { readyState: 'loading', autoSettle: false });
+    bridge.listeners.get('message')?.({
+      source: bridge.windowValue.parent,
+      origin: 'http://localhost:3000',
+      data: {
+        version: 'cloudcrane.preview.v1',
+        type: 'bridge.connect.request',
+        requestId: 'connect-loading',
+        payload: {},
+      },
+    });
+    expect(bridge.messages).toHaveLength(0);
+
+    bridge.dispatchDOMContentLoaded();
+    await bridge.settle();
+    expect(bridge.messages).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'bridge.ready', requestId: 'connect-loading' })]),
+    );
+  });
+
+  it('uses bounded RAF settle for an already interactive document', async () => {
+    const bridge = await runBridge(null, { readyState: 'interactive', autoSettle: false });
+    expect(bridge.messages).toHaveLength(0);
+    await bridge.settle();
+    expect(bridge.messages[0]).toMatchObject({ type: 'bridge.ready' });
+  });
+
   it('announces bounded capabilities and rejects wrong source or parent origin', async () => {
     const bridge = await runBridge();
     expect(bridge.messages[0]).toMatchObject({
@@ -198,10 +265,13 @@ describe('Preview Bridge browser boundary', () => {
         payload: {},
       },
     });
-    expect(bridge.messages.at(-1)).toMatchObject({
-      type: 'bridge.ready',
-      requestId: 'connect-1',
-    });
+    await bridge.settle();
+    expect(bridge.messages).toContainEqual(
+      expect.objectContaining({
+        type: 'bridge.ready',
+        requestId: 'connect-1',
+      }),
+    );
     expect(bridge.targetOrigins.every((origin) => origin === 'http://localhost:3000')).toBe(true);
 
     const duplicateBefore = bridge.messages.length;
@@ -215,6 +285,7 @@ describe('Preview Bridge browser boundary', () => {
         payload: {},
       },
     });
+    await bridge.settle();
     expect(bridge.messages).toHaveLength(duplicateBefore + 1);
   });
 

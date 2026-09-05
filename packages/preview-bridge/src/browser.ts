@@ -69,7 +69,7 @@ type DomNode = {
   children: DomNode[];
 };
 
-function installPreviewBridge(): void {
+async function installPreviewBridge(): Promise<void> {
   const script = document.currentScript;
   const parentOrigin =
     script instanceof HTMLScriptElement ? script.dataset.cloudcraneParentOrigin : undefined;
@@ -88,7 +88,7 @@ function installPreviewBridge(): void {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const message = event.data;
     if (isConnectRequest(message)) {
-      postReady(parentOrigin, message.requestId);
+      void waitForDocumentObservable().then(() => postReady(parentOrigin, message.requestId));
       return;
     }
     if (isRefreshRequest(message)) {
@@ -127,6 +127,9 @@ function installPreviewBridge(): void {
       });
     }
   });
+  // The bridge is injected in <head>, so installation alone does not mean that
+  // the document has a body that can be safely observed.
+  await waitForDocumentObservable();
   postReady(parentOrigin);
   notifyLocation(parentOrigin);
 
@@ -134,6 +137,20 @@ function installPreviewBridge(): void {
   patchHistory(notifyHistoryChange);
   window.addEventListener('popstate', notifyHistoryChange);
   window.addEventListener('hashchange', notifyHistoryChange);
+}
+
+function waitForDocumentObservable(): Promise<void> {
+  const documentReady =
+    document.readyState === 'loading'
+      ? new Promise<void>((resolve) => {
+          document.addEventListener('DOMContentLoaded', () => resolve(), { once: true });
+        })
+      : Promise.resolve();
+  return documentReady.then(() => nextAnimationFrame()).then(() => nextAnimationFrame());
+}
+
+function nextAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 }
 
 function postReady(parentOrigin: string, requestId = `bridge:${Date.now()}`): void {
@@ -430,4 +447,4 @@ function redact(value: string): string {
   );
 }
 
-installPreviewBridge();
+void installPreviewBridge();
