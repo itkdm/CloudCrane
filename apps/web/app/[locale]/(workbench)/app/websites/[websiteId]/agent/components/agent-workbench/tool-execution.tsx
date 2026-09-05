@@ -20,6 +20,7 @@ import type {
   ContextMaintenanceExecutionStep,
   ConversationTurnStatus,
   ExecutionStep,
+  QuestionInteraction,
   ToolExecutionStep,
 } from './types';
 
@@ -53,6 +54,7 @@ export const ExecutionProcess = memo(function ExecutionProcess({
   expanded,
   onInteractionRespond,
   onInteractionCancel,
+  onReferenceUpload,
 }: {
   steps: ExecutionStep[];
   status: ConversationTurnStatus;
@@ -62,6 +64,7 @@ export const ExecutionProcess = memo(function ExecutionProcess({
     response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
   ) => void;
   onInteractionCancel?: (interactionId: string) => void;
+  onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
 }) {
   const t = useTranslations('workbench');
   const isRunning = status === 'running';
@@ -112,16 +115,35 @@ export const ExecutionProcess = memo(function ExecutionProcess({
               />
             ) : step.kind === 'tool' ? (
               step.interaction ? (
-                <QuestionExecution
-                  key={step.id}
-                  step={
-                    step as ToolExecutionStep & {
-                      interaction: NonNullable<ToolExecutionStep['interaction']>;
+                step.interaction.kind === 'question' ? (
+                  <QuestionExecution
+                    key={step.id}
+                    step={
+                      step as ToolExecutionStep & {
+                        interaction: Extract<
+                          NonNullable<ToolExecutionStep['interaction']>,
+                          { kind: 'question' }
+                        >;
+                      }
                     }
-                  }
-                  onRespond={onInteractionRespond}
-                  onCancel={onInteractionCancel}
-                />
+                    onRespond={onInteractionRespond}
+                    onCancel={onInteractionCancel}
+                  />
+                ) : (
+                  <ReferenceUploadExecution
+                    key={step.id}
+                    step={
+                      step as ToolExecutionStep & {
+                        interaction: Extract<
+                          NonNullable<ToolExecutionStep['interaction']>,
+                          { kind: 'reference_upload' }
+                        >;
+                      }
+                    }
+                    onUpload={onReferenceUpload}
+                    onCancel={onInteractionCancel}
+                  />
+                )
               ) : (
                 <ToolExecution key={step.id} step={step} />
               )
@@ -141,12 +163,80 @@ export const ExecutionProcess = memo(function ExecutionProcess({
   );
 });
 
+const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
+  step,
+  onUpload,
+  onCancel,
+}: {
+  step: ToolExecutionStep & {
+    interaction: Extract<
+      NonNullable<ToolExecutionStep['interaction']>,
+      { kind: 'reference_upload' }
+    >;
+  };
+  onUpload?: (interactionId: string, file: File) => Promise<void>;
+  onCancel?: (interactionId: string) => void;
+}) {
+  const t = useTranslations('workbench');
+  const interaction = step.interaction;
+  const [file, setFile] = useState<File>();
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string>();
+  const cancelled = interaction.status === 'cancelled';
+  const completed = interaction.status === 'completed' || step.status === 'completed';
+  const submit = async () => {
+    if (!file || !onUpload) return;
+    setUploading(true);
+    setUploadError(undefined);
+    try {
+      await onUpload(interaction.interactionId, file);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : t('referenceUploadFailed'));
+    } finally {
+      setUploading(false);
+    }
+  };
+  return (
+    <article className="reference-upload-execution" aria-live="polite">
+      <strong>{t('referenceUploadTitle')}</strong>
+      {completed ? <p>{t('referenceUploadReady')}</p> : null}
+      {cancelled ? <p>{t('referenceUploadCancelled')}</p> : null}
+      {!completed && !cancelled ? (
+        <>
+          <p>{t('referenceUploadDescription')}</p>
+          <input
+            type="file"
+            accept={interaction.accept.join(',')}
+            disabled={uploading}
+            onChange={(event) => setFile(event.target.files?.[0])}
+          />
+          <div className="reference-upload-actions">
+            <button
+              type="button"
+              onClick={() => onCancel?.(interaction.interactionId)}
+              disabled={uploading}
+            >
+              {t('referenceUploadCancel')}
+            </button>
+            <button type="button" onClick={submit} disabled={!file || uploading}>
+              {uploading ? t('referenceUploadUploading') : t('referenceUploadChoose')}
+            </button>
+          </div>
+          {interaction.error || uploadError ? (
+            <p className="question-execution-error">{interaction.error ?? uploadError}</p>
+          ) : null}
+        </>
+      ) : null}
+    </article>
+  );
+});
+
 const QuestionExecution = memo(function QuestionExecution({
   step,
   onRespond,
   onCancel,
 }: {
-  step: ToolExecutionStep & { interaction: NonNullable<ToolExecutionStep['interaction']> };
+  step: ToolExecutionStep & { interaction: QuestionInteraction };
   onRespond?: (
     interactionId: string,
     response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },

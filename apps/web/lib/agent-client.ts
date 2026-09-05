@@ -27,6 +27,28 @@ export async function createAgentSession(websiteId: string) {
   };
 }
 
+export async function uploadReference(
+  websiteId: string,
+  sessionId: string,
+  interactionId: string,
+  file: File,
+) {
+  const body = new FormData();
+  body.append('file', file, file.name);
+  const response = await fetch(
+    `${serviceUrl}/v1/websites/${websiteId}/sessions/${sessionId}/interactions/${interactionId}/reference-upload`,
+    { method: 'POST', body },
+  );
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as {
+    referenceId: string;
+    name: string;
+    logicalPath: string;
+    sha256: string;
+    size: number;
+  };
+}
+
 export function agentWebSocketUrl(): string {
   return `${serviceUrl.replace(/^http/, 'ws')}/v1/agent/connect`;
 }

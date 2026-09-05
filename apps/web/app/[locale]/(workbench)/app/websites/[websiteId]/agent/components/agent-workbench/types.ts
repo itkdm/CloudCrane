@@ -20,6 +20,32 @@ export type AssistantNarrativeStep = {
   status: 'streaming' | 'completed';
 };
 
+export type QuestionInteraction = {
+  kind: 'question';
+  interactionId: string;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  allowCustom: true;
+  status?: 'pending' | 'submitting' | 'answered' | 'cancelled';
+  answer?: string;
+  wasCustom?: boolean;
+  error?: string;
+};
+
+export type ReferenceUploadInteraction = {
+  kind: 'reference_upload';
+  interactionId: string;
+  accept: ['.zip'];
+  maxBytes: number;
+  status?: 'pending' | 'uploading' | 'completed' | 'cancelled';
+  error?: string;
+  referenceId?: string;
+  name?: string;
+  logicalPath?: string;
+};
+
+export type ToolInteraction = QuestionInteraction | ReferenceUploadInteraction;
+
 export type ToolExecutionStep = {
   kind: 'tool';
   id: string;
@@ -28,16 +54,7 @@ export type ToolExecutionStep = {
   toolInput?: string;
   toolOutput?: string;
   status: 'running' | 'completed' | 'error';
-  interaction?: {
-    interactionId: string;
-    question: string;
-    options: Array<{ label: string; description?: string }>;
-    allowCustom: true;
-    status?: 'pending' | 'submitting' | 'answered' | 'cancelled';
-    answer?: string;
-    wasCustom?: boolean;
-    error?: string;
-  };
+  interaction?: ToolInteraction;
 };
 
 export type ContextMaintenanceExecutionStep = {

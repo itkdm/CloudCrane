@@ -10,9 +10,51 @@ const base = {
   question: 'Choose a style',
   options: [{ label: 'Modern' }, { label: 'Classic' }],
   allowCustom: true as const,
+  piSessionId: 'pi-session-1',
 };
 
 describe('HumanInteractionBroker', () => {
+  it('resolves a reference upload with site/session isolation', async () => {
+    const requested = vi.fn();
+    const broker = new HumanInteractionBroker(requested);
+    const promise = broker.requestReferenceUpload({
+      kind: 'reference_upload',
+      websiteId: 'website-a',
+      sessionId: 'session-a',
+      piSessionId: 'pi-session-1',
+      runId: 'run-a',
+      toolCallId: 'tool-reference',
+      accept: ['.zip'],
+      maxBytes: 100,
+    });
+    const interaction = requested.mock.calls[0]?.[0];
+    expect(interaction.kind).toBe('reference_upload');
+    expect(
+      broker.isPendingReferenceUpload(interaction.interactionId, 'website-a', 'session-a'),
+    ).toBe(true);
+    expect(
+      broker.resolveReferenceUpload(interaction.interactionId, 'website-b', 'session-a', {
+        referenceId: 'ref-1',
+        name: 'site.zip',
+        logicalPath: '/workspace/.cloudcrane/references/ref-1',
+        sha256: 'sha',
+        size: 10,
+      }),
+    ).toBe(false);
+    const result = {
+      referenceId: 'ref-1',
+      name: 'site.zip',
+      logicalPath: '/workspace/.cloudcrane/references/ref-1',
+      sha256: 'sha',
+      size: 10,
+    };
+    expect(
+      broker.resolveReferenceUpload(interaction.interactionId, 'website-a', 'session-a', result),
+    ).toBe(true);
+    await expect(promise).resolves.toEqual(result);
+    expect(broker.listPending('website-a', 'session-a')).toHaveLength(0);
+  });
+
   it('resolves option responses and removes the pending interaction', async () => {
     const requested = vi.fn();
     const broker = new HumanInteractionBroker(requested);

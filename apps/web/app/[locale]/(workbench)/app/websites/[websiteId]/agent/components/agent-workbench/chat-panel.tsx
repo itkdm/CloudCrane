@@ -23,6 +23,7 @@ type ChatPanelProps = {
     response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
   ) => void;
   onInteractionCancel?: (interactionId: string) => void;
+  onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
   manualMaintenanceItems?: ManualMaintenanceItem[];
   manualMaintenanceRunning?: boolean;
   onCompact?: () => void;
@@ -44,6 +45,7 @@ export function ChatPanel({
   onSettingsOpen,
   onInteractionRespond,
   onInteractionCancel,
+  onReferenceUpload,
   manualMaintenanceItems = [],
   manualMaintenanceRunning = false,
   onCompact,
@@ -111,6 +113,7 @@ export function ChatPanel({
         manualMaintenanceItems={manualMaintenanceItems}
         onInteractionRespond={onInteractionRespond}
         onInteractionCancel={onInteractionCancel}
+        onReferenceUpload={onReferenceUpload}
       />
       <Composer
         draft={draft}

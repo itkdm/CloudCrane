@@ -20,13 +20,16 @@
     "@cloudcrane/workspace-client": "workspace:*",
     "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
+    "@fastify/multipart": "9.2.1",
     "drizzle-orm": "0.45.2",
     "fastify": "5.12.1",
     "pino": "10.3.1",
+    "unzipper": "0.12.3",
     "ws": "8.18.3",
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@types/unzipper": "^0.10.11",
     "@types/ws": "8.18.1"
   }
 }

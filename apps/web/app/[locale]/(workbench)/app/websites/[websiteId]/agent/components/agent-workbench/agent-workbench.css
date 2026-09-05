@@ -1916,3 +1916,37 @@
   margin: 0;
   color: var(--cc-conversation-secondary);
 }
+
+.reference-upload-execution {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 4px 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--cc-conversation-border);
+  border-radius: 10px;
+  background: var(--cc-conversation-surface);
+}
+
+.reference-upload-execution p {
+  margin: 0;
+  color: var(--cc-conversation-secondary);
+}
+
+.reference-upload-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reference-upload-actions button {
+  padding: 6px 12px;
+  border: 1px solid var(--cc-conversation-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cc-conversation-text);
+  cursor: pointer;
+}
+
+.reference-upload-actions button:last-child {
+  background: var(--cc-conversation-surface-subtle);
+}

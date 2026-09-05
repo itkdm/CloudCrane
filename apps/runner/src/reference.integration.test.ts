@@ -9,7 +9,7 @@ import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-
 
 const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
 const referenceFile = (workspaceId: string) =>
-  `/workspace/.cloudcrane/references/template-source/template/demo/${workspaceId}.html`;
+  `/workspace/.cloudcrane/references/ref_test/template/demo/${workspaceId}.html`;
 
 async function initialize(client: WorkspaceDaemonClient, executionId: string): Promise<void> {
   await expect(
@@ -57,7 +57,7 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
       runtimes.push(workspaceB);
       const containerA = await docker.getContainer(runtimeA.containerRef!).inspect();
       expect(containerA.HostConfig?.Binds).toContain(
-        `${path.join(referenceRoot, workspaceA)}:/workspace/.cloudcrane/references/template-source:ro`,
+        `${path.join(referenceRoot, workspaceA)}:/workspace/.cloudcrane/references:ro`,
       );
       const clientA = new WorkspaceDaemonClient(runtimeA.endpoint!, 10_000);
       const clientB = new WorkspaceDaemonClient(runtimeB.endpoint!, 10_000);
@@ -71,14 +71,14 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
           content: `<h1>${marker}</h1>`,
         });
         await expect(
-          client.list({ path: '/workspace/.cloudcrane/references/template-source/template/demo' }),
+          client.list({ path: '/workspace/.cloudcrane/references/ref_test/template/demo' }),
         ).resolves.toMatchObject({ entries: [expect.objectContaining({ type: 'file' })] });
         await expect(
           client.exec({
             command: 'sh',
             args: [
               '-c',
-              `find /workspace/.cloudcrane/references/template-source -type f && rg ${marker} /workspace/.cloudcrane/references/template-source`,
+              `find /workspace/.cloudcrane/references -type f && rg ${marker} /workspace/.cloudcrane/references`,
             ],
             cwd: '/workspace',
             env: {},

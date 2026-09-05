@@ -21,7 +21,7 @@ import type { QuestionInteraction } from './human-interaction-broker.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const workspaceId = '00000000-0000-4000-8000-000000000002';
-const referenceRoot = '/workspace/.cloudcrane/references/template-source';
+const referenceRoot = '/workspace/.cloudcrane/references';
 
 async function missingReferenceStat({ path: remotePath }: { path: string }) {
   if (remotePath === referenceRoot)
@@ -494,7 +494,7 @@ describe('WebsiteAgentRuntime', () => {
     const firstPrompt = await runtime.getSystemPrompt(session.id);
     expect(firstPrompt).toContain('Use dark green buttons and verify Preview.');
     expect(firstPrompt).toMatch(/\/workspace\/\.agents\/skills[\\/]frontend-design[\\/]SKILL\.md/);
-    expect(firstPrompt).toContain('Migration reference is available');
+    expect(firstPrompt).toContain('Uploaded references are available');
     expect(firstPrompt).toContain(referenceRoot);
     expect(firstPrompt).toContain('The writable target is `/workspace`.');
 

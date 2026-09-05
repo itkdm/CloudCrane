@@ -39,9 +39,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         HostConfig: {
           Binds: [
             `${persistentPath}:/workspace`,
-            ...(referencePath
-              ? [`${referencePath}:/workspace/.cloudcrane/references/template-source:ro`]
-              : []),
+            ...(referencePath ? [`${referencePath}:/workspace/.cloudcrane/references:ro`] : []),
           ],
           NetworkMode: network.id,
           PortBindings: {
@@ -167,7 +165,10 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         throw new Error('workspace reference must be a real directory');
       return referencePath;
     } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        await mkdir(referencePath, { recursive: true });
+        return referencePath;
+      }
       throw error;
     }
   }

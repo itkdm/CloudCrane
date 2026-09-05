@@ -240,7 +240,15 @@
     "questionCancelled": "已取消",
     "questionSelected": "已选择：{answer}",
     "questionCustomAnswer": "已回答：{answer}",
-    "questionSubmitFailed": "提交失败，请重试"
+    "questionSubmitFailed": "提交失败，请重试",
+    "referenceUploadTitle": "上传 PbootCMS 参考包",
+    "referenceUploadDescription": "选择一个 ZIP 文件，导入为工作区只读参考资料。",
+    "referenceUploadChoose": "上传 ZIP",
+    "referenceUploadUploading": "正在上传…",
+    "referenceUploadFailed": "上传失败，请重试",
+    "referenceUploadCancel": "取消",
+    "referenceUploadCancelled": "已取消上传",
+    "referenceUploadReady": "参考资料已就绪"
   },
   "workspace": {
     "templatesTitle": "模板",

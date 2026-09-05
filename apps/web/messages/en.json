@@ -240,7 +240,15 @@
     "questionCancelled": "Cancelled",
     "questionSelected": "Selected: {answer}",
     "questionCustomAnswer": "Answered: {answer}",
-    "questionSubmitFailed": "Submission failed. Try again."
+    "questionSubmitFailed": "Submission failed. Try again.",
+    "referenceUploadTitle": "Upload PbootCMS reference",
+    "referenceUploadDescription": "Choose a ZIP file to import as read-only workspace reference material.",
+    "referenceUploadChoose": "Upload ZIP",
+    "referenceUploadUploading": "Uploading…",
+    "referenceUploadFailed": "Upload failed. Try again.",
+    "referenceUploadCancel": "Cancel",
+    "referenceUploadCancelled": "Upload cancelled",
+    "referenceUploadReady": "Reference material is ready"
   },
   "workspace": {
     "templatesTitle": "Templates",

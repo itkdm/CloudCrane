@@ -7,6 +7,7 @@ import type {
   ManualMaintenanceItem,
   Message,
   ToolExecutionStep,
+  QuestionInteraction,
 } from './types';
 
 const MAX_PRESENTATION_TEXT = 32_000;
@@ -38,17 +39,23 @@ export type ConversationEvent =
         session?: unknown;
         activeRun?: unknown;
         contextMaintenance?: ContextMaintenanceSnapshot | null;
-        pendingInteractions?: Array<{
-          interactionId: string;
-          toolCallId: string;
-          question: string;
-          options: Array<{ label: string; description?: string }>;
-          allowCustom: true;
-          status?: 'pending' | 'answered' | 'cancelled';
-          answer?: string;
-          wasCustom?: boolean;
-          error?: string;
-        }>;
+        pendingInteractions?: Array<
+          | {
+              interactionId: string;
+              kind: 'question';
+              toolCallId: string;
+              question: string;
+              options: Array<{ label: string; description?: string }>;
+              allowCustom: true;
+            }
+          | {
+              interactionId: string;
+              kind: 'reference_upload';
+              toolCallId: string;
+              accept: ['.zip'];
+              maxBytes: number;
+            }
+        >;
       };
     }
   | { type: 'user.added'; payload: { message: Message } }
@@ -87,10 +94,20 @@ export type ConversationEvent =
       type: 'interaction.requested';
       payload: {
         interactionId: string;
+        kind: 'question';
         toolCallId: string;
         question: string;
         options: Array<{ label: string; description?: string }>;
         allowCustom: true;
+      };
+    }
+  | {
+      type: 'reference_upload.requested';
+      payload: {
+        interactionId: string;
+        toolCallId: string;
+        accept: ['.zip'];
+        maxBytes: number;
       };
     }
   | { type: 'interaction.failed'; payload: { interactionId: string; error: string } };
@@ -120,7 +137,12 @@ export function conversationReducer(
     );
     return (event.payload.pendingInteractions ?? []).reduce(
       (current, interaction) =>
-        conversationReducer(current, { type: 'interaction.requested', payload: interaction }),
+        conversationReducer(
+          current,
+          interaction.kind === 'reference_upload'
+            ? { type: 'reference_upload.requested', payload: interaction }
+            : { type: 'interaction.requested', payload: interaction },
+        ),
       restored,
     );
   }
@@ -234,9 +256,27 @@ export function conversationReducer(
       status: 'running',
       interaction: {
         interactionId: event.payload.interactionId,
+        kind: 'question',
         question: event.payload.question,
         options: event.payload.options,
         allowCustom: true,
+        status: 'pending',
+      },
+    }));
+  if (event.type === 'reference_upload.requested')
+    return updateTool(state, event.payload.toolCallId, (step) => ({
+      kind: 'tool',
+      id: event.payload.toolCallId,
+      toolCallId: event.payload.toolCallId,
+      toolName: step?.toolName ?? 'reference_upload',
+      ...(step?.toolInput !== undefined ? { toolInput: step.toolInput } : {}),
+      ...(step?.toolOutput !== undefined ? { toolOutput: step.toolOutput } : {}),
+      status: 'running',
+      interaction: {
+        kind: 'reference_upload',
+        interactionId: event.payload.interactionId,
+        accept: event.payload.accept,
+        maxBytes: event.payload.maxBytes,
         status: 'pending',
       },
     }));
@@ -248,11 +288,10 @@ export function conversationReducer(
       step.kind === 'tool' && step.interaction?.interactionId === event.payload.interactionId
         ? {
             ...step,
-            interaction: {
-              ...step.interaction,
-              status: 'pending' as const,
-              error: event.payload.error,
-            },
+            interaction:
+              step.interaction.kind === 'question'
+                ? { ...step.interaction, status: 'pending' as const, error: event.payload.error }
+                : { ...step.interaction, status: 'pending' as const, error: event.payload.error },
           }
         : step,
     );
@@ -285,7 +324,12 @@ export function conversationReducer(
       ? { toolOutput: boundText(event.payload.output ?? step?.toolOutput) }
       : {}),
     ...(step?.interaction
-      ? { interaction: applyQuestionCompletion(step.interaction, event.payload.output) }
+      ? {
+          interaction:
+            step.interaction.kind === 'question'
+              ? applyQuestionCompletion(step.interaction, event.payload.output)
+              : { ...step.interaction, status: 'completed' as const },
+        }
       : {}),
     status:
       step?.status === 'completed' || step?.status === 'error'
@@ -549,7 +593,8 @@ function snapshotTurn(
           existing.toolOutput = boundText(message.output ?? message.text);
         if (existing.interaction) {
           const answer = questionAnswerFromOutput(message.output ?? message.text ?? '');
-          if (answer) existing.interaction = { ...existing.interaction, ...answer };
+          if (existing.interaction.kind === 'question' && answer)
+            existing.interaction = { ...existing.interaction, ...answer };
         }
         existing.status = normalizeToolStatus(message.status);
       } else
@@ -561,6 +606,7 @@ function snapshotTurn(
           ...(message.input ? { toolInput: boundText(message.input) } : {}),
           ...(message.text ? { toolOutput: boundText(message.text) } : {}),
           ...(message.toolName === 'question' ? questionFromSnapshot(message) : {}),
+          ...(message.toolName === 'reference_upload' ? referenceUploadFromSnapshot(message) : {}),
           status: normalizeToolStatus(message.status),
         });
     }
@@ -599,6 +645,7 @@ function questionFromSnapshot(message: SnapshotMessage): Pick<ToolExecutionStep,
     return {
       interaction: {
         interactionId: `history:${message.toolCallId}`,
+        kind: 'question',
         question: value.question,
         options,
         allowCustom: true,
@@ -613,9 +660,7 @@ function questionFromSnapshot(message: SnapshotMessage): Pick<ToolExecutionStep,
 
 function questionAnswerFromOutput(
   value: string,
-):
-  | Pick<NonNullable<ToolExecutionStep['interaction']>, 'answer' | 'wasCustom' | 'status'>
-  | undefined {
+): Pick<QuestionInteraction, 'answer' | 'wasCustom' | 'status'> | undefined {
   if (/^User cancelled the question\s*$/s.test(value)) return { status: 'cancelled' };
   const custom = value.match(/^User provided:\s*(.+)$/s);
   if (custom?.[1]) return { answer: custom[1].trim(), wasCustom: true, status: 'answered' };
@@ -625,11 +670,25 @@ function questionAnswerFromOutput(
 }
 
 function applyQuestionCompletion(
-  interaction: NonNullable<ToolExecutionStep['interaction']>,
+  interaction: QuestionInteraction,
   output?: string,
 ): NonNullable<ToolExecutionStep['interaction']> {
   const answer = questionAnswerFromOutput(output ?? '');
   return answer ? { ...interaction, ...answer } : { ...interaction, status: 'cancelled' };
+}
+
+function referenceUploadFromSnapshot(
+  message: SnapshotMessage,
+): Pick<ToolExecutionStep, 'interaction'> {
+  return {
+    interaction: {
+      kind: 'reference_upload',
+      interactionId: `history:${message.toolCallId}`,
+      accept: ['.zip'],
+      maxBytes: 100 * 1024 * 1024,
+      status: 'completed',
+    },
+  };
 }
 
 function mergeSnapshotTurns(

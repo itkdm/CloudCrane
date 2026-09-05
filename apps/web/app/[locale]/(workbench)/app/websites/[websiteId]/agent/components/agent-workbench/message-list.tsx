@@ -15,6 +15,7 @@ type MessageListProps = {
     response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
   ) => void;
   onInteractionCancel?: (interactionId: string) => void;
+  onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
 };
 
 export function MessageList({
@@ -23,6 +24,7 @@ export function MessageList({
   manualMaintenanceItems = [],
   onInteractionRespond,
   onInteractionCancel,
+  onReferenceUpload,
 }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
@@ -56,6 +58,7 @@ export function MessageList({
                 turn={turn}
                 onInteractionRespond={onInteractionRespond}
                 onInteractionCancel={onInteractionCancel}
+                onReferenceUpload={onReferenceUpload}
               />
               {manualMaintenanceItems
                 .filter((item) => item.afterTurnId === turn.userMessage.id)
@@ -112,7 +115,8 @@ function ConversationTurnView({
   turn,
   onInteractionRespond,
   onInteractionCancel,
-}: Pick<MessageListProps, 'onInteractionRespond' | 'onInteractionCancel'> & {
+  onReferenceUpload,
+}: Pick<MessageListProps, 'onInteractionRespond' | 'onInteractionCancel' | 'onReferenceUpload'> & {
   turn: ConversationTurn;
 }) {
   const t = useTranslations('workbench');
@@ -126,6 +130,7 @@ function ConversationTurnView({
           expanded={turn.expanded}
           onInteractionRespond={onInteractionRespond}
           onInteractionCancel={onInteractionCancel}
+          onReferenceUpload={onReferenceUpload}
         />
       ) : null}
       {turn.error && !turn.execution?.length ? (

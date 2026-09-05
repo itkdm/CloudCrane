@@ -31,6 +31,8 @@ const config: AgentServiceConfig = {
   modelProvider: undefined,
   modelId: undefined,
   modelAuthPath: undefined,
+  referenceRoot: 'D:/tmp/cloudcrane-references',
+  referenceUploadMaxBytes: 100 * 1024 * 1024,
   modelConfigured: true,
 };
 

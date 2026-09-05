@@ -13,6 +13,12 @@ const configSchema = z.object({
   previewGatewayOriginTemplate: z.string().url().default('http://site-{websiteId}.localhost:4103/'),
   previewSigningSecret: z.string().min(16).default('cloudcrane-preview-dev-secret'),
   previewTokenTtlSeconds: z.coerce.number().int().positive().max(3600).default(600),
+  referenceRoot: z.string().min(1).default('.cloudcrane-data/references'),
+  referenceUploadMaxBytes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100 * 1024 * 1024),
 });
 
 export type AgentServiceConfig = z.infer<typeof configSchema> & {
@@ -33,10 +39,13 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     previewGatewayOriginTemplate: env.PREVIEW_GATEWAY_ORIGIN_TEMPLATE,
     previewSigningSecret: env.PREVIEW_SIGNING_SECRET,
     previewTokenTtlSeconds: env.PREVIEW_TOKEN_TTL_SECONDS,
+    referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
+    referenceUploadMaxBytes: env.REFERENCE_UPLOAD_MAX_BYTES,
   });
   return {
     ...parsed,
     agentDataRoot: path.resolve(parsed.agentDataRoot),
+    referenceRoot: path.resolve(parsed.referenceRoot),
     modelConfigured: Boolean(parsed.modelProvider && parsed.modelId),
   };
 }

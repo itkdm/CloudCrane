@@ -129,15 +129,25 @@ export const sessionSnapshotSchema = z.object({
     .nullable(),
   pendingInteractions: z
     .array(
-      z.object({
-        interactionId: z.string().uuid(),
-        kind: z.literal('question'),
-        toolCallId: z.string(),
-        question: z.string(),
-        options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
-        allowCustom: z.literal(true),
-        createdAt: z.string(),
-      }),
+      z.discriminatedUnion('kind', [
+        z.object({
+          interactionId: z.string().uuid(),
+          kind: z.literal('question'),
+          toolCallId: z.string(),
+          question: z.string(),
+          options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+          allowCustom: z.literal(true),
+          createdAt: z.string(),
+        }),
+        z.object({
+          interactionId: z.string().uuid(),
+          kind: z.literal('reference_upload'),
+          toolCallId: z.string(),
+          accept: z.tuple([z.literal('.zip')]),
+          maxBytes: z.number().int().positive(),
+          createdAt: z.string(),
+        }),
+      ]),
     )
     .default([]),
 });
@@ -278,15 +288,25 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('interaction.requested'),
-    payload: z.object({
-      interactionId: z.string().uuid(),
-      kind: z.literal('question'),
-      toolCallId: z.string(),
-      question: z.string(),
-      options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
-      allowCustom: z.literal(true),
-      createdAt: z.string(),
-    }),
+    payload: z.discriminatedUnion('kind', [
+      z.object({
+        interactionId: z.string().uuid(),
+        kind: z.literal('question'),
+        toolCallId: z.string(),
+        question: z.string(),
+        options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+        allowCustom: z.literal(true),
+        createdAt: z.string(),
+      }),
+      z.object({
+        interactionId: z.string().uuid(),
+        kind: z.literal('reference_upload'),
+        toolCallId: z.string(),
+        accept: z.tuple([z.literal('.zip')]),
+        maxBytes: z.number().int().positive(),
+        createdAt: z.string(),
+      }),
+    ]),
   }),
 ]);
 export type AgentEvent = z.infer<typeof agentEventSchema>;

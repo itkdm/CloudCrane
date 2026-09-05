@@ -38,6 +38,8 @@ import { CLOUDCRANE_SYSTEM_PROMPT } from './system-prompt.js';
 import {
   HumanInteractionBroker,
   type HumanInteractionOption,
+  type HumanInteraction,
+  type ReferenceUploadResult,
   type QuestionInteraction,
   type QuestionResponse,
 } from './human-interaction-broker.js';
@@ -45,7 +47,8 @@ import {
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
 const REMOTE_SKILLS_ROOT = '/workspace/.agents/skills';
-const REMOTE_REFERENCE_ROOT = '/workspace/.cloudcrane/references/template-source';
+const REMOTE_REFERENCE_ROOT = '/workspace/.cloudcrane/references';
+export const REFERENCE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const MAX_TURN_INDEX = 1_000_000;
@@ -147,12 +150,12 @@ export type WebsiteAgentSessionSnapshot = {
   messages: WebsiteAgentMessage[];
   contextMaintenance: ContextMaintenanceState | null;
   activeRun: (RunContext & { status: 'RUNNING' }) | null;
-  pendingInteractions: QuestionInteraction[];
+  pendingInteractions: HumanInteraction[];
 };
 
 export type WebsiteAgentInteractionEvent = {
   type: 'interaction_requested';
-  interaction: QuestionInteraction;
+  interaction: HumanInteraction;
 };
 
 export type WebsiteAgentLifecycleEvent =
@@ -385,6 +388,10 @@ export class WebsiteAgentRuntime {
   private readonly workspaceClient: WorkspaceClient;
   private readonly modelRuntimePromise: Promise<ModelRuntime>;
   private readonly interactionBroker: HumanInteractionBroker;
+
+  get workspaceId(): string {
+    return this.options.workspaceId;
+  }
 
   constructor(private readonly options: WebsiteAgentRuntimeOptions) {
     assertUuid(options.websiteId, 'websiteId');
@@ -805,6 +812,20 @@ export class WebsiteAgentRuntime {
         },
         this.options.websiteId,
       ),
+      reference_upload: createReferenceUploadTool(
+        this.interactionBroker,
+        () => {
+          const run = this.runContext.getStore();
+          return run
+            ? {
+                runId: run.runId,
+                sessionId: record.id,
+                piSessionId: sessionManager.getSessionId(),
+              }
+            : undefined;
+        },
+        this.options.websiteId,
+      ),
     };
     const modelFacingCwdExtension: InlineExtension = {
       name: 'cloudcrane-logical-cwd',
@@ -1012,15 +1033,42 @@ export class WebsiteAgentRuntime {
     for (const listener of this.listeners) listener(payload);
   }
 
-  private emitInteraction(interaction: QuestionInteraction): void {
+  private emitInteraction(interaction: HumanInteraction): void {
     this.listeners.forEach((listener) =>
       listener({
         websiteId: this.options.websiteId,
         websiteSessionId: interaction.sessionId,
-        piSessionId: interaction.piSessionId ?? interaction.sessionId,
+        piSessionId: interaction.piSessionId,
         runId: interaction.runId,
         event: { type: 'interaction_requested', interaction },
       }),
+    );
+  }
+
+  resolveReferenceUpload(
+    interactionId: string,
+    websiteSessionId: string,
+    result: ReferenceUploadResult,
+  ): void {
+    if (
+      !this.interactionBroker.resolveReferenceUpload(
+        interactionId,
+        this.options.websiteId,
+        websiteSessionId,
+        result,
+      )
+    )
+      throw new WebsiteAgentRuntimeError(
+        'INTERACTION_NOT_FOUND',
+        'reference upload interaction is not pending for this session',
+      );
+  }
+
+  isReferenceUploadPending(interactionId: string, websiteSessionId: string): boolean {
+    return this.interactionBroker.isPendingReferenceUpload(
+      interactionId,
+      this.options.websiteId,
+      websiteSessionId,
     );
   }
 
@@ -1113,7 +1161,7 @@ export class WebsiteAgentRuntime {
         files.push({
           path: `${REMOTE_REFERENCE_ROOT}/README.md`,
           content: [
-            'Migration reference is available at `/workspace/.cloudcrane/references/template-source`.',
+            'Uploaded references are available at `/workspace/.cloudcrane/references`.',
             'It is a read-only source snapshot. Analyze it with read-only tools; never write, delete, execute, or deploy it.',
             'The writable target is `/workspace`.',
           ].join('\n'),
@@ -1484,7 +1532,7 @@ function createQuestionTool(
         },
         signal,
       );
-      if (interaction.type === 'cancelled')
+      if ('type' in interaction && interaction.type === 'cancelled')
         return {
           content: [{ type: 'text', text: 'User cancelled the question' }],
           details: { answer: null, wasCustom: false },
@@ -1502,6 +1550,65 @@ function createQuestionTool(
           wasCustom: false,
           optionIndex: interaction.optionIndex,
         },
+      };
+    },
+  };
+}
+
+const referenceUploadParameters = Type.Object({});
+
+function createReferenceUploadTool(
+  broker: HumanInteractionBroker,
+  getContext: () => { runId: string; sessionId: string; piSessionId: string } | undefined,
+  websiteId: string,
+): ToolDefinition<typeof referenceUploadParameters> {
+  return {
+    name: 'reference_upload',
+    label: 'Upload reference template',
+    description:
+      'Ask the user to upload a PbootCMS reference template ZIP only after they explicitly say they have or want to provide one. Never offer or request a template proactively.',
+    promptSnippet: 'request an explicitly offered PbootCMS reference ZIP',
+    promptGuidelines: [
+      'Use only when the user explicitly offers, owns, or asks to upload a PbootCMS reference template or project ZIP.',
+      'Do not use this for ordinary website design requests or to ask whether a template exists.',
+    ],
+    parameters: referenceUploadParameters,
+    executionMode: 'sequential',
+    execute: async (_toolCallId, _params, signal, _onUpdate, context) => {
+      const run = getContext();
+      if (!run) throw new Error('reference_upload requires an active AgentRun');
+      const interaction = await broker.requestReferenceUpload(
+        {
+          kind: 'reference_upload',
+          websiteId,
+          sessionId: run.sessionId,
+          piSessionId: run.piSessionId,
+          runId: run.runId,
+          toolCallId: _toolCallId,
+          accept: ['.zip'],
+          maxBytes: REFERENCE_UPLOAD_MAX_BYTES,
+        },
+        signal,
+      );
+      if ('type' in interaction && interaction.type === 'cancelled')
+        return {
+          content: [{ type: 'text', text: 'User cancelled the reference upload' }],
+          details: { cancelled: true },
+        };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: [
+              'Reference uploaded successfully.',
+              `Reference path: ${(interaction as ReferenceUploadResult).logicalPath}`,
+              'This is a read-only design and implementation reference.',
+              'The writable CloudCrane target remains /workspace.',
+              'Inspect the reference before modifying the target.',
+            ].join('\n'),
+          },
+        ],
+        details: interaction,
       };
     },
   };

@@ -18,6 +18,7 @@ import {
   agentWebSocketUrl,
   command,
   listAgentSessions,
+  uploadReference,
   parseAgentEvent,
   parseAgentMessage,
 } from '@/lib/agent-client';
@@ -188,6 +189,14 @@ export function AgentWorkbenchContent({
       );
     },
     [currentSessionId, sendCommand, websiteId],
+  );
+
+  const uploadReferenceFile = useCallback(
+    async (interactionId: string, file: File) => {
+      if (!currentSessionId) throw new Error('No active session');
+      await uploadReference(websiteId, currentSessionId, interactionId, file);
+    },
+    [currentSessionId, websiteId],
   );
 
   const handlePreviewAccess = useCallback((access: { url: string }) => {
@@ -631,6 +640,7 @@ export function AgentWorkbenchContent({
 
         // Handle command acknowledgment for session titles
         if (projected.event.type === 'command.ack') {
+          pendingInteractionRequestsRef.current.delete(projected.envelope.requestId);
           const pendingTitle = pendingSessionTitlesRef.current.get(projected.envelope.requestId);
           if (pendingTitle) {
             pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
@@ -736,6 +746,7 @@ export function AgentWorkbenchContent({
           onSettingsOpen={onSettingsOpen}
           onInteractionRespond={respondInteraction}
           onInteractionCancel={cancelInteraction}
+          onReferenceUpload={uploadReferenceFile}
         />
         {previewOpen ? (
           <WorkspaceResizeHandle
@@ -1005,8 +1016,15 @@ function handleEvent(
     queueConversation({ type: 'tool.completed', payload: event.payload }, true);
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
   }
-  if (event.type === 'interaction.requested')
-    queueConversation({ type: 'interaction.requested', payload: event.payload }, true);
+  if (event.type === 'interaction.requested') {
+    if ('accept' in event.payload) {
+      const payload = event.payload as Extract<
+        AgentEvent,
+        { type: 'interaction.requested' }
+      >['payload'] & { accept: ['.zip']; maxBytes: number };
+      queueConversation({ type: 'reference_upload.requested', payload }, true);
+    } else queueConversation({ type: 'interaction.requested', payload: event.payload }, true);
+  }
 }
 
 function toWorkbenchError(

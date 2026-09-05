@@ -42,9 +42,16 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         interactionId: lifecycle.interaction.interactionId,
         kind: lifecycle.interaction.kind,
         toolCallId: lifecycle.interaction.toolCallId,
-        question: lifecycle.interaction.question,
-        options: lifecycle.interaction.options,
-        allowCustom: true,
+        ...(lifecycle.interaction.kind === 'question'
+          ? {
+              question: lifecycle.interaction.question,
+              options: lifecycle.interaction.options,
+              allowCustom: true as const,
+            }
+          : {
+              accept: lifecycle.interaction.accept,
+              maxBytes: lifecycle.interaction.maxBytes,
+            }),
         createdAt: lifecycle.interaction.createdAt,
       },
     });

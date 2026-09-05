@@ -15,6 +15,25 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
+  it('restores a pending reference upload without treating it as a question', () => {
+    const state = reduce(
+      user(),
+      {
+        type: 'reference_upload.requested',
+        payload: {
+          interactionId: 'interaction-reference',
+          toolCallId: 'tool-reference',
+          accept: ['.zip'],
+          maxBytes: 100,
+        },
+      },
+    );
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      toolName: 'reference_upload',
+      interaction: { kind: 'reference_upload', status: 'pending', accept: ['.zip'] },
+    });
+  });
+
   it('renders a cancelled question as a terminal state in live and snapshot flows', () => {
     let state = reduce(
       user(),
@@ -22,6 +41,7 @@ describe('conversationReducer turn presentation model', () => {
         type: 'interaction.requested',
         payload: {
           interactionId: 'interaction-1',
+          kind: 'question',
           toolCallId: 'tool-1',
           question: '继续吗？',
           options: [{ label: '继续' }],
@@ -70,6 +90,7 @@ describe('conversationReducer turn presentation model', () => {
       type: 'interaction.requested',
       payload: {
         interactionId: 'interaction-1',
+        kind: 'question',
         toolCallId: 'tool-1',
         question: '继续吗？',
         options: [{ label: '继续' }],
@@ -90,6 +111,7 @@ describe('conversationReducer turn presentation model', () => {
         type: 'interaction.requested',
         payload: {
           interactionId: 'interaction-1',
+          kind: 'question',
           toolCallId: 'tool-1',
           question: '继续吗？',
           options: [{ label: '继续' }],
