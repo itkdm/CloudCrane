@@ -28,6 +28,14 @@ export type ToolExecutionStep = {
   toolInput?: string;
   toolOutput?: string;
   status: 'running' | 'completed' | 'error';
+  interaction?: {
+    interactionId: string;
+    question: string;
+    options: Array<{ label: string; description?: string }>;
+    allowCustom: true;
+    answer?: string;
+    wasCustom?: boolean;
+  };
 };
 
 export type ContextMaintenanceExecutionStep = {

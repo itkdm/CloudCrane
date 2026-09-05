@@ -152,6 +152,33 @@ export function AgentWorkbenchContent({
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
   }, []);
 
+  const respondInteraction = useCallback(
+    (
+      interactionId: string,
+      response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
+    ) => {
+      sendCommand({
+        type: 'interaction.respond',
+        websiteId,
+        sessionId: currentSessionId,
+        payload: { interactionId, response },
+      });
+    },
+    [currentSessionId, sendCommand, websiteId],
+  );
+
+  const cancelInteraction = useCallback(
+    (interactionId: string) => {
+      sendCommand({
+        type: 'interaction.cancel',
+        websiteId,
+        sessionId: currentSessionId,
+        payload: { interactionId },
+      });
+    },
+    [currentSessionId, sendCommand, websiteId],
+  );
+
   const handlePreviewAccess = useCallback((access: { url: string }) => {
     setPreview((current) => ({ ...current, status: 'ready', url: access.url }));
   }, []);
@@ -683,6 +710,8 @@ export function AgentWorkbenchContent({
           previewOpen={previewOpen}
           onPreviewToggle={togglePreview}
           onSettingsOpen={onSettingsOpen}
+          onInteractionRespond={respondInteraction}
+          onInteractionCancel={cancelInteraction}
         />
         {previewOpen ? (
           <WorkspaceResizeHandle
@@ -927,6 +956,7 @@ function handleEvent(
           session: event.payload.session,
           activeRun: event.payload.activeRun,
           contextMaintenance: event.payload.contextMaintenance,
+          pendingInteractions: event.payload.pendingInteractions,
         },
       },
       true,
@@ -951,6 +981,8 @@ function handleEvent(
     queueConversation({ type: 'tool.completed', payload: event.payload }, true);
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
   }
+  if (event.type === 'interaction.requested')
+    queueConversation({ type: 'interaction.requested', payload: event.payload }, true);
 }
 
 function toWorkbenchError(

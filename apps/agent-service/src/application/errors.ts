@@ -7,6 +7,7 @@ export type AgentServiceErrorCode =
   | 'SESSION_BUSY'
   | 'WEBSITE_MUTATION_BUSY'
   | 'CONTEXT_COMPACTION_NOT_NEEDED'
+  | 'INTERACTION_NOT_FOUND'
   | 'MODEL_NOT_CONFIGURED'
   | 'INTERNAL_ERROR';
 
@@ -32,11 +33,16 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
     typeof error === 'object' &&
     ((error as { code?: unknown }).code === 'SESSION_BUSY' ||
       (error as { code?: unknown }).code === 'WEBSITE_MUTATION_BUSY' ||
-      (error as { code?: unknown }).code === 'CONTEXT_COMPACTION_NOT_NEEDED')
+      (error as { code?: unknown }).code === 'CONTEXT_COMPACTION_NOT_NEEDED' ||
+      (error as { code?: unknown }).code === 'INTERACTION_NOT_FOUND')
   ) {
     const code = (
       error as {
-        code: 'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY' | 'CONTEXT_COMPACTION_NOT_NEEDED';
+        code:
+          | 'SESSION_BUSY'
+          | 'WEBSITE_MUTATION_BUSY'
+          | 'CONTEXT_COMPACTION_NOT_NEEDED'
+          | 'INTERACTION_NOT_FOUND';
       }
     ).code;
     return new AgentServiceError(code, error instanceof Error ? error.message : 'session is busy');

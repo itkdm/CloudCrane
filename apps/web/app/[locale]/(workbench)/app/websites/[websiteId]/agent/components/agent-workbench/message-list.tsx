@@ -10,9 +10,20 @@ type MessageListProps = {
   turns: ConversationTurn[];
   onExample: (value: string) => void;
   manualMaintenanceItems?: ManualMaintenanceItem[];
+  onInteractionRespond?: (
+    interactionId: string,
+    response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
+  ) => void;
+  onInteractionCancel?: (interactionId: string) => void;
 };
 
-export function MessageList({ turns, onExample, manualMaintenanceItems = [] }: MessageListProps) {
+export function MessageList({
+  turns,
+  onExample,
+  manualMaintenanceItems = [],
+  onInteractionRespond,
+  onInteractionCancel,
+}: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
   const contentVersion = JSON.stringify({ turns, manualMaintenanceItems });
@@ -41,7 +52,11 @@ export function MessageList({ turns, onExample, manualMaintenanceItems = [] }: M
         ) : (
           turns.map((turn) => (
             <div key={turn.userMessage.id} className="conversation-turn-slot">
-              <ConversationTurnView turn={turn} />
+              <ConversationTurnView
+                turn={turn}
+                onInteractionRespond={onInteractionRespond}
+                onInteractionCancel={onInteractionCancel}
+              />
               {manualMaintenanceItems
                 .filter((item) => item.afterTurnId === turn.userMessage.id)
                 .map((item) => (
@@ -93,13 +108,25 @@ function MaintenanceItem({ item }: { item: ManualMaintenanceItem }) {
   );
 }
 
-function ConversationTurnView({ turn }: { turn: ConversationTurn }) {
+function ConversationTurnView({
+  turn,
+  onInteractionRespond,
+  onInteractionCancel,
+}: Pick<MessageListProps, 'onInteractionRespond' | 'onInteractionCancel'> & {
+  turn: ConversationTurn;
+}) {
   const t = useTranslations('workbench');
   return (
     <article className={`conversation-turn ${turn.status}`}>
       <UserMessage message={turn.userMessage} />
       {turn.execution?.length ? (
-        <ExecutionProcess steps={turn.execution} status={turn.status} expanded={turn.expanded} />
+        <ExecutionProcess
+          steps={turn.execution}
+          status={turn.status}
+          expanded={turn.expanded}
+          onInteractionRespond={onInteractionRespond}
+          onInteractionCancel={onInteractionCancel}
+        />
       ) : null}
       {turn.error && !turn.execution?.length ? (
         <p className="turn-status-message" role="status">

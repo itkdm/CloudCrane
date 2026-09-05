@@ -51,10 +51,17 @@ export const ExecutionProcess = memo(function ExecutionProcess({
   steps,
   status,
   expanded,
+  onInteractionRespond,
+  onInteractionCancel,
 }: {
   steps: ExecutionStep[];
   status: ConversationTurnStatus;
   expanded: boolean;
+  onInteractionRespond?: (
+    interactionId: string,
+    response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
+  ) => void;
+  onInteractionCancel?: (interactionId: string) => void;
 }) {
   const t = useTranslations('workbench');
   const isRunning = status === 'running';
@@ -104,7 +111,20 @@ export const ExecutionProcess = memo(function ExecutionProcess({
                 variant="narrative"
               />
             ) : step.kind === 'tool' ? (
-              <ToolExecution key={step.id} step={step} />
+              step.interaction ? (
+                <QuestionExecution
+                  key={step.id}
+                  step={
+                    step as ToolExecutionStep & {
+                      interaction: NonNullable<ToolExecutionStep['interaction']>;
+                    }
+                  }
+                  onRespond={onInteractionRespond}
+                  onCancel={onInteractionCancel}
+                />
+              ) : (
+                <ToolExecution key={step.id} step={step} />
+              )
             ) : (
               <ContextMaintenanceExecution key={step.id} step={step} />
             ),
@@ -118,6 +138,98 @@ export const ExecutionProcess = memo(function ExecutionProcess({
         </div>
       ) : null}
     </section>
+  );
+});
+
+const QuestionExecution = memo(function QuestionExecution({
+  step,
+  onRespond,
+  onCancel,
+}: {
+  step: ToolExecutionStep & { interaction: NonNullable<ToolExecutionStep['interaction']> };
+  onRespond?: (
+    interactionId: string,
+    response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
+  ) => void;
+  onCancel?: (interactionId: string) => void;
+}) {
+  const interaction = step.interaction;
+  const [selected, setSelected] = useState<number | 'custom'>();
+  const [custom, setCustom] = useState('');
+  const [submitted, setSubmitted] = useState<string>(interaction.answer ?? '');
+  const submitting = Boolean(submitted) || step.status !== 'running';
+  const submit = () => {
+    if (selected === undefined || !onRespond) return;
+    const value = selected === 'custom' ? custom.trim() : interaction.options[selected]?.label;
+    if (!value) return;
+    setSubmitted(value);
+    onRespond(
+      interaction.interactionId,
+      selected === 'custom' ? { type: 'custom', value } : { type: 'option', optionIndex: selected },
+    );
+  };
+  return (
+    <article className="question-execution" aria-live="polite">
+      <p className="question-execution-title">{interaction.question}</p>
+      {submitted ? (
+        <p className="question-execution-answer">✓ 已选择：{submitted}</p>
+      ) : (
+        <>
+          <div className="question-execution-options" role="radiogroup">
+            {interaction.options.map((option, index) => (
+              <button
+                key={option.label}
+                type="button"
+                role="radio"
+                aria-checked={selected === index}
+                disabled={submitting}
+                className={selected === index ? 'selected' : ''}
+                onClick={() => setSelected(index)}
+              >
+                <strong>{option.label}</strong>
+                {option.description ? <span>{option.description}</span> : null}
+              </button>
+            ))}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={selected === 'custom'}
+              disabled={submitting}
+              className={selected === 'custom' ? 'selected' : ''}
+              onClick={() => setSelected('custom')}
+            >
+              <strong>其他</strong>
+            </button>
+          </div>
+          {selected === 'custom' ? (
+            <textarea
+              value={custom}
+              onChange={(event) => setCustom(event.target.value)}
+              placeholder="输入你的答案"
+              disabled={submitting}
+            />
+          ) : null}
+          <div className="question-execution-actions">
+            <button
+              type="button"
+              onClick={() => onCancel?.(interaction.interactionId)}
+              disabled={submitting}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={
+                submitting || selected === undefined || (selected === 'custom' && !custom.trim())
+              }
+            >
+              确认
+            </button>
+          </div>
+        </>
+      )}
+    </article>
   );
 });
 

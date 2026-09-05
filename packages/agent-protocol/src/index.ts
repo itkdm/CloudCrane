@@ -68,6 +68,20 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('preview.response'),
     payload: previewResponsePayloadSchema,
   }),
+  commandBase.extend({
+    type: z.literal('interaction.respond'),
+    payload: z.object({
+      interactionId: z.string().uuid(),
+      response: z.discriminatedUnion('type', [
+        z.object({ type: z.literal('option'), optionIndex: z.number().int().nonnegative() }),
+        z.object({ type: z.literal('custom'), value: z.string().trim().min(1).max(2_000) }),
+      ]),
+    }),
+  }),
+  commandBase.extend({
+    type: z.literal('interaction.cancel'),
+    payload: z.object({ interactionId: z.string().uuid() }),
+  }),
 ]);
 export type AgentCommand = z.infer<typeof agentCommandSchema>;
 
@@ -113,6 +127,19 @@ export const sessionSnapshotSchema = z.object({
       status: z.literal('RUNNING'),
     })
     .nullable(),
+  pendingInteractions: z
+    .array(
+      z.object({
+        interactionId: z.string().uuid(),
+        kind: z.literal('question'),
+        toolCallId: z.string(),
+        question: z.string(),
+        options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+        allowCustom: z.literal(true),
+        createdAt: z.string(),
+      }),
+    )
+    .default([]),
 });
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 
@@ -248,6 +275,18 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('command.error'),
     payload: z.object({ code: z.string(), message: z.string() }),
+  }),
+  z.object({
+    type: z.literal('interaction.requested'),
+    payload: z.object({
+      interactionId: z.string().uuid(),
+      kind: z.literal('question'),
+      toolCallId: z.string(),
+      question: z.string(),
+      options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+      allowCustom: z.literal(true),
+      createdAt: z.string(),
+    }),
   }),
 ]);
 export type AgentEvent = z.infer<typeof agentEventSchema>;

@@ -89,6 +89,7 @@ export function buildAgentServiceApp(
         messages: snapshot.messages,
         contextMaintenance: snapshot.contextMaintenance,
         activeRun: snapshot.activeRun,
+        pendingInteractions: snapshot.pendingInteractions,
       });
     },
   );

@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentWireMessage } from '@cloudcrane/agent-protocol';
 import { createAgentEnvelope } from '@cloudcrane/agent-protocol';
-import type { WebsiteAgentEvent, WebsiteAgentLifecycleEvent } from '@cloudcrane/website-agent';
+import type {
+  WebsiteAgentEvent,
+  WebsiteAgentInteractionEvent,
+  WebsiteAgentLifecycleEvent,
+} from '@cloudcrane/website-agent';
 
 const MAX_SUMMARY_BYTES = 512;
 const MAX_TURN_INDEX = 1_000_000;
@@ -17,7 +21,8 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
     runId: event.runId,
     traceId: event.traceId,
   };
-  const lifecycle = event.event as WebsiteAgentLifecycleEvent | undefined;
+  const lifecycle = event.event as
+    WebsiteAgentLifecycleEvent | WebsiteAgentInteractionEvent | undefined;
   if (lifecycle?.type === 'run_started')
     return createAgentEnvelope({
       ...base,
@@ -27,6 +32,20 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         traceId: lifecycle.traceId,
         ...(lifecycle.previewClientId ? { previewClientId: lifecycle.previewClientId } : {}),
         ...(lifecycle.promptRequestId ? { promptRequestId: lifecycle.promptRequestId } : {}),
+      },
+    });
+  if (lifecycle?.type === 'interaction_requested')
+    return createAgentEnvelope({
+      ...base,
+      type: 'interaction.requested',
+      payload: {
+        interactionId: lifecycle.interaction.interactionId,
+        kind: lifecycle.interaction.kind,
+        toolCallId: lifecycle.interaction.toolCallId,
+        question: lifecycle.interaction.question,
+        options: lifecycle.interaction.options,
+        allowCustom: true,
+        createdAt: lifecycle.interaction.createdAt,
       },
     });
   if (lifecycle?.type === 'run_settled') {

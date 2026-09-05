@@ -38,6 +38,13 @@ export type ConversationEvent =
         session?: unknown;
         activeRun?: unknown;
         contextMaintenance?: ContextMaintenanceSnapshot | null;
+        pendingInteractions?: Array<{
+          interactionId: string;
+          toolCallId: string;
+          question: string;
+          options: Array<{ label: string; description?: string }>;
+          allowCustom: true;
+        }>;
       };
     }
   | { type: 'user.added'; payload: { message: Message } }
@@ -71,6 +78,16 @@ export type ConversationEvent =
   | {
       type: 'tool.completed';
       payload: { toolCallId: string; toolName?: string; output?: string; status: string };
+    }
+  | {
+      type: 'interaction.requested';
+      payload: {
+        interactionId: string;
+        toolCallId: string;
+        question: string;
+        options: Array<{ label: string; description?: string }>;
+        allowCustom: true;
+      };
     };
 
 export function conversationReducer(
@@ -91,10 +108,15 @@ export function conversationReducer(
         ? initialConversationState.manualMaintenanceItems
         : state.manualMaintenanceItems,
     );
-    return restoreSnapshotMaintenance(
+    const restored = restoreSnapshotMaintenance(
       next,
       event.payload.activeRun,
       event.payload.contextMaintenance,
+    );
+    return (event.payload.pendingInteractions ?? []).reduce(
+      (current, interaction) =>
+        conversationReducer(current, { type: 'interaction.requested', payload: interaction }),
+      restored,
     );
   }
 
@@ -196,6 +218,22 @@ export function conversationReducer(
       ...(step?.toolOutput !== undefined ? { toolOutput: step.toolOutput } : {}),
       status: step?.status === 'completed' || step?.status === 'error' ? step.status : 'running',
     }));
+  if (event.type === 'interaction.requested')
+    return updateTool(state, event.payload.toolCallId, (step) => ({
+      kind: 'tool',
+      id: event.payload.toolCallId,
+      toolCallId: event.payload.toolCallId,
+      toolName: step?.toolName ?? 'question',
+      ...(step?.toolInput !== undefined ? { toolInput: step.toolInput } : {}),
+      ...(step?.toolOutput !== undefined ? { toolOutput: step.toolOutput } : {}),
+      status: 'running',
+      interaction: {
+        interactionId: event.payload.interactionId,
+        question: event.payload.question,
+        options: event.payload.options,
+        allowCustom: true,
+      },
+    }));
   if (event.type === 'tool.updated')
     return updateTool(state, event.payload.toolCallId, (step) => {
       if (step && step.status !== 'running') return step;
@@ -208,6 +246,7 @@ export function conversationReducer(
         ...(event.payload.output !== undefined || step?.toolOutput !== undefined
           ? { toolOutput: boundText(event.payload.output ?? step?.toolOutput) }
           : {}),
+        ...(step?.interaction ? { interaction: step.interaction } : {}),
         status: 'running',
       };
     });
@@ -221,6 +260,7 @@ export function conversationReducer(
     ...(event.payload.output !== undefined || step?.toolOutput !== undefined
       ? { toolOutput: boundText(event.payload.output ?? step?.toolOutput) }
       : {}),
+    ...(step?.interaction ? { interaction: step.interaction } : {}),
     status:
       step?.status === 'completed' || step?.status === 'error'
         ? step.status
@@ -478,8 +518,13 @@ function snapshotTurn(
       );
       if (existing) {
         existing.toolName ??= message.toolName;
+        if (message.input) existing.toolInput ??= boundText(message.input);
         if (message.output || message.text)
           existing.toolOutput = boundText(message.output ?? message.text);
+        if (existing.interaction) {
+          const answer = questionAnswerFromOutput(message.output ?? message.text ?? '');
+          if (answer) existing.interaction = { ...existing.interaction, ...answer };
+        }
         existing.status = normalizeToolStatus(message.status);
       } else
         execution.push({
@@ -487,7 +532,9 @@ function snapshotTurn(
           id: message.toolCallId,
           toolCallId: message.toolCallId,
           ...(message.toolName ? { toolName: message.toolName } : {}),
+          ...(message.input ? { toolInput: boundText(message.input) } : {}),
           ...(message.text ? { toolOutput: boundText(message.text) } : {}),
+          ...(message.toolName === 'question' ? questionFromSnapshot(message) : {}),
           status: normalizeToolStatus(message.status),
         });
     }
@@ -504,6 +551,49 @@ function snapshotTurn(
     ...(noFinal ? { error: 'Snapshot has no final answer' } : {}),
     expanded: active,
   };
+}
+
+function questionFromSnapshot(message: SnapshotMessage): Pick<ToolExecutionStep, 'interaction'> {
+  if (!message.input) return {};
+  try {
+    const value = JSON.parse(message.input) as {
+      question?: unknown;
+      options?: unknown;
+    };
+    if (typeof value.question !== 'string' || !Array.isArray(value.options)) return {};
+    const options = value.options.filter(
+      (option): option is { label: string; description?: string } =>
+        Boolean(
+          option &&
+          typeof option === 'object' &&
+          typeof (option as { label?: unknown }).label === 'string',
+        ),
+    );
+    if (!options.length) return {};
+    return {
+      interaction: {
+        interactionId: `history:${message.toolCallId}`,
+        question: value.question,
+        options,
+        allowCustom: true,
+        ...(message.output?.startsWith('User provided:')
+          ? { answer: message.output.slice('User provided:'.length).trim(), wasCustom: true }
+          : {}),
+      },
+    };
+  } catch {
+    return {};
+  }
+}
+
+function questionAnswerFromOutput(
+  value: string,
+): Pick<NonNullable<ToolExecutionStep['interaction']>, 'answer' | 'wasCustom'> | undefined {
+  const custom = value.match(/^User provided:\s*(.+)$/s);
+  if (custom?.[1]) return { answer: custom[1].trim(), wasCustom: true };
+  const selected = value.match(/^User selected:\s*(?:\d+\.\s*)?(.+)$/s);
+  if (selected?.[1]) return { answer: selected[1].trim(), wasCustom: false };
+  return undefined;
 }
 
 function mergeSnapshotTurns(

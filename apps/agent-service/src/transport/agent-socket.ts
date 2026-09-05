@@ -156,6 +156,7 @@ class AgentSocketConnection {
         messages: snapshot.messages,
         contextMaintenance: snapshot.contextMaintenance,
         activeRun: snapshot.activeRun,
+        pendingInteractions: snapshot.pendingInteractions,
       });
       return;
     }
@@ -213,6 +214,20 @@ class AgentSocketConnection {
     this.requireAttached(command);
     const runtime = this.runtime!;
     const sessionId = this.sessionId!;
+    if (command.type === 'interaction.respond') {
+      runtime.respondInteraction(
+        command.payload.interactionId,
+        sessionId,
+        command.payload.response,
+      );
+      this.ack(command);
+      return;
+    }
+    if (command.type === 'interaction.cancel') {
+      runtime.cancelInteraction(command.payload.interactionId, sessionId);
+      this.ack(command);
+      return;
+    }
     if (command.type === 'agent.prompt') {
       if (!this.options.config.modelConfigured)
         throw new AgentServiceError('MODEL_NOT_CONFIGURED', 'agent model is not configured', 503);

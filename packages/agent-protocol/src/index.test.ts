@@ -92,4 +92,46 @@ describe('agent protocol', () => {
       }),
     ).toThrow();
   });
+
+  it('validates question interaction commands and events', () => {
+    const command = agentCommandSchema.parse({
+      type: 'interaction.respond',
+      requestId: 'interaction-1',
+      websiteId,
+      sessionId,
+      timestamp: new Date(),
+      payload: {
+        interactionId: '00000000-0000-4000-8000-000000000003',
+        response: { type: 'option', optionIndex: 0 },
+      },
+    });
+    expect(command.type).toBe('interaction.respond');
+    expect(() =>
+      agentCommandSchema.parse({
+        type: 'interaction.respond',
+        requestId: 'bad',
+        websiteId,
+        sessionId,
+        timestamp: new Date(),
+        payload: {
+          interactionId: '00000000-0000-4000-8000-000000000003',
+          response: { type: 'custom', value: '' },
+        },
+      }),
+    ).toThrow();
+    expect(
+      agentEventSchema.parse({
+        type: 'interaction.requested',
+        payload: {
+          interactionId: '00000000-0000-4000-8000-000000000003',
+          kind: 'question',
+          toolCallId: 'call-1',
+          question: 'Choose',
+          options: [{ label: 'A' }],
+          allowCustom: true,
+          createdAt: new Date().toISOString(),
+        },
+      }).type,
+    ).toBe('interaction.requested');
+  });
 });

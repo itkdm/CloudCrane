@@ -18,6 +18,7 @@ import {
   type CreateAgentSessionRuntimeFactory,
 } from '@earendil-works/pi-coding-agent';
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { Type } from 'typebox';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
 import { createLogger } from '@cloudcrane/shared';
 import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
@@ -34,6 +35,12 @@ import {
   type PreviewObservationProvider,
 } from './preview.js';
 import { CLOUDCRANE_SYSTEM_PROMPT } from './system-prompt.js';
+import {
+  HumanInteractionBroker,
+  type HumanInteractionOption,
+  type QuestionInteraction,
+  type QuestionResponse,
+} from './human-interaction-broker.js';
 
 const LOGICAL_CWD = '/workspace';
 const REMOTE_AGENTS_MAX_BYTES = 65_536;
@@ -140,6 +147,12 @@ export type WebsiteAgentSessionSnapshot = {
   messages: WebsiteAgentMessage[];
   contextMaintenance: ContextMaintenanceState | null;
   activeRun: (RunContext & { status: 'RUNNING' }) | null;
+  pendingInteractions: QuestionInteraction[];
+};
+
+export type WebsiteAgentInteractionEvent = {
+  type: 'interaction_requested';
+  interaction: QuestionInteraction;
 };
 
 export type WebsiteAgentLifecycleEvent =
@@ -172,7 +185,11 @@ export type WebsiteAgentEvent = {
   traceId?: string;
   turnIndex?: number;
   turnId?: string;
-  event: AgentSessionEvent | WebsiteAgentLifecycleEvent | WebsiteAgentCompactionEvent;
+  event:
+    | AgentSessionEvent
+    | WebsiteAgentLifecycleEvent
+    | WebsiteAgentCompactionEvent
+    | WebsiteAgentInteractionEvent;
 };
 
 type RunContext = {
@@ -193,7 +210,10 @@ type RemoteAgentResources = {
 export class WebsiteAgentRuntimeError extends Error {
   constructor(
     public readonly code:
-      'SESSION_BUSY' | 'WEBSITE_MUTATION_BUSY' | 'CONTEXT_COMPACTION_NOT_NEEDED',
+      | 'SESSION_BUSY'
+      | 'WEBSITE_MUTATION_BUSY'
+      | 'CONTEXT_COMPACTION_NOT_NEEDED'
+      | 'INTERACTION_NOT_FOUND',
     message: string,
   ) {
     super(message);
@@ -364,6 +384,7 @@ export class WebsiteAgentRuntime {
   private readonly baseContext: WorkspaceClientContext;
   private readonly workspaceClient: WorkspaceClient;
   private readonly modelRuntimePromise: Promise<ModelRuntime>;
+  private readonly interactionBroker: HumanInteractionBroker;
 
   constructor(private readonly options: WebsiteAgentRuntimeOptions) {
     assertUuid(options.websiteId, 'websiteId');
@@ -389,6 +410,9 @@ export class WebsiteAgentRuntime {
           allowModelNetwork: false,
           refreshOnCreate: false,
         });
+    this.interactionBroker = new HumanInteractionBroker((interaction) => {
+      this.emitInteraction(interaction);
+    });
   }
 
   subscribe(listener: (event: WebsiteAgentEvent) => void): () => void {
@@ -452,7 +476,38 @@ export class WebsiteAgentRuntime {
             status: 'RUNNING',
           }
         : null,
+      pendingInteractions: this.interactionBroker.listPending(
+        this.options.websiteId,
+        managed.websiteSessionId,
+      ),
     };
+  }
+
+  respondInteraction(
+    interactionId: string,
+    websiteSessionId: string,
+    response: QuestionResponse,
+  ): void {
+    if (
+      !this.interactionBroker.respond(
+        interactionId,
+        this.options.websiteId,
+        websiteSessionId,
+        response,
+      )
+    )
+      throw new WebsiteAgentRuntimeError(
+        'INTERACTION_NOT_FOUND',
+        'interaction is not pending for this session',
+      );
+  }
+
+  cancelInteraction(interactionId: string, websiteSessionId: string): void {
+    if (!this.interactionBroker.cancel(interactionId, this.options.websiteId, websiteSessionId))
+      throw new WebsiteAgentRuntimeError(
+        'INTERACTION_NOT_FOUND',
+        'interaction is not pending for this session',
+      );
   }
 
   async prompt(
@@ -672,6 +727,7 @@ export class WebsiteAgentRuntime {
   }
 
   async shutdown(): Promise<void> {
+    this.interactionBroker.cancelAll();
     await this.disposeAll();
   }
 
@@ -734,6 +790,14 @@ export class WebsiteAgentRuntime {
         rawTools.bash as unknown as ToolDefinition,
         this.options.websiteId,
         () => this.runContext.getStore(),
+      ),
+      question: createQuestionTool(
+        this.interactionBroker,
+        () => {
+          const run = this.runContext.getStore();
+          return run ? { runId: run.runId, sessionId: record.id } : undefined;
+        },
+        this.options.websiteId,
       ),
     };
     const modelFacingCwdExtension: InlineExtension = {
@@ -940,6 +1004,18 @@ export class WebsiteAgentRuntime {
       event,
     };
     for (const listener of this.listeners) listener(payload);
+  }
+
+  private emitInteraction(interaction: QuestionInteraction): void {
+    this.listeners.forEach((listener) =>
+      listener({
+        websiteId: this.options.websiteId,
+        websiteSessionId: interaction.sessionId,
+        piSessionId: interaction.sessionId,
+        runId: interaction.runId,
+        event: { type: 'interaction_requested', interaction },
+      }),
+    );
   }
 
   private emitLifecycle(managed: ManagedSession, event: WebsiteAgentLifecycleEvent): void {
@@ -1355,6 +1431,73 @@ function projectSessionHistory(entries: readonly unknown[]): WebsiteAgentMessage
     return message ? [message] : [];
   });
   return projectMessages(messages);
+}
+
+const questionParameters = Type.Object({
+  question: Type.String({ minLength: 1, maxLength: 1_000 }),
+  options: Type.Array(
+    Type.Object({
+      label: Type.String({ minLength: 1, maxLength: 200 }),
+      description: Type.Optional(Type.String({ maxLength: 500 })),
+    }),
+    { minItems: 1, maxItems: 8 },
+  ),
+});
+
+function createQuestionTool(
+  broker: HumanInteractionBroker,
+  getContext: () => { runId: string; sessionId: string } | undefined,
+  websiteId: string,
+): ToolDefinition<typeof questionParameters> {
+  return {
+    name: 'question',
+    label: 'Question',
+    description:
+      'Ask the user for a decision only when continuing genuinely requires their choice. Do not use this for decisions you can reasonably make yourself.',
+    promptSnippet: 'ask the user for a necessary choice',
+    promptGuidelines: [
+      'Use question only when a real user decision is required to continue.',
+      'Do not ask questions whose answer is already clear from the user request or workspace.',
+    ],
+    parameters: questionParameters,
+    executionMode: 'sequential',
+    execute: async (toolCallId, params, signal) => {
+      const context = getContext();
+      if (!context) throw new Error('question requires an active AgentRun');
+      const interaction = await broker.requestQuestion(
+        {
+          kind: 'question',
+          websiteId,
+          sessionId: context.sessionId,
+          runId: context.runId,
+          toolCallId,
+          question: params.question,
+          options: params.options as HumanInteractionOption[],
+          allowCustom: true,
+        },
+        signal,
+      );
+      if (interaction.type === 'cancelled')
+        return {
+          content: [{ type: 'text', text: 'User cancelled the question' }],
+          details: { answer: null, wasCustom: false },
+        };
+      if (interaction.type === 'custom')
+        return {
+          content: [{ type: 'text', text: `User provided: ${interaction.value}` }],
+          details: { answer: interaction.value, wasCustom: true },
+        };
+      const option = params.options[interaction.optionIndex];
+      return {
+        content: [{ type: 'text', text: `User selected: ${option?.label ?? 'unknown'}` }],
+        details: {
+          answer: option?.label ?? '',
+          wasCustom: false,
+          optionIndex: interaction.optionIndex,
+        },
+      };
+    },
+  };
 }
 
 function extractMessageText(content: unknown): string {

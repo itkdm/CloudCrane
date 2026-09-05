@@ -18,6 +18,11 @@ type ChatPanelProps = {
   previewOpen?: boolean;
   onPreviewToggle?: () => void;
   onSettingsOpen?: () => void;
+  onInteractionRespond?: (
+    interactionId: string,
+    response: { type: 'option'; optionIndex: number } | { type: 'custom'; value: string },
+  ) => void;
+  onInteractionCancel?: (interactionId: string) => void;
   manualMaintenanceItems?: ManualMaintenanceItem[];
   manualMaintenanceRunning?: boolean;
   onCompact?: () => void;
@@ -37,6 +42,8 @@ export function ChatPanel({
   previewOpen,
   onPreviewToggle,
   onSettingsOpen,
+  onInteractionRespond,
+  onInteractionCancel,
   manualMaintenanceItems = [],
   manualMaintenanceRunning = false,
   onCompact,
@@ -102,6 +109,8 @@ export function ChatPanel({
         turns={turns}
         onExample={onExample}
         manualMaintenanceItems={manualMaintenanceItems}
+        onInteractionRespond={onInteractionRespond}
+        onInteractionCancel={onInteractionCancel}
       />
       <Composer
         draft={draft}
