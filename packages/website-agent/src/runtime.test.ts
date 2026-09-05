@@ -456,7 +456,7 @@ describe('WebsiteAgentRuntime', () => {
     await runtime.prompt(session.id, 'design the page');
     const firstPrompt = await runtime.getSystemPrompt(session.id);
     expect(firstPrompt).toContain('Use dark green buttons and verify Preview.');
-    expect(firstPrompt).toContain('/workspace/.agents/skills/frontend-design/SKILL.md');
+    expect(firstPrompt).toMatch(/\/workspace\/\.agents\/skills[\\/]frontend-design[\\/]SKILL\.md/);
     expect(firstPrompt).toContain('Migration reference is available');
     expect(firstPrompt).toContain(referenceRoot);
     expect(firstPrompt).toContain('The writable target is `/workspace`.');

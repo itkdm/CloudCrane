@@ -21,7 +21,7 @@ export async function GET() {
       },
     ];
     return NextResponse.json(sessions);
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: { message: '获取会话列表失败' } },
       { status: 500 }

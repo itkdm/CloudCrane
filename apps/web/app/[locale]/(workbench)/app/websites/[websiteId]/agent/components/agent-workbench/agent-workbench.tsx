@@ -52,7 +52,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     initialConversationState,
   );
   const [draft, setDraft] = useState('');
-  const [connection, setConnection] = useState('connecting');
   const [runId, setRunIdState] = useState<string>();
   const [error, setError] = useState<string>();
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
@@ -277,13 +276,11 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       socket.current = ws;
       ws.onopen = () => {
         if (disposed || socket.current !== ws) return;
-        setConnection('connected');
         sendCommand({ type: 'session.attach', websiteId, payload: { sessionId } });
         registerPreviewClient();
       };
       ws.onclose = () => {
         if (disposed) return;
-        setConnection('reconnecting');
         retryTimer = setTimeout(connect, 1500);
       };
       ws.onerror = () => {
