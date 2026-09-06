@@ -12,15 +12,23 @@ const referenceFile = (workspaceId: string) =>
   `/workspace/.cloudcrane/references/ref_A/template/demo/${workspaceId}.html`;
 
 async function initialize(client: WorkspaceDaemonClient, executionId: string): Promise<void> {
-  const result = await client.exec({
-    command: 'cloudcrane-init-pboot',
-    args: [],
-    cwd: '/workspace',
-    env: {},
-    timeoutMs: 120_000,
-    maxOutputBytes: 8_192,
-    executionId,
-  });
+  let result;
+  try {
+    result = await client.exec({
+      command: 'cloudcrane-init-pboot',
+      args: [],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 120_000,
+      maxOutputBytes: 8_192,
+      executionId,
+    });
+  } catch (error) {
+    throw new Error(
+      `Pboot bootstrap failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
   expect(result, result.stderr || result.stdout).toMatchObject({ exitCode: 0 });
 }
 
