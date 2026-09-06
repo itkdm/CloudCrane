@@ -16,6 +16,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     this.assertWorkspaceId(workspaceId);
     const persistentPath = this.persistentPath(workspaceId);
     await mkdir(persistentPath, { recursive: true });
+    await mkdir(`${persistentPath}/.cloudcrane`, { recursive: true });
     await this.provisionWorkspaceOwnership(persistentPath, workspaceId);
     const referencePath = await this.referencePath(workspaceId);
     const network = await this.docker.createNetwork({
