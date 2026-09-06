@@ -104,6 +104,7 @@ describe('conversationReducer turn presentation model', () => {
           {
             id: 'tool-reference',
             role: 'tool',
+            text: output,
             toolCallId: 'tool-reference',
             toolName: 'reference_upload',
             output,
@@ -112,9 +113,12 @@ describe('conversationReducer turn presentation model', () => {
         ],
       },
     });
-    expect(snapshot.turns[0]?.execution?.[0]?.interaction).toMatchObject(
-      live.turns[0]?.execution?.[0]?.interaction ?? {},
-    );
+    const liveStep = live.turns[0]?.execution?.[0];
+    const snapshotStep = snapshot.turns[0]?.execution?.[0];
+    expect(liveStep?.kind).toBe('tool');
+    expect(snapshotStep?.kind).toBe('tool');
+    if (liveStep?.kind !== 'tool' || snapshotStep?.kind !== 'tool') return;
+    expect(snapshotStep.interaction).toMatchObject(liveStep.interaction ?? {});
   });
 
   it('renders a cancelled question as a terminal state in live and snapshot flows', () => {
