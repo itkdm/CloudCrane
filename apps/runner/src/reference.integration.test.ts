@@ -42,6 +42,14 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
       runtimes.push(workspaceA);
       const runtimeB = await provider.create(workspaceB);
       runtimes.push(workspaceB);
+      const containerA = await docker.getContainer(runtimeA.containerRef!).inspect();
+      expect(containerA.HostConfig?.Binds).toContain(
+        `${path.join(referenceRoot, workspaceA)}:/workspace/.cloudcrane/references:ro`,
+      );
+      const clientA = new WorkspaceDaemonClient(runtimeA.endpoint!, 10_000);
+      const clientB = new WorkspaceDaemonClient(runtimeB.endpoint!, 10_000);
+      await initialize(clientA, '00000000-0000-4000-8000-000000000034');
+      await initialize(clientB, '00000000-0000-4000-8000-000000000035');
       for (const [workspaceId, marker] of [
         [workspaceA, 'REFERENCE_A'],
         [workspaceB, 'REFERENCE_B'],
@@ -55,14 +63,6 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
         );
         await writeFile(path.join(reference, 'skin/css/site.css'), 'body{}');
       }
-      const containerA = await docker.getContainer(runtimeA.containerRef!).inspect();
-      expect(containerA.HostConfig?.Binds).toContain(
-        `${path.join(referenceRoot, workspaceA)}:/workspace/.cloudcrane/references:ro`,
-      );
-      const clientA = new WorkspaceDaemonClient(runtimeA.endpoint!, 10_000);
-      const clientB = new WorkspaceDaemonClient(runtimeB.endpoint!, 10_000);
-      await initialize(clientA, '00000000-0000-4000-8000-000000000034');
-      await initialize(clientB, '00000000-0000-4000-8000-000000000035');
       for (const [client, workspaceId, marker, executionId] of [
         [clientA, workspaceA, 'REFERENCE_A', '00000000-0000-4000-8000-000000000036'],
         [clientB, workspaceB, 'REFERENCE_B', '00000000-0000-4000-8000-000000000037'],
@@ -146,6 +146,8 @@ describe.skipIf(!enabled)('read-only Pboot template reference', () => {
         executionId: '00000000-0000-4000-8000-000000000041',
       });
       expect(status).toMatchObject({ exitCode: 0, stdout: '' });
+      const containerAAfter = await docker.getContainer(runtimeA.containerRef!).inspect();
+      expect(containerAAfter.Id).toBe(containerA.Id);
     } finally {
       for (const workspaceId of runtimes)
         await provider.destroyRuntime(workspaceId).catch(() => undefined);
