@@ -36,7 +36,7 @@ export type ReferenceUploadInteraction = {
   kind: 'reference_upload';
   interactionId: string;
   accept: ['.zip'];
-  maxBytes: number;
+  maxBytes?: number;
   status?: 'pending' | 'uploading' | 'completed' | 'cancelled';
   error?: string;
   referenceId?: string;

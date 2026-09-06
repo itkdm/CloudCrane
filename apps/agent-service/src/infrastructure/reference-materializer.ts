@@ -8,7 +8,7 @@ import unzipper from 'unzipper';
 
 export const REFERENCE_EXPANDED_MAX_BYTES = 500 * 1024 * 1024;
 export const REFERENCE_FILE_COUNT_MAX = 20_000;
-export const REFERENCE_FILE_MAX_BYTES = 100 * 1024 * 1024;
+export const REFERENCE_EXTRACTED_FILE_MAX_BYTES = 100 * 1024 * 1024;
 
 export type MaterializedReference = {
   referenceId: string;
@@ -25,10 +25,11 @@ export async function materializeReference(input: {
   originalFilename: string;
   sha256: string;
   size: number;
+  archiveMaxBytes: number;
 }): Promise<MaterializedReference> {
   if (!input.originalFilename.toLowerCase().endsWith('.zip'))
     throw new ReferenceMaterializationError('ZIP file required', 400);
-  if (input.size > REFERENCE_FILE_MAX_BYTES)
+  if (input.size > input.archiveMaxBytes)
     throw new ReferenceMaterializationError('Reference upload is too large', 413);
   const handle = await open(input.archivePath, 'r');
   const signature = Buffer.alloc(4);
@@ -56,7 +57,7 @@ export async function materializeReference(input: {
       if (!relative || (entry.type as string) === 'SymbolicLink')
         throw new ReferenceMaterializationError('ZIP contains an unsafe entry', 422);
       const uncompressed = Number(entry.uncompressedSize ?? 0);
-      if (!Number.isSafeInteger(uncompressed) || uncompressed > REFERENCE_FILE_MAX_BYTES)
+      if (!Number.isSafeInteger(uncompressed) || uncompressed > REFERENCE_EXTRACTED_FILE_MAX_BYTES)
         throw new ReferenceMaterializationError('ZIP contains an oversized file', 422);
       expanded += uncompressed;
       if (expanded > REFERENCE_EXPANDED_MAX_BYTES)
@@ -68,7 +69,7 @@ export async function materializeReference(input: {
         transform(chunk, _encoding, callback) {
           actualFileBytes += chunk.length;
           actualExpanded += chunk.length;
-          if (actualFileBytes > REFERENCE_FILE_MAX_BYTES)
+          if (actualFileBytes > REFERENCE_EXTRACTED_FILE_MAX_BYTES)
             return callback(new ReferenceMaterializationError('Expanded file is too large', 422));
           if (actualExpanded > REFERENCE_EXPANDED_MAX_BYTES)
             return callback(new ReferenceMaterializationError('Expanded ZIP is too large', 422));

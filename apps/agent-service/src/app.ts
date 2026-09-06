@@ -107,6 +107,7 @@ export function buildAgentServiceApp(
             originalFilename: part.filename,
             sha256: hash.digest('hex'),
             size,
+            archiveMaxBytes: options.config.referenceUploadMaxBytes,
           });
           try {
             runtime.resolveReferenceUpload(

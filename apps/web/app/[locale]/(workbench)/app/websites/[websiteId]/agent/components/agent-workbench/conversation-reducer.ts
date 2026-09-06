@@ -329,7 +329,7 @@ export function conversationReducer(
           interaction:
             step.interaction.kind === 'question'
               ? applyQuestionCompletion(step.interaction, event.payload.output)
-              : { ...step.interaction, status: 'completed' as const },
+              : applyReferenceUploadCompletion(step.interaction, event.payload.output),
         }
       : {}),
     status:
@@ -683,6 +683,13 @@ function applyQuestionCompletion(
   return answer ? { ...interaction, ...answer } : { ...interaction, status: 'cancelled' };
 }
 
+function applyReferenceUploadCompletion(
+  interaction: ReferenceUploadInteraction,
+  output?: string,
+): ReferenceUploadInteraction {
+  return { ...interaction, ...referenceUploadResultFromOutput(output ?? '') };
+}
+
 function referenceUploadFromSnapshot(
   message: SnapshotMessage,
 ): Pick<ToolExecutionStep, 'interaction'> {
@@ -692,7 +699,6 @@ function referenceUploadFromSnapshot(
       kind: 'reference_upload',
       interactionId: `history:${message.toolCallId}`,
       accept: ['.zip'],
-      maxBytes: 100 * 1024 * 1024,
       ...result,
     },
   };

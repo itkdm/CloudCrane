@@ -16,7 +16,66 @@ const user = (id = 'user-1'): ConversationEvent => ({
 
 describe('conversationReducer turn presentation model', () => {
   it('restores a pending reference upload without treating it as a question', () => {
-    const state = reduce(
+    const state = reduce(user(), {
+      type: 'reference_upload.requested',
+      payload: {
+        interactionId: 'interaction-reference',
+        toolCallId: 'tool-reference',
+        accept: ['.zip'],
+        maxBytes: 100,
+      },
+    });
+    expect(state.turns[0]?.execution?.[0]).toMatchObject({
+      toolName: 'reference_upload',
+      interaction: { kind: 'reference_upload', status: 'pending', accept: ['.zip'] },
+    });
+  });
+
+  it.each([
+    ['cancelled', 'User cancelled the reference upload', { status: 'cancelled' }],
+    [
+      'completed',
+      'Reference uploaded successfully.\nCLOUDCRANE_REFERENCE_RESULT {"referenceId":"ref-1","name":"site.zip","logicalPath":"/workspace/.cloudcrane/references/ref-1"}',
+      {
+        status: 'completed',
+        referenceId: 'ref-1',
+        name: 'site.zip',
+        logicalPath: '/workspace/.cloudcrane/references/ref-1',
+      },
+    ],
+    ['unknown', 'unexpected output', { status: 'pending' }],
+  ])(
+    'maps live reference upload %s output without conflating tool completion',
+    (_label, output, expected) => {
+      const state = reduce(
+        user(),
+        {
+          type: 'reference_upload.requested',
+          payload: {
+            interactionId: 'interaction-reference',
+            toolCallId: 'tool-reference',
+            accept: ['.zip'],
+            maxBytes: 100,
+          },
+        },
+        {
+          type: 'tool.completed',
+          payload: {
+            toolCallId: 'tool-reference',
+            toolName: 'reference_upload',
+            output,
+            status: 'completed',
+          },
+        },
+      );
+      expect(state.turns[0]?.execution?.[0]).toMatchObject({ interaction: expected });
+    },
+  );
+
+  it('keeps live and snapshot reference upload completion semantics equivalent', () => {
+    const output =
+      'Reference uploaded successfully.\nCLOUDCRANE_REFERENCE_RESULT {"referenceId":"ref-1","name":"site.zip","logicalPath":"/workspace/.cloudcrane/references/ref-1"}';
+    const live = reduce(
       user(),
       {
         type: 'reference_upload.requested',
@@ -27,11 +86,35 @@ describe('conversationReducer turn presentation model', () => {
           maxBytes: 100,
         },
       },
+      {
+        type: 'tool.completed',
+        payload: {
+          toolCallId: 'tool-reference',
+          toolName: 'reference_upload',
+          output,
+          status: 'completed',
+        },
+      },
     );
-    expect(state.turns[0]?.execution?.[0]).toMatchObject({
-      toolName: 'reference_upload',
-      interaction: { kind: 'reference_upload', status: 'pending', accept: ['.zip'] },
+    const snapshot = conversationReducer(live, {
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'user-1', role: 'user', text: '请修改首页' },
+          {
+            id: 'tool-reference',
+            role: 'tool',
+            toolCallId: 'tool-reference',
+            toolName: 'reference_upload',
+            output,
+            status: 'completed',
+          },
+        ],
+      },
     });
+    expect(snapshot.turns[0]?.execution?.[0]?.interaction).toMatchObject(
+      live.turns[0]?.execution?.[0]?.interaction ?? {},
+    );
   });
 
   it('renders a cancelled question as a terminal state in live and snapshot flows', () => {

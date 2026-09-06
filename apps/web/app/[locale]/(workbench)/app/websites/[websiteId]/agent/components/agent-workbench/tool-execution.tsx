@@ -217,7 +217,7 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
               const next = event.target.files?.[0];
               setFile(next);
               setUploadError(
-                next && next.size > interaction.maxBytes
+                next && interaction.maxBytes !== undefined && next.size > interaction.maxBytes
                   ? t('referenceUploadTooLarge', {
                       size: Math.round(interaction.maxBytes / 1024 / 1024),
                     })
