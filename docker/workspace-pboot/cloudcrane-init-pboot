@@ -25,11 +25,6 @@ if [ -e "$workspace/.cloudcrane" ]; then
   fi
   if [ -e "$workspace/.cloudcrane/references" ]; then
     test -d "$workspace/.cloudcrane/references"
-    if find "$workspace/.cloudcrane/references" -mindepth 1 -maxdepth 1 ! -name template-source -print -quit | grep -q .; then
-      echo 'workspace contains unexpected reference content' >&2
-      exit 20
-    fi
-    test -d "$workspace/.cloudcrane/references/template-source"
   fi
 elif find "$workspace" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   echo 'workspace is non-empty and has no CloudCrane initialization marker' >&2
@@ -54,7 +49,7 @@ cat > "$workspace/AGENTS.md" <<'EOF'
    - Never modify or bypass PbootCMS authorization code or authorization verification.
    - If authorization is missing, use the CloudCrane authorization flow.
 - SQLite 是网站数据，不作为普通 Git Code Change 处理。
-- If `/workspace/.cloudcrane/references/template-source` exists, it is a READ-ONLY reference snapshot. Analyze it with read, ls, find, rg, cat, and read-only SQLite inspection; never write, delete, execute, or deploy it. `/workspace` remains the only writable target.
+- If `/workspace/.cloudcrane/references/<referenceId>` exists, it is a READ-ONLY reference snapshot. Analyze it with read, ls, find, rg, cat, and read-only SQLite inspection; never write, delete, execute, or deploy it. `/workspace` remains the only writable target.
 - Treat the reference as a source to understand and rebuild the site in the managed PbootCMS runtime; never copy its core, apps, authorization, administrator, runtime, or system state wholesale.
 EOF
 
