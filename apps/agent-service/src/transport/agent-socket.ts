@@ -58,8 +58,7 @@ export class AgentSocketTransport {
   ) {
     if (!this.options.auth || !this.options.db) {
       this.server.handleUpgrade(request, socket, head, (ws) => {
-        let connection!: AgentSocketConnection;
-        connection = new AgentSocketConnection(ws, this.options, undefined, undefined, () =>
+        const connection = new AgentSocketConnection(ws, this.options, undefined, undefined, () =>
           this.connections.delete(connection),
         );
         this.connections.add(connection);
@@ -75,8 +74,7 @@ export class AgentSocketTransport {
       return;
     }
     this.server.handleUpgrade(request, socket, head, (ws) => {
-      let connection!: AgentSocketConnection;
-      connection = new AgentSocketConnection(
+      const connection = new AgentSocketConnection(
         ws,
         this.options,
         session.user.id,
