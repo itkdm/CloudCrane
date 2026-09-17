@@ -20,7 +20,7 @@
 
 页面保护只负责用户体验，API、Agent REST 和 Agent WS 是最终安全边界。Cookie 写入的变更接口校验 Origin；Agent Service 只允许配置的 Web Origin。跨端口浏览器调用必须携带 credentials，WebSocket 在升级阶段校验 Cookie、Origin 和后续 command 的 Website ownership。
 
-当前服务器通过 SSH 隧道以 `http://localhost:3000` 验收，Agent Service 的 `WEB_ORIGIN` 必须与浏览器实际 Origin 完全一致；`127.0.0.1:3000` 与 `localhost:3000` 不应混用，否则浏览器 CORS 会阻止 Agent 请求。正式域名部署时，应将 Web 和 Agent 的允许来源同步切换为正式 Web Origin。
+当前服务器通过 SSH 隧道以 `http://localhost:3000` 验收，Agent Service 的 `WEB_ORIGIN` 和 Web 的 `NEXT_PUBLIC_AGENT_SERVICE_URL` 必须与浏览器实际 Origin/主机命名保持一致；`127.0.0.1:3000` 与 `localhost:3000` 不应混用，否则 Cookie 或浏览器 CORS 会阻止 Agent 请求。正式域名部署时，应将 Web 和 Agent 的允许来源同步切换为正式 Web Origin。
 
 ## 必需私密配置
 
