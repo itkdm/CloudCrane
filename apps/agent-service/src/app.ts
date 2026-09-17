@@ -49,6 +49,8 @@ export function buildAgentServiceApp(
     config: options.config,
     registry: options.registry,
     previewClients,
+    auth: options.auth,
+    db: options.db,
   });
   (app as unknown as FastifyInstance & { agentSocket: AgentSocketTransport }).agentSocket = sockets;
   app.addHook('onRequest', async (request, reply) => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 import type { CloudCraneAuth } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
 import { buildAgentServiceApp } from './app.js';
@@ -117,6 +118,48 @@ describe('agent service authorization', () => {
     expect(response.statusCode).toBe(404);
     expect(response.headers['access-control-allow-origin']).toBe(config.webOrigin);
     expect(response.headers['access-control-allow-credentials']).toBe('true');
+    await app.close();
+  });
+
+  it('rejects a cross-user Website attach on the WebSocket command path', async () => {
+    const registry = createRegistry();
+    const app = buildAgentServiceApp({
+      config,
+      registry,
+      auth: createAuth({ user: { id: userId } }),
+      db: createDb('user-b'),
+    });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin, cookie: 'better-auth.session_token=test' },
+    });
+    const error = await new Promise<{ code: string; message: string }>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as {
+          type: string;
+          payload?: { code: string; message: string };
+        };
+        if (message.type === 'connection.ready') {
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'cross-user-attach',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId: '00000000-0000-4000-8000-000000000002' },
+            }),
+          );
+        }
+        if (message.type === 'command.error' && message.payload) resolve(message.payload);
+      });
+    });
+
+    expect(error).toEqual({ code: 'WEBSITE_FORBIDDEN', message: 'website access is forbidden' });
+    client.close();
     await app.close();
   });
 });

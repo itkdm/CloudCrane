@@ -1,6 +1,7 @@
 export type AgentServiceErrorCode =
   | 'INVALID_ARGUMENT'
   | 'WEBSITE_NOT_FOUND'
+  | 'WEBSITE_FORBIDDEN'
   | 'WORKSPACE_NOT_FOUND'
   | 'WORKSPACE_NOT_READY'
   | 'SESSION_NOT_FOUND'
@@ -17,9 +18,11 @@ export class AgentServiceError extends Error {
     message: string,
     public readonly statusCode = code === 'INVALID_ARGUMENT'
       ? 400
-      : code === 'INTERNAL_ERROR'
-        ? 500
-        : 409,
+      : code === 'WEBSITE_FORBIDDEN'
+        ? 403
+        : code === 'INTERNAL_ERROR'
+          ? 500
+          : 409,
   ) {
     super(message);
     this.name = 'AgentServiceError';

@@ -15,6 +15,7 @@ import { projectWebsiteAgentEvent } from './agent-event-projector.js';
 import { createLogger } from '@cloudcrane/shared';
 import {
   assertWebsiteAccessForUser,
+  AuthorizationError,
   getUserRole,
   headersFromNode,
   type CloudCraneAuth,
@@ -148,7 +149,7 @@ class AgentSocketConnection {
     }
     const command = parsed.data;
     try {
-      if (this.options.db && this.userId && this.userRole)
+      if (this.options.db && this.userId)
         await assertWebsiteAccessForUser(
           this.options.db,
           this.userId,
@@ -157,7 +158,11 @@ class AgentSocketConnection {
         );
       await this.dispatch(command);
     } catch (error) {
-      const serviceError = asAgentServiceError(error);
+      const serviceError =
+        error instanceof AuthorizationError &&
+        (error.code === 'WEBSITE_FORBIDDEN' || error.code === 'WEBSITE_NOT_FOUND')
+          ? new AgentServiceError(error.code, error.message, error.status)
+          : asAgentServiceError(error);
       logger.warn(
         {
           connectionId: this.connectionId,
