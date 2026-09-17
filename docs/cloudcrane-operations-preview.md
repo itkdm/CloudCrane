@@ -125,6 +125,8 @@ PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
 ```
 
+服务器还会按顺序加载本地同步的 `/opt/cloudcrane/.env.private.local`。该文件由本地项目根目录的 `.env.private.local` 通过 SSH 复制而来，两个文件都禁止提交 Git；其中的模型 API Key、OSS 密钥和其他凭据不得写入本手册。
+
 以下内容必须留在私密环境，不得放进 Git 或文档：
 
 - `PREVIEW_SIGNING_SECRET`

@@ -14,6 +14,18 @@ ssh xunmao-sg219
 
 连接成功后再根据具体任务执行只读检查、部署或服务重启；不要把真实密码、私钥、Token 或完整私密环境变量写入本仓库。
 
+## 本地与服务器私密配置
+
+本地私密配置保存在项目根目录的 `.env.private.local`，该文件已被 `.gitignore` 忽略，不能提交 Git。它是服务器重建时的配置恢复来源；服务器上的对应文件为 `/opt/cloudcrane/.env.private.local`，同样只保存在服务器私有目录。
+
+通过 SSH 复制或恢复配置时使用：
+
+```powershell
+scp .env.private.local xunmao-sg219:/opt/cloudcrane/.env.private.local
+```
+
+服务器启动脚本会在 `.env.server.local` 之后加载该文件。不要在工单、聊天、日志、截图或公共文档中回显其中的 API Key、OSS 密钥或其他凭据。私密配置缺失时，Agent 可以启动但不会启用模型调用。
+
 ## 当前拓扑
 
 ## 默认流程：ECS Web + ECS 后端
