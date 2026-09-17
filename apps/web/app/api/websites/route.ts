@@ -9,7 +9,12 @@ import {
   validateWebsiteName,
 } from '../../../lib/server/website-provisioning.js';
 import { previewUrlForWebsite } from '../../../lib/server/pboot-authorization.js';
-import { assertSameOrigin, AuthorizationError, requireSession } from '@cloudcrane/auth';
+import {
+  assertSameOrigin,
+  AuthorizationError,
+  getUserRole,
+  requireSession,
+} from '@cloudcrane/auth';
 import { auth } from '../../../lib/server/auth.js';
 
 export const runtime = 'nodejs';
@@ -18,7 +23,7 @@ export async function GET(request: Request) {
   try {
     const session = await requireSession(auth, request.headers);
     const { platform, store } = createProductionWebsiteStore(
-      session.user.role === 'admin' ? undefined : session.user.id,
+      getUserRole(session) === 'admin' ? undefined : session.user.id,
     );
     try {
       const websites = await listWebsites(store);

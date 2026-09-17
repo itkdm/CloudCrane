@@ -32,7 +32,7 @@ async function sendEmail(input: { to: string; subject: string; text: string; htm
   if (!response.ok) throw new Error(`email provider returned ${response.status}`);
 }
 
-export function createAuth(db: Db) {
+export function createAuth(db: Db): ReturnType<typeof betterAuth> {
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   return betterAuth({
@@ -70,7 +70,7 @@ export function createAuth(db: Db) {
         : undefined,
     plugins: [admin()],
     advanced: { database: { joins: true } },
-  });
+  }) as unknown as ReturnType<typeof betterAuth>;
 }
 
 export type CloudCraneAuth = ReturnType<typeof createAuth>;
@@ -100,9 +100,14 @@ export async function requireSession(auth: CloudCraneAuth, headers: HeadersInit)
   const session = await getSession(auth, headers);
   if (!session)
     throw new AuthorizationError('AUTHENTICATION_REQUIRED', 'authentication required', 401);
-  if (session.user.banned)
-    throw new AuthorizationError('ACCOUNT_BANNED', 'account is unavailable', 403);
+  const user = session.user as typeof session.user & { banned?: boolean };
+  if (user.banned) throw new AuthorizationError('ACCOUNT_BANNED', 'account is unavailable', 403);
   return session;
+}
+
+export function getUserRole(session: { user: object }): string | undefined {
+  const role = (session.user as { role?: unknown }).role;
+  return typeof role === 'string' ? role : undefined;
 }
 
 export async function requireWebsiteAccess(
@@ -112,13 +117,9 @@ export async function requireWebsiteAccess(
   websiteId: string,
 ) {
   const session = await requireSession(auth, headers);
-  const website = await assertWebsiteAccessForUser(
-    db,
-    session.user.id,
-    session.user.role,
-    websiteId,
-  );
-  return { session, website, isAdmin: session.user.role === 'admin' };
+  const role = (session.user as typeof session.user & { role?: string | null }).role;
+  const website = await assertWebsiteAccessForUser(db, session.user.id, role, websiteId);
+  return { session, website, isAdmin: role === 'admin' };
 }
 
 export async function assertWebsiteAccessForUser(

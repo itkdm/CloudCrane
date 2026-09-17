@@ -13,7 +13,12 @@ import type { AgentServiceConfig } from '../config.js';
 import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 import { projectWebsiteAgentEvent } from './agent-event-projector.js';
 import { createLogger } from '@cloudcrane/shared';
-import { assertWebsiteAccessForUser, headersFromNode, type CloudCraneAuth } from '@cloudcrane/auth';
+import {
+  assertWebsiteAccessForUser,
+  getUserRole,
+  headersFromNode,
+  type CloudCraneAuth,
+} from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
 
 const logger = createLogger('agent-service.socket');
@@ -74,7 +79,7 @@ export class AgentSocketTransport {
         ws,
         this.options,
         session.user.id,
-        session.user.role ?? undefined,
+        getUserRole(session),
         () => this.connections.delete(connection),
       );
       this.connections.add(connection);

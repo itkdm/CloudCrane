@@ -11,6 +11,7 @@ import {
   assertWebsiteAccessForUser,
   AuthorizationError,
   headersFromNode,
+  getUserRole,
   type CloudCraneAuth,
 } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
@@ -69,7 +70,12 @@ export function buildAgentServiceApp(
     const websiteId = (request.params as { websiteId?: string } | undefined)?.websiteId;
     if (websiteId) {
       try {
-        await assertWebsiteAccessForUser(options.db, session.user.id, session.user.role, websiteId);
+        await assertWebsiteAccessForUser(
+          options.db,
+          session.user.id,
+          getUserRole(session),
+          websiteId,
+        );
       } catch (error) {
         if (error instanceof AuthorizationError)
           return reply
