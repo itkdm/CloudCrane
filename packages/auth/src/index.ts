@@ -50,6 +50,11 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
     baseURL:
       process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000',
     trustedOrigins: [process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000'],
+    advanced: {
+      database: {
+        joins: false,
+      },
+    },
     emailAndPassword: {
       enabled: true,
       requireEmailVerification,
