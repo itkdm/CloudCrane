@@ -110,7 +110,11 @@ export function assertSameOrigin(
 export function headersFromNode(input: Record<string, string | string[] | undefined>): Headers {
   const headers = new Headers();
   for (const [name, value] of Object.entries(input)) {
-    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+    if (value !== undefined)
+      headers.set(
+        name,
+        Array.isArray(value) ? value.join(name.toLowerCase() === 'cookie' ? '; ' : ', ') : value,
+      );
   }
   return headers;
 }

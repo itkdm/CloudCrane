@@ -19,7 +19,7 @@ describe('CloudCrane authorization primitives', () => {
   it('normalizes Node headers without losing cookies', () => {
     expect(
       headersFromNode({ cookie: ['a=1', 'b=2'], origin: 'http://localhost:3000' }).get('cookie'),
-    ).toBe('a=1, b=2');
+    ).toBe('a=1; b=2');
   });
 
   it('allows the owner and an explicit admin override', async () => {
