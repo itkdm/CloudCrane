@@ -37,7 +37,15 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const requireEmailVerification = process.env.AUTH_REQUIRE_EMAIL_VERIFICATION !== 'false';
   return betterAuth({
-    database: drizzleAdapter(db, { provider: 'pg', schema }),
+    database: drizzleAdapter(db, {
+      provider: 'pg',
+      schema: {
+        user: schema.user,
+        session: schema.session,
+        account: schema.account,
+        verification: schema.verification,
+      },
+    }),
     secret: requiredSecret(process.env.BETTER_AUTH_SECRET),
     baseURL:
       process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000',
