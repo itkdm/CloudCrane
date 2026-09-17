@@ -1,6 +1,6 @@
 # CloudCrane 认证与授权架构决策
 
-状态：已实现第一版，需在服务器完成迁移和真实 E2E 验收。
+状态：已实现第一版；新加坡服务器已完成迁移、部署和核心真实 E2E 验收。邮件 Provider、Google OAuth 仍需补充生产凭据后验收。
 
 ## 决策
 
@@ -20,6 +20,8 @@
 
 页面保护只负责用户体验，API、Agent REST 和 Agent WS 是最终安全边界。Cookie 写入的变更接口校验 Origin；Agent Service 只允许配置的 Web Origin。跨端口浏览器调用必须携带 credentials，WebSocket 在升级阶段校验 Cookie、Origin 和后续 command 的 Website ownership。
 
+当前服务器通过 SSH 隧道以 `http://localhost:3000` 验收，Agent Service 的 `WEB_ORIGIN` 必须与浏览器实际 Origin 完全一致；`127.0.0.1:3000` 与 `localhost:3000` 不应混用，否则浏览器 CORS 会阻止 Agent 请求。正式域名部署时，应将 Web 和 Agent 的允许来源同步切换为正式 Web Origin。
+
 ## 必需私密配置
 
 ```text
@@ -36,3 +38,5 @@ GOOGLE_CLIENT_SECRET
 ## 验收要求
 
 服务器部署后必须使用 DEVTOOLS MCP 验证：匿名用户被重定向、注册/登录、邮箱验证入口、密码重置入口、Website 创建归属、用户间 403/404、管理员覆盖、Agent REST/WS、退出登录和刷新持久化。不能以 curl 或本地裸启动 Web 代替 UI E2E。
+
+本轮服务器已通过 DEVTOOLS MCP 验证匿名重定向、Email 登录、错误密码 `401`、Website 列表 `200`、退出登录、Agent REST 的匿名 `401`、已登录跨端口凭证传递、WebSocket 握手和非法 Website attach 拒绝。由于服务器没有 Resend/Google 凭据，真实邮箱验证、密码重置邮件和 Google OAuth 回调仍属于部署配置后的待验收项。
