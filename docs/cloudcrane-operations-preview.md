@@ -1,5 +1,7 @@
 # CloudCrane（筑云鹤）Preview 运维手册
 
+> **服务器状态（2026-09-17）**：本文原先记录的阿里云 ECS 已因服务器到期完全废弃，其中的公网 IP、服务状态和部署路径不能继续作为真实环境依据。当前部署候选服务器使用 SSH 别名 `xunmao-sg44`，但尚未完成 CloudCrane 初始化；重新部署完成后必须重新确认公网 IP、DNS、TLS 和服务路径。
+
 本文记录当前 CloudCrane MVP 的公网 Preview 运维配置。它只适用于 Preview，不代表 Production、模板导入、发布或域名绑定已经实现。
 
 ## 1. 域名边界
@@ -22,7 +24,7 @@ https://site-{websiteId}.preview.itkdm.com/
 | --- | --- | --- | --- | --- |
 | A | `*.preview` | 当前 Preview Gateway ECS 公网 IPv4 | Auto | DNS only（灰云） |
 
-当前 ECS 公网 IPv4 为 `39.97.34.189`；迁移 ECS 后必须同步更新该记录，并在 ECS 上重新检查解析结果。
+原阿里云 ECS 公网 IPv4 `39.97.34.189` 已失效。新服务器部署完成后，必须将 DNS 记录更新为新服务器公网 IP，并在服务器上重新检查解析结果。
 
 不要修改以下记录：
 
