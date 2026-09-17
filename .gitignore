@@ -9,6 +9,9 @@ dist/
 .turbo/
 *.tsbuildinfo
 
+# Local review captures and other non-source artifacts
+.artifacts/
+
 # IDE temporary files
 .idea/
 .vscode/

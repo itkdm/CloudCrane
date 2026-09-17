@@ -23,10 +23,7 @@ export async function GET() {
       })),
     );
   } catch {
-    return NextResponse.json(
-      { error: { message: '获取网站列表失败' } },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: { message: '获取网站列表失败' } }, { status: 500 });
   } finally {
     await platform.pool.end();
   }

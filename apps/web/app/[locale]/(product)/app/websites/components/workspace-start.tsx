@@ -100,7 +100,11 @@ export function WorkspaceStart({
               <ChevronDown size={14} aria-hidden="true" />
             </button>
             {selectorOpen ? (
-              <div className="workspace-start-selector-menu" role="listbox" aria-label={t('selectWebsite')}>
+              <div
+                className="workspace-start-selector-menu"
+                role="listbox"
+                aria-label={t('selectWebsite')}
+              >
                 {websites.map((website) => {
                   const ready = website.status === 'ready';
                   return (
@@ -119,7 +123,9 @@ export function WorkspaceStart({
                       <span className="workspace-start-selector-option-name">{website.name}</span>
                       <span className={`workspace-start-selector-status ${ready ? 'ready' : ''}`}>
                         {ready ? (
-                          website.id === selectedWebsiteId ? <Check size={14} aria-hidden="true" /> : null
+                          website.id === selectedWebsiteId ? (
+                            <Check size={14} aria-hidden="true" />
+                          ) : null
                         ) : (
                           statusT(website.status)
                         )}
@@ -137,11 +143,19 @@ export function WorkspaceStart({
             aria-label={t('send')}
             title={t('send')}
           >
-            {submitting ? <LoaderCircle className="workspace-start-spinner" size={17} aria-hidden="true" /> : <Send size={17} aria-hidden="true" />}
+            {submitting ? (
+              <LoaderCircle className="workspace-start-spinner" size={17} aria-hidden="true" />
+            ) : (
+              <Send size={17} aria-hidden="true" />
+            )}
           </button>
         </div>
       </form>
-      {error ? <p className="workspace-start-error" role="alert">{error}</p> : null}
+      {error ? (
+        <p className="workspace-start-error" role="alert">
+          {error}
+        </p>
+      ) : null}
       <h1 id="workspace-start-title" className="sr-only">
         {t('startTitle')}
       </h1>

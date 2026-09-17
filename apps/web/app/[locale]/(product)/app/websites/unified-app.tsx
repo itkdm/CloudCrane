@@ -105,9 +105,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
 
   useLayoutEffect(() => {
     const storedPreference = readSidebarCollapsedPreference();
-    setSidebarCollapsed((current) =>
-      current === storedPreference ? current : storedPreference,
-    );
+    setSidebarCollapsed((current) => (current === storedPreference ? current : storedPreference));
   }, []);
 
   const loadWebsites = useCallback(async () => {
@@ -390,7 +388,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             </div>
           </main>
         ) : selectedWebsite && selectedSession && canEnterWorkspace(selectedWebsiteRecord) ? (
-            <AgentWorkbenchContent
+          <AgentWorkbenchContent
             websiteId={selectedWebsite}
             sessionId={selectedSession}
             onSessionChange={handleSessionChange}

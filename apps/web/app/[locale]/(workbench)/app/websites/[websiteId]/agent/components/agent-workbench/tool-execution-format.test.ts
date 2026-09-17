@@ -48,9 +48,7 @@ describe('formatToolDetail', () => {
   });
 
   it('does not remove internal words from JSON string content', () => {
-    const result = formatToolDetail(
-      '{"message":"runId should remain in this sentence","url":"/"',
-    );
+    const result = formatToolDetail('{"message":"runId should remain in this sentence","url":"/"');
     expect(result).toContain('runId should remain in this sentence');
   });
 

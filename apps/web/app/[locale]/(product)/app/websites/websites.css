@@ -406,7 +406,9 @@
   border-radius: 16px;
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-sm);
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 .workspace-start-composer:focus-within {
   border-color: var(--cc-brand);
@@ -546,7 +548,9 @@
   border: 0;
 }
 @keyframes workspace-start-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @media (max-width: 700px) {
   .workspace-start {
@@ -606,7 +610,9 @@
   color: var(--cc-text);
   font-size: 16px;
   outline: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 .website-dialog-panel input:focus {
   border-color: var(--cc-brand);

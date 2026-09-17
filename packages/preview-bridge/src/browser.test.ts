@@ -194,7 +194,9 @@ describe('Preview Bridge browser boundary', () => {
     bridge.dispatchDOMContentLoaded();
     await bridge.settle();
     expect(bridge.messages).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: 'bridge.ready', requestId: 'connect-loading' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'bridge.ready', requestId: 'connect-loading' }),
+      ]),
     );
   });
 

@@ -288,7 +288,11 @@ export function UnifiedSidebar({
             <Settings size={18} aria-hidden="true" />
           </button>
           {settingsOpen ? (
-            <div className="unified-sidebar-settings-popover" role="dialog" aria-label={t('settings')}>
+            <div
+              className="unified-sidebar-settings-popover"
+              role="dialog"
+              aria-label={t('settings')}
+            >
               <div className="unified-sidebar-settings-row">
                 <span>{t('language')}</span>
                 <LanguageSwitcher />

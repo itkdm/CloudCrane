@@ -1,5 +1,6 @@
 import { Circle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Image from 'next/image';
 
 type WorkbenchHeaderProps = {
   connection: string;
@@ -17,11 +18,8 @@ export function WorkbenchHeader({ connection }: WorkbenchHeaderProps) {
   return (
     <header className="workbench-header" aria-label={t('ariaLabel')}>
       <div className="workbench-brand">
-        <span className="brand-symbol" aria-hidden="true">
-          鹤
-        </span>
+        <Image src="/cloudcrane-logo.png" alt="" aria-hidden="true" width={20} height={20} />
         <span className="brand-name">筑云鹤</span>
-        <span className="brand-english">CloudCrane</span>
       </div>
       {!isConnected ? (
         <div

@@ -98,9 +98,11 @@ function readValueEnd(text: string, start: number): number {
   const nextComma = text.indexOf(',', start);
   const nextObjectEnd = text.indexOf('}', start);
   const nextArrayEnd = text.indexOf(']', start);
-  return [nextComma, nextObjectEnd, nextArrayEnd]
-    .filter((index) => index >= 0)
-    .sort((left, right) => left - right)[0] ?? text.length;
+  return (
+    [nextComma, nextObjectEnd, nextArrayEnd]
+      .filter((index) => index >= 0)
+      .sort((left, right) => left - right)[0] ?? text.length
+  );
 }
 
 function prettyJsonLike(text: string): string {

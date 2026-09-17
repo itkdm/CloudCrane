@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Image from 'next/image';
 import type { Session } from './types';
 
 type SessionSidebarProps = {
@@ -29,8 +30,11 @@ export function SessionSidebar({
       className={collapsed ? 'session-sidebar collapsed' : 'session-sidebar'}
       aria-label={collapsed ? t('collapsedSessions') : t('sessions')}
     >
-      <div className="sidebar-heading" id="session-sidebar-title">
-        {!collapsed ? <span>{t('sessions')}</span> : null}
+      <div className="sidebar-header">
+        <div className="sidebar-brand">
+          <Image src="/cloudcrane-logo.png" alt="" aria-hidden="true" width={20} height={20} />
+          {!collapsed ? <span>筑云鹤</span> : null}
+        </div>
         {onToggle ? (
           <button
             className="icon-button sidebar-toggle-button"
@@ -47,45 +51,50 @@ export function SessionSidebar({
           </button>
         ) : null}
       </div>
-      <button
-        className="new-session-button"
-        type="button"
-        onClick={onCreate}
-        aria-label={t('newSession')}
-        title={t('newSession')}
-      >
-        <Plus size={16} strokeWidth={2} aria-hidden="true" />
-        {!collapsed ? <span>{t('newSession')}</span> : null}
-      </button>
-      {!collapsed ? (
-        <nav className="session-groups" aria-labelledby="session-sidebar-title">
-          {groups.map((group) => (
-            <section className="session-group" key={group.label}>
-              <h2>{group.label}</h2>
-              <div className="session-list">
-                {group.sessions.map((session) => {
-                  const isActive = session.id === sessionId;
-                  const title = session.title?.trim() || t('newSessionTitle');
+      <div className="sidebar-content">
+        <div className="sidebar-heading" id="session-sidebar-title">
+          {!collapsed ? <span>{t('sessions')}</span> : null}
+        </div>
+        <button
+          className="new-session-button"
+          type="button"
+          onClick={onCreate}
+          aria-label={t('newSession')}
+          title={t('newSession')}
+        >
+          <Plus size={16} strokeWidth={2} aria-hidden="true" />
+          {!collapsed ? <span>{t('newSession')}</span> : null}
+        </button>
+        {!collapsed ? (
+          <nav className="session-groups" aria-labelledby="session-sidebar-title">
+            {groups.map((group) => (
+              <section className="session-group" key={group.label}>
+                <h2>{group.label}</h2>
+                <div className="session-list">
+                  {group.sessions.map((session) => {
+                    const isActive = session.id === sessionId;
+                    const title = session.title?.trim() || t('newSessionTitle');
 
-                  return (
-                    <button
-                      className={isActive ? 'session-item active' : 'session-item'}
-                      key={session.id}
-                      type="button"
-                      onClick={() => onSelect(session.id)}
-                      aria-current={isActive ? 'page' : undefined}
-                      aria-label={t('openSession', { title })}
-                      title={title}
-                    >
-                      <span className="session-title">{title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </nav>
-      ) : null}
+                    return (
+                      <button
+                        className={isActive ? 'session-item active' : 'session-item'}
+                        key={session.id}
+                        type="button"
+                        onClick={() => onSelect(session.id)}
+                        aria-current={isActive ? 'page' : undefined}
+                        aria-label={t('openSession', { title })}
+                        title={title}
+                      >
+                        <span className="session-title">{title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </nav>
+        ) : null}
+      </div>
     </aside>
   );
 }

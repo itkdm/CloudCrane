@@ -40,7 +40,6 @@ import {
   type HumanInteractionOption,
   type HumanInteraction,
   type ReferenceUploadResult,
-  type QuestionInteraction,
   type QuestionResponse,
 } from './human-interaction-broker.js';
 
@@ -1577,7 +1576,9 @@ function createReferenceUploadTool(
     ],
     parameters: referenceUploadParameters,
     executionMode: 'sequential',
-    execute: async (_toolCallId, _params, signal, _onUpdate, context) => {
+    execute: async (_toolCallId, _params, signal, _onUpdate, _context) => {
+      void _onUpdate;
+      void _context;
       const run = getContext();
       if (!run) throw new Error('reference_upload requires an active AgentRun');
       const interaction = await broker.requestReferenceUpload(
