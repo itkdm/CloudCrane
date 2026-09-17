@@ -11,6 +11,7 @@ dist/
 
 # Local review captures and other non-source artifacts
 .artifacts/
+.agents/
 
 # IDE temporary files
 .idea/
