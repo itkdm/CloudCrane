@@ -26,6 +26,7 @@ type WebsiteStore = {
     websiteId: string;
     workspaceId: string;
     name: string;
+    ownerId: string;
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
   listWebsites(): Promise<PublicWebsite[]>;
@@ -82,13 +83,19 @@ export async function createWebsite(
   dependencies: {
     store: WebsiteStore;
     runtime: (context: { websiteId: string; workspaceId: string }) => RuntimeClient;
+    ownerId: string;
   },
 ): Promise<{ website: PublicWebsite; provisioned: boolean }> {
   const name = validateWebsiteName(value);
   const websiteId = randomUUID();
   const workspaceId = randomUUID();
   const logger = createLogger('web');
-  const created = await dependencies.store.persistDesiredState({ websiteId, workspaceId, name });
+  const created = await dependencies.store.persistDesiredState({
+    websiteId,
+    workspaceId,
+    name,
+    ownerId: dependencies.ownerId,
+  });
   const failed = async (status: string, error?: unknown) => {
     await dependencies.store.updateWebsiteStatus(websiteId, status);
     logger.warn(
@@ -153,7 +160,7 @@ export async function createWebsite(
   };
 }
 
-export function createProductionWebsiteStore() {
+export function createProductionWebsiteStore(ownerId?: string) {
   const platform = createPlatformDb();
   const store: WebsiteStore = {
     async persistDesiredState(input) {
@@ -169,6 +176,7 @@ export function createProductionWebsiteStore() {
           .values({
             id: input.websiteId,
             name: input.name,
+            ownerId: input.ownerId,
             status: WEBSITE_PROVISIONING,
             cmsType: WEBSITE_CMS_TYPE,
           })
@@ -208,6 +216,7 @@ export function createProductionWebsiteStore() {
           createdAt: website.createdAt,
         })
         .from(website)
+        .where(ownerId ? eq(website.ownerId as never, ownerId) : undefined)
         .orderBy(desc(website.createdAt as never));
     },
     async findWorkspaceId(websiteId: string) {

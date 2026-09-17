@@ -10,7 +10,9 @@ import {
 const serviceUrl = process.env.NEXT_PUBLIC_AGENT_SERVICE_URL ?? 'http://localhost:4101';
 
 export async function listAgentSessions(websiteId: string) {
-  const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/sessions`);
+  const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/sessions`, {
+    credentials: 'include',
+  });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as {
     sessions: Array<{ id: string; title: string | null; createdAt: string; updatedAt: string }>;
@@ -20,6 +22,7 @@ export async function listAgentSessions(websiteId: string) {
 export async function createAgentSession(websiteId: string) {
   const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/sessions`, {
     method: 'POST',
+    credentials: 'include',
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as {
@@ -37,7 +40,7 @@ export async function uploadReference(
   body.append('file', file, file.name);
   const response = await fetch(
     `${serviceUrl}/v1/websites/${websiteId}/sessions/${sessionId}/interactions/${interactionId}/reference-upload`,
-    { method: 'POST', body },
+    { method: 'POST', body, credentials: 'include' },
   );
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as {
@@ -70,7 +73,9 @@ export function parseAgentEvent(
 }
 
 export async function getPreviewUrl(websiteId: string) {
-  const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/preview`);
+  const response = await fetch(`${serviceUrl}/v1/websites/${websiteId}/preview`, {
+    credentials: 'include',
+  });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as { url: string; expiresAt: number };
 }

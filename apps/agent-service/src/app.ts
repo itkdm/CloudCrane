@@ -7,6 +7,13 @@ import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { sessionSnapshotSchema, sessionViewSchema } from '@cloudcrane/agent-protocol';
+import {
+  assertWebsiteAccessForUser,
+  AuthorizationError,
+  headersFromNode,
+  type CloudCraneAuth,
+} from '@cloudcrane/auth';
+import type { PlatformDb } from '@cloudcrane/db';
 import { signPreviewToken } from '@cloudcrane/preview-access';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
@@ -23,6 +30,8 @@ import {
 export type AgentServiceAppOptions = {
   config: AgentServiceConfig;
   registry: WebsiteRuntimeRegistry;
+  auth?: CloudCraneAuth;
+  db?: PlatformDb['db'];
   previewClientRegistry?: PreviewClientRegistry;
 };
 
@@ -43,11 +52,32 @@ export function buildAgentServiceApp(
   (app as unknown as FastifyInstance & { agentSocket: AgentSocketTransport }).agentSocket = sockets;
   app.addHook('onRequest', async (request, reply) => {
     if (request.method === 'OPTIONS') return;
+    if (request.url === '/health') return;
     const origin = request.headers.origin;
     if (origin && origin !== options.config.webOrigin)
       return reply
         .code(403)
         .send({ error: { code: 'ORIGIN_NOT_ALLOWED', message: 'origin is not allowed' } });
+    if (!options.auth || !options.db) return;
+    const session = await options.auth.api.getSession({
+      headers: headersFromNode(request.headers),
+    });
+    if (!session)
+      return reply
+        .code(401)
+        .send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'authentication required' } });
+    const websiteId = (request.params as { websiteId?: string } | undefined)?.websiteId;
+    if (websiteId) {
+      try {
+        await assertWebsiteAccessForUser(options.db, session.user.id, session.user.role, websiteId);
+      } catch (error) {
+        if (error instanceof AuthorizationError)
+          return reply
+            .code(error.status)
+            .send({ error: { code: error.code, message: error.message } });
+        throw error;
+      }
+    }
   });
   app.addHook('onSend', async (request, reply) => {
     const origin = request.headers.origin;
@@ -55,6 +85,7 @@ export function buildAgentServiceApp(
       reply.header('access-control-allow-origin', origin);
       reply.header('access-control-allow-methods', 'GET,POST,OPTIONS');
       reply.header('access-control-allow-headers', 'content-type');
+      reply.header('access-control-allow-credentials', 'true');
       reply.header('vary', 'Origin');
     }
   });

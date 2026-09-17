@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { assertSameOrigin, AuthorizationError, requireWebsiteAccess } from '@cloudcrane/auth';
+import { auth, authDb } from '../../../../../lib/server/auth.js';
 import {
   configurePbootAuthorization,
   PbootAuthorizationError,
@@ -11,6 +13,29 @@ export async function POST(
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
   const { websiteId } = await params;
+  try {
+    assertSameOrigin(request.headers);
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    throw error;
+  }
+  try {
+    await requireWebsiteAccess(authDb, auth, request.headers, websiteId);
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    return NextResponse.json(
+      { error: { code: 'AUTHENTICATION_REQUIRED', message: '认证失败' } },
+      { status: 401 },
+    );
+  }
   let payload: unknown;
   try {
     payload = await request.json();

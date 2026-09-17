@@ -1,0 +1,19 @@
+{
+  "name": "@cloudcrane/auth",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint --config ../../eslint.config.mjs .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "1.7.5",
+    "@cloudcrane/db": "workspace:*",
+    "better-auth": "1.7.5",
+    "drizzle-orm": "0.45.2"
+  }
+}

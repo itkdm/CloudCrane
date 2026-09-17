@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { createPlatformDb } from '@cloudcrane/db';
+import { createAuth } from '@cloudcrane/auth';
 import { createLogger } from '@cloudcrane/shared';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
@@ -14,6 +15,7 @@ import { PreviewClientRegistry } from './infrastructure/preview-client-registry.
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
 const platform = createPlatformDb();
+const auth = createAuth(platform.db);
 const modelRuntime = await ModelRuntime.create({
   authPath: config.modelAuthPath ?? path.join(config.agentDataRoot, 'model-auth.json'),
   modelsPath: null,
@@ -42,7 +44,13 @@ const registry = new WebsiteRuntimeRegistry({
       referenceUploadMaxBytes: config.referenceUploadMaxBytes,
     }),
 });
-const app = buildAgentServiceApp({ config, registry, previewClientRegistry: previewClients });
+const app = buildAgentServiceApp({
+  config,
+  registry,
+  auth,
+  db: platform.db,
+  previewClientRegistry: previewClients,
+});
 
 const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');

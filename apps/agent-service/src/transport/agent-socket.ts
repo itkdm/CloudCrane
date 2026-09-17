@@ -13,6 +13,8 @@ import type { AgentServiceConfig } from '../config.js';
 import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 import { projectWebsiteAgentEvent } from './agent-event-projector.js';
 import { createLogger } from '@cloudcrane/shared';
+import { assertWebsiteAccessForUser, headersFromNode, type CloudCraneAuth } from '@cloudcrane/auth';
+import type { PlatformDb } from '@cloudcrane/db';
 
 const logger = createLogger('agent-service.socket');
 
@@ -21,6 +23,8 @@ type AgentSocketOptions = {
   config: AgentServiceConfig;
   registry: WebsiteRuntimeRegistry;
   previewClients: PreviewClientRegistry;
+  auth?: CloudCraneAuth;
+  db?: PlatformDb['db'];
 };
 
 export class AgentSocketTransport {
@@ -37,12 +41,43 @@ export class AgentSocketTransport {
         socket.destroy();
         return;
       }
+      void this.authorizeAndUpgrade(request, socket, head);
+    });
+  }
+
+  private async authorizeAndUpgrade(
+    request: import('node:http').IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+  ) {
+    if (!this.options.auth || !this.options.db) {
       this.server.handleUpgrade(request, socket, head, (ws) => {
-        const connection = new AgentSocketConnection(ws, this.options, () =>
+        let connection!: AgentSocketConnection;
+        connection = new AgentSocketConnection(ws, this.options, undefined, undefined, () =>
           this.connections.delete(connection),
         );
         this.connections.add(connection);
       });
+      return;
+    }
+    const session = await this.options.auth.api.getSession({
+      headers: headersFromNode(request.headers),
+    });
+    if (!session) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    this.server.handleUpgrade(request, socket, head, (ws) => {
+      let connection!: AgentSocketConnection;
+      connection = new AgentSocketConnection(
+        ws,
+        this.options,
+        session.user.id,
+        session.user.role ?? undefined,
+        () => this.connections.delete(connection),
+      );
+      this.connections.add(connection);
     });
   }
 
@@ -72,6 +107,8 @@ class AgentSocketConnection {
   constructor(
     private readonly socket: WebSocket,
     private readonly options: AgentSocketOptions,
+    private readonly userId: string | undefined,
+    private readonly userRole: string | undefined,
     private readonly onClose: () => void,
   ) {
     socket.on('message', (raw) => void this.handleMessage(raw.toString()));
@@ -106,6 +143,13 @@ class AgentSocketConnection {
     }
     const command = parsed.data;
     try {
+      if (this.options.db && this.userId && this.userRole)
+        await assertWebsiteAccessForUser(
+          this.options.db,
+          this.userId,
+          this.userRole,
+          command.websiteId,
+        );
       await this.dispatch(command);
     } catch (error) {
       const serviceError = asAgentServiceError(error);

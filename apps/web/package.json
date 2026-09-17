@@ -10,11 +10,13 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
+    "@cloudcrane/auth": "workspace:*",
     "@cloudcrane/agent-protocol": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/workspace-client": "workspace:*",
+    "better-auth": "1.7.5",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.38.0",
     "next-intl": "^4.14.2",

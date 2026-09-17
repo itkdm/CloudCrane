@@ -44,7 +44,11 @@ describe('website provisioning foundation', () => {
       verifyAuthorization: vi.fn(),
     }));
     await expect(
-      createWebsite('站点', { store: store({ persistDesiredState: persist }), runtime }),
+      createWebsite('站点', {
+        ownerId: 'user-1',
+        store: store({ persistDesiredState: persist }),
+        runtime,
+      }),
     ).rejects.toThrow('database unavailable');
     expect(runtime).not.toHaveBeenCalled();
   });
@@ -52,6 +56,7 @@ describe('website provisioning foundation', () => {
   it('marks the website authorization_required after bootstrap', async () => {
     const update = vi.fn(async () => undefined);
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store({ updateWebsiteStatus: update }),
       runtime: () => ({
         create: vi.fn(async () => ({ status: 'running' })),
@@ -69,6 +74,7 @@ describe('website provisioning foundation', () => {
   it('retains records and marks a definite runtime failure', async () => {
     const update = vi.fn(async () => undefined);
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store({ updateWebsiteStatus: update }),
       runtime: () => ({
         create: vi.fn(async () => {
@@ -89,6 +95,7 @@ describe('website provisioning foundation', () => {
     const update = vi.fn(async () => undefined);
     const status = vi.fn(async () => ({ status: 'running' }));
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store({ updateWebsiteStatus: update }),
       runtime: () => ({
         create: vi.fn(async () => {
@@ -109,6 +116,7 @@ describe('website provisioning foundation', () => {
     const update = vi.fn(async () => undefined);
     const bootstrap = vi.fn(async () => ({ status: 'FAILED' }));
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store({ updateWebsiteStatus: update }),
       runtime: () => ({
         create: vi.fn(async () => ({ status: 'running' })),
@@ -129,6 +137,7 @@ describe('website provisioning foundation', () => {
     });
     const reconcileBootstrap = vi.fn(async () => true);
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store(),
       runtime: () => ({
         create: vi.fn(async () => ({ status: 'running' })),
@@ -146,6 +155,7 @@ describe('website provisioning foundation', () => {
 
   it('does not expose runtime or credential fields in the public view', async () => {
     const result = await createWebsite('站点', {
+      ownerId: 'user-1',
       store: store(),
       runtime: () => ({
         create: vi.fn(async () => ({ status: 'running' })),

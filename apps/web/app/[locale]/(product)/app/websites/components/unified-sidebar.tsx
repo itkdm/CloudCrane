@@ -1,13 +1,21 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, UserRound } from 'lucide-react';
+import {
+  LogOut,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  UserRound,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
 import { LanguageSwitcher } from '../../../../../../components/layout/language-switcher';
 import { ThemeSwitcher } from '../../../../../../components/theme-switcher';
 import type { WorkspaceView } from '../unified-app';
+import { authClient } from '@/lib/auth-client';
 
 type Session = {
   id: string;
@@ -50,6 +58,7 @@ export function UnifiedSidebar({
   onCreateWebsite,
   onSettingsOpen,
 }: UnifiedSidebarProps) {
+  const { data: session } = authClient.useSession();
   const t = useTranslations('navigation');
   const websiteT = useTranslations('websites');
   const workbenchT = useTranslations('workbench');
@@ -273,7 +282,7 @@ export function UnifiedSidebar({
           <span className="unified-sidebar-account-avatar" aria-hidden="true">
             <UserRound size={17} />
           </span>
-          <span className="unified-sidebar-account-name">{t('user')}</span>
+          <span className="unified-sidebar-account-name">{session?.user.name ?? t('user')}</span>
         </div>
         <div className="unified-sidebar-settings-anchor" ref={settingsRef}>
           <button
@@ -301,6 +310,18 @@ export function UnifiedSidebar({
                 <span>{t('theme')}</span>
                 <ThemeSwitcher />
               </div>
+              <button
+                type="button"
+                className="unified-sidebar-settings-row"
+                onClick={() =>
+                  void authClient.signOut({
+                    fetchOptions: { onSuccess: () => window.location.assign('/zh/sign-in') },
+                  })
+                }
+              >
+                <LogOut size={16} aria-hidden="true" />
+                <span>退出登录</span>
+              </button>
             </div>
           ) : null}
         </div>

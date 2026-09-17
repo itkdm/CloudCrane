@@ -9,27 +9,57 @@ import {
   validateWebsiteName,
 } from '../../../lib/server/website-provisioning.js';
 import { previewUrlForWebsite } from '../../../lib/server/pboot-authorization.js';
+import { assertSameOrigin, AuthorizationError, requireSession } from '@cloudcrane/auth';
+import { auth } from '../../../lib/server/auth.js';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
-  const { platform, store } = createProductionWebsiteStore();
+export async function GET(request: Request) {
   try {
-    const websites = await listWebsites(store);
-    return NextResponse.json(
-      websites.map((website) => ({
-        ...website,
-        previewUrl: previewUrlForWebsite(website.id),
-      })),
+    const session = await requireSession(auth, request.headers);
+    const { platform, store } = createProductionWebsiteStore(
+      session.user.role === 'admin' ? undefined : session.user.id,
     );
-  } catch {
+    try {
+      const websites = await listWebsites(store);
+      return NextResponse.json(
+        websites.map((website) => ({ ...website, previewUrl: previewUrlForWebsite(website.id) })),
+      );
+    } finally {
+      await platform.pool.end();
+    }
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
     return NextResponse.json({ error: { message: '获取网站列表失败' } }, { status: 500 });
-  } finally {
-    await platform.pool.end();
   }
 }
 
 export async function POST(request: Request) {
+  try {
+    assertSameOrigin(request.headers);
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    throw error;
+  }
+  let session;
+  try {
+    session = await requireSession(auth, request.headers);
+  } catch (error) {
+    if (error instanceof AuthorizationError)
+      return NextResponse.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status },
+      );
+    return NextResponse.json({ error: { message: '认证失败' } }, { status: 401 });
+  }
   let payload: unknown;
   try {
     payload = await request.json();
@@ -55,10 +85,11 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { platform, store } = createProductionWebsiteStore();
+  const { platform, store } = createProductionWebsiteStore(session.user.id);
   try {
     const result = await createWebsite(name, {
       store,
+      ownerId: session.user.id,
       runtime: ({ websiteId, workspaceId }) => createProductionRuntime(websiteId, workspaceId),
     });
     return NextResponse.json(
