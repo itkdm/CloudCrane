@@ -22,8 +22,11 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         : await authClient.signUp.email({ name, email, password, callbackURL: '/zh/app/websites' });
     setPending(false);
     if (result.error) setError(result.error.message ?? '操作失败，请稍后重试');
-    else if (mode === 'sign-up') setNotice('注册成功，请查收邮箱并完成验证后登录。');
-    else window.location.assign('/zh/app/websites');
+    else if (mode === 'sign-up') {
+      if (process.env.NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION === 'false')
+        window.location.assign('/zh/app/websites');
+      else setNotice('注册成功，请查收邮箱并完成验证后登录。');
+    } else window.location.assign('/zh/app/websites');
   }
 
   async function signInWithGoogle() {

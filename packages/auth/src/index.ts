@@ -35,6 +35,7 @@ async function sendEmail(input: { to: string; subject: string; text: string; htm
 export function createAuth(db: Db): ReturnType<typeof betterAuth> {
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const requireEmailVerification = process.env.AUTH_REQUIRE_EMAIL_VERIFICATION !== 'false';
   return betterAuth({
     database: drizzleAdapter(db, { provider: 'pg', schema }),
     secret: requiredSecret(process.env.BETTER_AUTH_SECRET),
@@ -43,7 +44,7 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
     trustedOrigins: [process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000'],
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: process.env.AUTH_REQUIRE_EMAIL_VERIFICATION !== 'false',
+      requireEmailVerification,
       sendResetPassword: async ({ user, url }) =>
         sendEmail({
           to: user.email,
@@ -60,8 +61,8 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
           text: `请使用以下链接验证邮箱：${url}`,
           html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
         }),
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: requireEmailVerification,
+      sendOnSignIn: requireEmailVerification,
       autoSignInAfterVerification: true,
     },
     socialProviders:
@@ -69,7 +70,6 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         ? { google: { clientId: googleClientId, clientSecret: googleClientSecret } }
         : undefined,
     plugins: [admin()],
-    advanced: { database: { joins: true } },
   }) as unknown as ReturnType<typeof betterAuth>;
 }
 
