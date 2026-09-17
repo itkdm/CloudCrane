@@ -55,6 +55,12 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         joins: false,
       },
     },
+    rateLimit: {
+      enabled: process.env.NODE_ENV === 'production',
+      window: 60,
+      max: 100,
+    },
+    revokeSessionsOnPasswordReset: true,
     emailAndPassword: {
       enabled: true,
       requireEmailVerification,
