@@ -47,4 +47,16 @@ describe('Resend email sender', () => {
       createResendEmailSender({ apiKey: 'test-api-key', from: 'test@example.com', fetcher })(email),
     ).rejects.toThrow('email provider returned 401');
   });
+
+  it('includes a bounded provider diagnostic without exposing the email body', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'invalid from address' }), {
+        status: 422,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await expect(
+      createResendEmailSender({ apiKey: 'test-api-key', from: 'test@example.com', fetcher })(email),
+    ).rejects.toThrow('email provider returned 422: invalid from address');
+  });
 });

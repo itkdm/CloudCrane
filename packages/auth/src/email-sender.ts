@@ -31,6 +31,16 @@ export function createResendEmailSender({
       }),
     });
 
-    if (!response.ok) throw new Error(`email provider returned ${response.status}`);
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const body = (await response.json()) as { message?: unknown; error?: unknown };
+        const message = body.message ?? body.error;
+        if (typeof message === 'string') detail = `: ${message.slice(0, 200)}`;
+      } catch {
+        // Keep the status as the stable fallback when the provider response is not JSON.
+      }
+      throw new Error(`email provider returned ${response.status}${detail}`);
+    }
   };
 }

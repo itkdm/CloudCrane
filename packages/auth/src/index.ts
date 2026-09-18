@@ -69,26 +69,32 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         id,
       }),
       sendResetPassword: async ({ user, url }) => {
-        void sendEmail({
-          to: user.email,
-          subject: '重置 CloudCrane 密码',
-          text: `请使用以下链接重置密码：${url}`,
-          html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
-        }).catch((error: unknown) => {
+        try {
+          await sendEmail({
+            to: user.email,
+            subject: '重置 CloudCrane 密码',
+            text: `请使用以下链接重置密码：${url}`,
+            html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
+          });
+        } catch (error: unknown) {
           logEmailFailure(error);
-        });
+          throw error;
+        }
       },
     },
     emailVerification: {
       sendVerificationEmail: async ({ user, url }) => {
-        void sendEmail({
-          to: user.email,
-          subject: '验证 CloudCrane 邮箱',
-          text: `请使用以下链接验证邮箱：${url}`,
-          html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
-        }).catch((error: unknown) => {
+        try {
+          await sendEmail({
+            to: user.email,
+            subject: '验证 CloudCrane 邮箱',
+            text: `请使用以下链接验证邮箱：${url}`,
+            html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
+          });
+        } catch (error: unknown) {
           logEmailFailure(error);
-        });
+          throw error;
+        }
       },
       sendOnSignUp: requireEmailVerification,
       sendOnSignIn: requireEmailVerification,
