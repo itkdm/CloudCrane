@@ -28,7 +28,7 @@ start_service runner @cloudcrane/runner
 start_service agent @cloudcrane/agent-service
 start_service preview @cloudcrane/preview-gateway
 tmux new-window -t "${SESSION_NAME}" -n web \
-  "cd '${ROOT_DIR}' && set -a && . '${ENV_FILE}' && if [[ -f '${PRIVATE_ENV_FILE}' ]]; then . '${PRIVATE_ENV_FILE}'; fi && export NEXT_PUBLIC_AGENT_SERVICE_URL=http://localhost:4101 && set +a && exec pnpm --filter @cloudcrane/web exec next start -H 127.0.0.1"
+  "cd '${ROOT_DIR}' && set -a && . '${ENV_FILE}' && if [[ -f '${PRIVATE_ENV_FILE}' ]]; then . '${PRIVATE_ENV_FILE}'; fi && export NEXT_PUBLIC_AGENT_SERVICE_URL=\"${NEXT_PUBLIC_AGENT_SERVICE_URL:-http://localhost:4101}\" && set +a && exec pnpm --filter @cloudcrane/web exec next start -H 127.0.0.1"
 
 tmux select-window -t "${SESSION_NAME}:gateway"
 echo "started tmux session: ${SESSION_NAME}"
