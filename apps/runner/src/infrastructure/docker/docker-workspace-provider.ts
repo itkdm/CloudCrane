@@ -1,5 +1,6 @@
 import { lstat, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import Docker from 'dockerode';
 import { z } from 'zod';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
@@ -62,6 +63,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       return this.runtime(workspaceId, container.id, 'running');
     } catch (error) {
       await container?.remove({ force: true }).catch(() => undefined);
+      await this.restoreHostOwnership(persistentPath).catch(() => undefined);
       await network.remove().catch(() => undefined);
       throw error;
     }
@@ -99,6 +101,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     const info = await container.inspect();
     if (info.State?.Running) await container.stop().catch(() => undefined);
     await container.remove({ force: true });
+    await this.restoreHostOwnership(this.persistentPath(workspaceId));
     if (info.HostConfig?.NetworkMode) {
       await this.docker
         .getNetwork(info.HostConfig.NetworkMode)
@@ -195,6 +198,32 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       if (result.StatusCode !== 0) {
         throw new Error(`Workspace ownership provisioning failed (${result.StatusCode})`);
       }
+    } finally {
+      await ownerContainer.remove({ force: true }).catch(() => undefined);
+    }
+  }
+
+  private async restoreHostOwnership(persistentPath: string): Promise<void> {
+    const parent = await lstat(path.dirname(persistentPath));
+    const uid = parent.uid ?? (typeof process.getuid === 'function' ? process.getuid() : 0);
+    const gid = parent.gid ?? (typeof process.getgid === 'function' ? process.getgid() : 0);
+    const ownerContainer = await this.docker.createContainer({
+      Image: this.config.workspaceImage,
+      name: `cloudcrane-workspace-restore-${randomUUID()}`,
+      User: '0:0',
+      Entrypoint: ['/usr/bin/chown'],
+      Cmd: ['-R', `${uid}:${gid}`, '/workspace'],
+      HostConfig: {
+        Binds: [`${persistentPath}:/workspace`],
+        NetworkMode: 'none',
+        AutoRemove: false,
+      },
+    });
+    try {
+      await ownerContainer.start();
+      const result = await ownerContainer.wait();
+      if (result.StatusCode !== 0)
+        throw new Error(`Workspace host ownership restore failed (${result.StatusCode})`);
     } finally {
       await ownerContainer.remove({ force: true }).catch(() => undefined);
     }
