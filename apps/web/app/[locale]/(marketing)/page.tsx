@@ -13,7 +13,7 @@ export async function generateMetadata({
   return {
     title: `${t('title')} · CloudCrane`,
     description: t('lede'),
-    alternates: { canonical: locale === 'zh' ? '/zh' : '/', languages: { en: '/', zh: '/zh' } },
+    alternates: { canonical: `/${locale}`, languages: { en: '/en', zh: '/zh' } },
     openGraph: {
       title: t('title'),
       description: t('lede'),

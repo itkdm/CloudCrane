@@ -21,7 +21,7 @@ export async function generateMetadata({
     title: t('brand'),
     description: 'AI Website Coding Agent',
     alternates: {
-      languages: { en: '/', zh: '/zh' },
+      languages: { en: '/en', zh: '/zh' },
     },
     openGraph: {
       title: t('brand'),
