@@ -385,6 +385,11 @@ describe('WebsiteAgentRuntime', () => {
         }) as never,
     });
     const source = await runtime.createSession();
+    const emptySession = await runtime.createSession();
+    await expect(runtime.cloneSession(emptySession.id)).rejects.toMatchObject({
+      code: 'SESSION_NOT_CLONABLE',
+    });
+    await runtime.deleteSession(emptySession.id);
     await expect(runtime.prompt(source.id, 'source prompt')).resolves.toMatchObject({
       status: 'COMPLETED',
     });

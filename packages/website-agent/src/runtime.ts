@@ -758,11 +758,21 @@ export class WebsiteAgentRuntime {
     const source = await this.getManaged(websiteSessionId);
     if (this.isManagedSessionBusy(source))
       throw new WebsiteAgentRuntimeError('SESSION_BUSY', 'session is busy');
-    const sourceFile = source.sessionManager.getSessionFile();
-    const leafId = source.sessionManager.getLeafId();
+    let sourceFile: string | null | undefined;
+    let leafId: string | null | undefined;
+    try {
+      sourceFile = source.sessionManager.getSessionFile();
+      leafId = source.sessionManager.getLeafId();
+    } catch {
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_CLONABLE', 'session cannot be cloned');
+    }
     if (!sourceFile || !leafId)
       throw new WebsiteAgentRuntimeError('SESSION_NOT_CLONABLE', 'session cannot be cloned');
-    await access(sourceFile);
+    try {
+      await access(sourceFile);
+    } catch {
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_CLONABLE', 'session cannot be cloned');
+    }
     const sourceManager = SessionManager.open(
       sourceFile,
       this.layout.sessionDirectory(this.options.websiteId),

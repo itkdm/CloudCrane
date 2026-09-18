@@ -70,19 +70,40 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 ## 发布与检查
 
+### 线上发布原则
+
+生产验收必须直接访问 `https://app.itkdm.com`，不要把仅用于 ECS 内部联调的
+`http://localhost:3000` 当作线上结果。`localhost:3000` 只适用于 SSH 隧道下的
+远程服务验收；如果使用它验收，必须显式覆盖 `NEXT_PUBLIC_AGENT_SERVICE_URL` 为
+`http://localhost:4101`，因为生产构建中的 `/agent` 依赖 Nginx 的路径反代。
+
+线上切换时只保留一套服务：先停止旧的 tmux 服务，再从当前提交构建并启动新服务，
+最后通过 Nginx 入口检查 Web、Agent、Preview 和 WebSocket。不要同时启动旧目录和新目录
+的同端口服务，也不要用相对路径启动脚本绕过正式反向代理。
+
+本次线上故障排查得到的关键结论：浏览器请求 `/agent/v1/...` 返回 307 后变成
+`/<locale>/agent/v1/...`，说明请求落入 Next 国际化中间件而不是 Nginx 的 `/agent/`
+反代。该问题应修正部署入口或 `NEXT_PUBLIC_AGENT_SERVICE_URL`，不能修改会话业务路由
+来掩盖反代配置错误。
+
 ```bash
 cd /opt/cloudcrane
-git pull --ff-only origin main
+git fetch origin main
+git reset --ff-only origin/main
 set -a
 . ./.env.server.local
 . ./.env.private.local
 set +a
 pnpm build
 tmux kill-session -t cloudcrane-acceptance || true
-./scripts/server-acceptance-start.sh
+bash ./scripts/server-acceptance-start.sh
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+若使用独立发布目录进行构建，切换完成后也必须先确认旧目录服务已停止，再只启动
+独立发布目录的一套服务；发布目录中的 `.env.server.local` 和 `.env.private.local`
+只能来自服务器私有文件，禁止回显或提交。
 
 必须检查：
 
@@ -92,4 +113,7 @@ curl -fsS https://app.itkdm.com/agent/health
 curl -fsS https://site-<websiteId>.preview.itkdm.com/
 ```
 
-最终 UI 验收使用 DEVTOOLS MCP，检查页面、Network、Console、认证 Cookie、Agent REST/WS 和 Preview Bridge；不能用本地裸启动的 Web 端口代替生产入口。
+最终 UI 验收使用 DEVTOOLS MCP，直接打开 `https://app.itkdm.com`，检查页面、Network、
+Console、认证 Cookie、Agent REST/WS 和 Preview Bridge；不能用本地裸启动的 Web 端口
+代替生产入口。验收完成后删除临时测试账号、测试 Website、临时会话和测试数据，保留
+数据库备份路径与脱敏部署记录。

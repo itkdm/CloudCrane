@@ -28,6 +28,10 @@ scp .env.private.local xunmao-sg219:/opt/cloudcrane/.env.private.local
 
 ## 当前拓扑
 
+> 本文的 `localhost:3000` 拓扑仅用于远程 ECS 联调和故障恢复，不代表生产验收。
+> 生产验收必须直接打开 `https://app.itkdm.com`；不要因为本地隧道可用就跳过
+> Nginx `/agent/` 反向代理、正式域名 Cookie 和 Preview 域名检查。
+
 ## 默认流程：ECS Web + ECS 后端
 
 后续真实联调和 DEVTOOLS 验收默认使用这一流程。Web、Agent、Workspace、Preview 和 PostgreSQL
