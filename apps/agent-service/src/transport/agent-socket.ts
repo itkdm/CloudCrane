@@ -434,6 +434,8 @@ function toSessionView(session: {
   createdAt: string;
   updatedAt: string;
   lastActiveAt: string | null;
+  pinnedAt: string | null;
+  clonedFromSessionId: string | null;
 }) {
   return {
     id: session.id,
@@ -443,5 +445,7 @@ function toSessionView(session: {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     lastActiveAt: session.lastActiveAt,
+    pinnedAt: session.pinnedAt,
+    clonedFromSessionId: session.clonedFromSessionId,
   } as const;
 }

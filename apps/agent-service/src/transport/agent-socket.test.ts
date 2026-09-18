@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
+import { agentEventSchema } from '@cloudcrane/agent-protocol';
 import type { WebsiteAgentRuntime, WebsiteSessionIndex } from '@cloudcrane/website-agent';
 import { buildAgentServiceApp } from '../app.js';
 import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
@@ -122,7 +123,7 @@ describe('AgentSocketTransport', () => {
     const events: string[] = [];
     await new Promise<void>((resolve, reject) => {
       client.on('message', (raw) => {
-        const message = JSON.parse(raw.toString()) as { type: string };
+        const message = JSON.parse(raw.toString()) as { type: string; payload?: unknown };
         events.push(message.type);
         if (message.type === 'connection.ready') {
           client.send(
@@ -135,7 +136,10 @@ describe('AgentSocketTransport', () => {
             }),
           );
         }
-        if (message.type === 'session.snapshot') resolve();
+        if (message.type === 'session.snapshot') {
+          expect(agentEventSchema.parse(message).type).toBe('session.snapshot');
+          resolve();
+        }
       });
       client.on('error', reject);
     });
