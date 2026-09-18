@@ -65,7 +65,12 @@ export function UnifiedSidebar({
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [session?.user.image]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -279,9 +284,19 @@ export function UnifiedSidebar({
 
       <div className="unified-sidebar-footer">
         <div className="unified-sidebar-account">
-          <span className="unified-sidebar-account-avatar" aria-hidden="true">
-            <UserRound size={17} />
-          </span>
+          {session?.user.image && !avatarFailed ? (
+            <img
+              className="unified-sidebar-account-avatar unified-sidebar-account-avatar-image"
+              src={session.user.image}
+              alt=""
+              referrerPolicy="no-referrer"
+              onError={() => setAvatarFailed(true)}
+            />
+          ) : (
+            <span className="unified-sidebar-account-avatar" aria-hidden="true">
+              <UserRound size={17} />
+            </span>
+          )}
           <span className="unified-sidebar-account-name">{session?.user.name ?? t('user')}</span>
         </div>
         <div className="unified-sidebar-settings-anchor" ref={settingsRef}>
