@@ -50,8 +50,8 @@ Preview 使用：
 当前 ECS 证书路径：
 
 ```text
-/etc/letsencrypt/live/preview.itkdm.com/fullchain.pem
-/etc/letsencrypt/live/preview.itkdm.com/privkey.pem
+/etc/letsencrypt/live/cloudcrane-itkdm/fullchain.pem
+/etc/letsencrypt/live/cloudcrane-itkdm/privkey.pem
 ```
 
 Wildcard 证书必须使用 DNS-01 验证。手动申请时：
@@ -59,7 +59,7 @@ Wildcard 证书必须使用 DNS-01 验证。手动申请时：
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
   --server https://acme-v02.api.letsencrypt.org/directory \
-  -d '*.preview.itkdm.com'
+  -d app.itkdm.com -d '*.preview.itkdm.com'
 ```
 
 Certbot 会提示添加类似下面的 TXT 记录：
@@ -72,7 +72,7 @@ Certbot 会提示添加类似下面的 TXT 记录：
 
 必须等权威 DNS 能查到 TXT 后，再回到 Certbot 按 Enter 继续。TXT 值不要写进 Git、日志或本手册。DNS-01 是申请 wildcard 证书的正确验证方式。[Certbot DNS challenge 文档](https://eff-certbot.readthedocs.io/en/stable/using.html)
 
-当前证书是通过 `--manual` 方式申请的，不会自动续期。后续运维应改为 Cloudflare DNS API 的最小权限 token 配合 Certbot DNS plugin 或 auth hook；token 只能保存在 ECS 私密环境或 Secret 管理系统，不得提交仓库。
+当前证书是通过 `--manual` 方式申请的，不会自动续期。后续运维应改为 Cloudflare DNS API 的最小权限 token 配合 Certbot DNS plugin 或 auth hook；token 只能保存在 ECS 私密环境或 Secret 管理系统，不得提交仓库。生产主站和 Preview 共用 `cloudcrane-itkdm` 证书，具体入口见 `docs/cloudcrane-production-deploy.md`。
 
 ## 4. Nginx
 
