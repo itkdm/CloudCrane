@@ -85,7 +85,7 @@ export function buildAgentServiceApp(
     const origin = request.headers.origin;
     if (origin === options.config.webOrigin) {
       reply.header('access-control-allow-origin', origin);
-      reply.header('access-control-allow-methods', 'GET,POST,OPTIONS');
+      reply.header('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
       reply.header('access-control-allow-headers', 'content-type');
       reply.header('access-control-allow-credentials', 'true');
       reply.header('vary', 'Origin');
@@ -198,6 +198,40 @@ export function buildAgentServiceApp(
       return { session: toSessionView(await runtime.createSession()) };
     },
   );
+  app.patch<{
+    Params: { websiteId: string; sessionId: string };
+    Body: { title?: unknown; pinned?: unknown };
+  }>('/v1/websites/:websiteId/sessions/:sessionId', async (request) => {
+    const runtime = await getRuntime(options.registry, request.params.websiteId);
+    const body = request.body ?? {};
+    if (
+      (body.title !== undefined && typeof body.title !== 'string') ||
+      (body.pinned !== undefined && typeof body.pinned !== 'boolean') ||
+      (body.title === undefined && body.pinned === undefined)
+    )
+      throw new AgentServiceError('INVALID_ARGUMENT', 'title or pinned is required', 400);
+    let session;
+    if (body.title !== undefined)
+      session = await runtime.renameSession(request.params.sessionId, body.title);
+    if (body.pinned !== undefined)
+      session = await runtime.setSessionPinned(request.params.sessionId, body.pinned);
+    return { session: toSessionView(session!) };
+  });
+  app.post<{ Params: { websiteId: string; sessionId: string } }>(
+    '/v1/websites/:websiteId/sessions/:sessionId/clone',
+    async (request) => {
+      const runtime = await getRuntime(options.registry, request.params.websiteId);
+      return { session: toSessionView(await runtime.cloneSession(request.params.sessionId)) };
+    },
+  );
+  app.delete<{ Params: { websiteId: string; sessionId: string } }>(
+    '/v1/websites/:websiteId/sessions/:sessionId',
+    async (request, reply) => {
+      const runtime = await getRuntime(options.registry, request.params.websiteId);
+      await runtime.deleteSession(request.params.sessionId);
+      return reply.code(204).send();
+    },
+  );
   app.get<{ Params: { websiteId: string; sessionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId/snapshot',
     async (request) => {
@@ -257,6 +291,8 @@ function toSessionView(session: {
   createdAt: string;
   updatedAt: string;
   lastActiveAt: string | null;
+  pinnedAt: string | null;
+  clonedFromSessionId: string | null;
 }) {
   return sessionViewSchema.parse({
     id: session.id,
@@ -266,6 +302,8 @@ function toSessionView(session: {
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     lastActiveAt: session.lastActiveAt,
+    pinnedAt: session.pinnedAt,
+    clonedFromSessionId: session.clonedFromSessionId,
   });
 }
 

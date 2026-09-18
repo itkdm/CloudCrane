@@ -14,6 +14,8 @@ const session: WebsiteSessionIndex = {
   piSessionId: 'pi-session',
   sessionFile: 'agent/session.jsonl',
   title: null,
+  pinnedAt: null,
+  clonedFromSessionId: null,
   status: 'ACTIVE',
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

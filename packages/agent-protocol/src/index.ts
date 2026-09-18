@@ -93,6 +93,8 @@ export const sessionViewSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   lastActiveAt: z.string().nullable(),
+  pinnedAt: z.string().nullable(),
+  clonedFromSessionId: z.string().uuid().nullable(),
 });
 export type AgentSessionView = z.infer<typeof sessionViewSchema>;
 

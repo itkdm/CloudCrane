@@ -8,7 +8,7 @@ import {
   fauxToolCall,
   type Model,
 } from '@earendil-works/pi-ai';
-import { AgentSession, ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { AgentSession, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 import { WorkspaceClientError, type WorkspaceClientContext } from '@cloudcrane/workspace-client';
 import {
   createInMemoryWebsiteAgentStore,
@@ -345,6 +345,111 @@ describe('WebsiteAgentRuntime', () => {
     expect(reopened.piSessionId).toBe(first.piSessionId);
     expect(reopened.id).toBe(first.id);
     await reopenedRuntime.disposeAll();
+  });
+
+  it('clones the active Pi branch without copying the source AgentRun', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-session-clone-'));
+    const faux = fauxProvider({ provider: 'cloudcrane-clone', models: [{ id: 'deterministic' }] });
+    faux.setResponses([
+      fauxAssistantMessage('source completed'),
+      fauxAssistantMessage('clone completed'),
+      fauxAssistantMessage('second clone completed'),
+    ]);
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    modelRuntime.registerNativeProvider(faux.provider);
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store: createInMemoryWebsiteAgentStore(),
+      modelRuntime,
+      model: faux.getModel() as Model<'cloudcrane-clone'>,
+      workspaceClientFactory: () =>
+        ({
+          fs: {
+            read: vi.fn(async () => ({
+              content: '',
+              sha256: 'a'.repeat(64),
+              size: 0,
+              truncated: false,
+            })),
+            list: vi.fn(async ({ path }: { path: string }) => ({ path, entries: [] })),
+            stat: vi.fn(missingReferenceStat),
+          },
+        }) as never,
+    });
+    const source = await runtime.createSession();
+    await expect(runtime.prompt(source.id, 'source prompt')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+
+    // Simulate a persisted compaction boundary, then reload the source runtime
+    // before cloning so the test exercises the same JSONL path as a real
+    // compacted session. The native clone must retain that boundary.
+    const sourceFile = path.join(dataRoot, source.sessionFile.replaceAll('/', path.sep));
+    const sourceManager = SessionManager.open(
+      sourceFile,
+      path.dirname(sourceFile),
+      path.join(dataRoot, websiteId, 'workspace'),
+    );
+    const sourceLeaf = sourceManager.getLeafId();
+    if (!sourceLeaf) throw new Error('source session has no persisted leaf');
+    sourceManager.appendCompaction('retained context summary', sourceLeaf, 42);
+    await runtime.disposeAll();
+    await runtime.openSession(source.id);
+    const clone = await runtime.cloneSession(source.id);
+    expect(clone.id).not.toBe(source.id);
+    expect(clone.piSessionId).not.toBe(source.piSessionId);
+    expect(clone.clonedFromSessionId).toBe(source.id);
+    expect(clone.title).toBe('source prompt (2)');
+    expect(clone.sessionFile).not.toBe(source.sessionFile);
+    expect(
+      (await runtime.getSessionSnapshot(clone.id)).messages.map((message) => message.text),
+    ).toEqual(expect.arrayContaining(['source prompt', 'source completed']));
+
+    const cloneFile = path.join(dataRoot, clone.sessionFile.replaceAll('/', path.sep));
+    const cloneEntries = (await readFile(cloneFile, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; summary?: string });
+    expect(cloneEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'compaction', summary: 'retained context summary' }),
+      ]),
+    );
+
+    await runtime.renameSession(source.id, 'renamed source');
+    await runtime.setSessionPinned(source.id, true);
+    await runtime.disposeAll();
+    await runtime.openSession(source.id);
+    await expect(runtime.getSessionSnapshot(source.id)).resolves.toMatchObject({
+      session: { title: 'renamed source', pinnedAt: expect.any(String) },
+    });
+    await expect(runtime.prompt(clone.id, 'clone prompt')).resolves.toMatchObject({
+      status: 'COMPLETED',
+    });
+    const secondClone = await runtime.cloneSession(clone.id);
+    expect(secondClone.title).toBe('source prompt (3)');
+    expect(secondClone.clonedFromSessionId).toBe(clone.id);
+    expect(
+      (await runtime.getSessionSnapshot(source.id)).messages.map((message) => message.text),
+    ).not.toContain('clone prompt');
+    await runtime.deleteSession(source.id);
+    await expect(runtime.getSessionSnapshot(clone.id)).resolves.toMatchObject({
+      session: { id: clone.id },
+    });
+    await runtime.deleteSession(clone.id);
+    await runtime.deleteSession(secondClone.id);
+    await expect(runtime.openSession(source.id)).rejects.toMatchObject({
+      code: 'SESSION_NOT_FOUND',
+    });
+    await runtime.disposeAll();
   });
 
   it('refreshes remote AGENTS.md and replaces the model-facing cwd', async () => {

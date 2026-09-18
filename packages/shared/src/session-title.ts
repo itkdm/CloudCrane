@@ -1,5 +1,6 @@
 const CHINESE_TITLE_LIMIT = 24;
 const ENGLISH_TITLE_LIMIT = 56;
+export const SESSION_TITLE_MAX_LENGTH = 255;
 
 const commonPrefixPattern =
   /^(?:请你|请|帮我|麻烦你|麻烦|能否|可以帮我|please|could you|can you)\s*/i;
@@ -56,4 +57,25 @@ function truncateTitle(value: string, limit: number): string {
 
 function containsChinese(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value);
+}
+
+export function deriveCloneSessionTitle(
+  sourceTitle: string | null | undefined,
+  existingTitles: readonly (string | null | undefined)[],
+): string {
+  const source = sourceTitle?.trim() || '新对话';
+  const base = source.replace(/ \(\d+\)$/, '').trim() || '新对话';
+  const pattern = new RegExp(`^${escapeRegExp(base)}(?: \\((\\d+)\\))?$`);
+  let highest = 1;
+  for (const title of existingTitles) {
+    const match = title?.trim().match(pattern);
+    if (match) highest = Math.max(highest, match[1] ? Number(match[1]) : 1);
+  }
+  const suffix = ` (${highest + 1})`;
+  const available = SESSION_TITLE_MAX_LENGTH - suffix.length;
+  return `${Array.from(base).slice(0, available).join('').trimEnd() || '新对话'}${suffix}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -29,6 +29,13 @@
       "when": 1789666000000,
       "tag": "0004_auth_and_website_ownership",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789754220798,
+      "tag": "0004_futuristic_hulk",
+      "breakpoints": true
     }
   ]
 }

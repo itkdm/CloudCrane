@@ -21,7 +21,8 @@
     "expand": "展开",
     "user": "用户",
     "settings": "设置",
-    "theme": "主题"
+    "theme": "主题",
+    "clear": "清空"
   },
   "auth": {
     "signInTitle": "登录工作区",
@@ -198,6 +199,18 @@
     "newSession": "新建对话",
     "newSessionTitle": "新对话",
     "noSessions": "暂无对话",
+    "searchSessions": "搜索对话",
+    "sessionMenu": "对话菜单",
+    "renameSession": "重命名",
+    "saveSessionName": "保存名称",
+    "pinSession": "置顶",
+    "unpinSession": "取消置顶",
+    "cloneSession": "克隆",
+    "deleteSession": "删除",
+    "deleteSessionConfirm": "确定删除这个对话吗？",
+    "pinnedSession": "已置顶",
+    "clonedSession": "克隆对话",
+    "sessionActionFailed": "操作失败，请稍后重试",
     "showMoreSessions": "展开更多",
     "showFewerSessions": "收起",
     "openSession": "打开对话：{title}",

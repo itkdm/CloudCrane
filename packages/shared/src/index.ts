@@ -1,6 +1,10 @@
 import pino, { type Logger } from 'pino';
 
-export { deriveSessionTitle } from './session-title.js';
+export {
+  deriveCloneSessionTitle,
+  deriveSessionTitle,
+  SESSION_TITLE_MAX_LENGTH,
+} from './session-title.js';
 
 export type ServiceLogger = Logger;
 

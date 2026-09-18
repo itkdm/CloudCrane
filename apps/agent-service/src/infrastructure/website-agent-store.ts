@@ -20,6 +20,8 @@ function mapSession(row: typeof websiteSession.$inferSelect): WebsiteSessionInde
     piSessionId: row.piSessionId,
     sessionFile: row.sessionFile,
     title: row.title,
+    pinnedAt: toIso(row.pinnedAt),
+    clonedFromSessionId: row.clonedFromSessionId,
     status: row.status === 'OPEN' ? 'ACTIVE' : (row.status as WebsiteSessionStatus),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -62,6 +64,7 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
       .from(websiteSession)
       .where(eq(websiteSession.websiteId, websiteId))
       .orderBy(
+        sql`${websiteSession.pinnedAt} desc nulls last`,
         sql`${websiteSession.lastActiveAt} desc nulls last`,
         sql`${websiteSession.createdAt} desc`,
       );
@@ -76,6 +79,8 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
         piSessionId: input.piSessionId,
         sessionFile: input.sessionFile,
         title: input.title,
+        pinnedAt: input.pinnedAt ? new Date(input.pinnedAt) : null,
+        clonedFromSessionId: input.clonedFromSessionId ?? null,
         status: input.status,
         lastActiveAt: input.lastActiveAt ? new Date(input.lastActiveAt) : null,
       })
@@ -93,6 +98,10 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
     if (patch.piSessionId !== undefined) update.piSessionId = patch.piSessionId;
     if (patch.sessionFile !== undefined) update.sessionFile = patch.sessionFile;
     if (patch.title !== undefined) update.title = patch.title;
+    if (patch.pinnedAt !== undefined)
+      update.pinnedAt = patch.pinnedAt ? new Date(patch.pinnedAt) : null;
+    if (patch.clonedFromSessionId !== undefined)
+      update.clonedFromSessionId = patch.clonedFromSessionId;
     if (patch.status !== undefined) update.status = patch.status;
     if (patch.lastActiveAt !== undefined)
       update.lastActiveAt = patch.lastActiveAt ? new Date(patch.lastActiveAt) : null;
@@ -102,6 +111,12 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
       .update(websiteSession)
       .set(update)
       .where(eq(websiteSession.id, websiteSessionId));
+  }
+
+  async deleteSession(websiteId: string, websiteSessionId: string): Promise<void> {
+    await this.platform.db
+      .delete(websiteSession)
+      .where(and(eq(websiteSession.id, websiteSessionId), eq(websiteSession.websiteId, websiteId)));
   }
 
   async createRun(input: CreateRunIndex): Promise<AgentRunIndex> {

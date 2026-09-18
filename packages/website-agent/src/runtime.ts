@@ -21,7 +21,11 @@ import type { Api, Model } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
 import { createLogger } from '@cloudcrane/shared';
-import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
+import {
+  deriveCloneSessionTitle,
+  deriveSessionTitle,
+  SESSION_TITLE_MAX_LENGTH,
+} from '@cloudcrane/shared/session-title';
 import {
   WorkspaceClient,
   WorkspaceClientError,
@@ -74,6 +78,8 @@ export type WebsiteSessionIndex = {
   createdAt: string;
   updatedAt: string;
   lastActiveAt: string | null;
+  pinnedAt: string | null;
+  clonedFromSessionId: string | null;
 };
 
 export type AgentRunIndex = {
@@ -96,6 +102,7 @@ export interface WebsiteAgentStore {
   listSessions(websiteId: string): Promise<WebsiteSessionIndex[]>;
   createSession(input: CreateSessionIndex): Promise<WebsiteSessionIndex>;
   updateSession(websiteSessionId: string, patch: Partial<WebsiteSessionIndex>): Promise<void>;
+  deleteSession(websiteId: string, websiteSessionId: string): Promise<void>;
   createRun(input: CreateRunIndex): Promise<AgentRunIndex>;
   updateRun(runId: string, patch: Partial<AgentRunIndex>): Promise<void>;
   recoverStaleRuns(websiteId: string): Promise<void>;
@@ -214,6 +221,9 @@ export class WebsiteAgentRuntimeError extends Error {
   constructor(
     public readonly code:
       | 'SESSION_BUSY'
+      | 'SESSION_NOT_FOUND'
+      | 'SESSION_NOT_CLONABLE'
+      | 'SESSION_TITLE_INVALID'
       | 'WEBSITE_MUTATION_BUSY'
       | 'CONTEXT_COMPACTION_NOT_NEEDED'
       | 'INTERACTION_NOT_FOUND',
@@ -442,6 +452,8 @@ export class WebsiteAgentRuntime {
       title: null,
       status: 'NEW',
       lastActiveAt: null,
+      pinnedAt: null,
+      clonedFromSessionId: null,
     });
     try {
       await this.sessions.getOrLoad(record.id, () => this.loadManaged(record, sessionManager));
@@ -457,7 +469,8 @@ export class WebsiteAgentRuntime {
   async openSession(websiteSessionId: string): Promise<WebsiteSessionIndex> {
     assertUuid(websiteSessionId, 'websiteSessionId');
     const record = await this.options.store.findSession(this.options.websiteId, websiteSessionId);
-    if (!record) throw new Error('website session was not found');
+    if (!record)
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_FOUND', 'website session was not found');
     await this.sessions.getOrLoad(record.id, () => this.loadManaged(record));
     return record;
   }
@@ -716,6 +729,110 @@ export class WebsiteAgentRuntime {
     return this.createSession();
   }
 
+  async renameSession(websiteSessionId: string, title: string): Promise<WebsiteSessionIndex> {
+    const managed = await this.getManaged(websiteSessionId);
+    const normalized = title.trim();
+    if (!normalized || Array.from(normalized).length > SESSION_TITLE_MAX_LENGTH)
+      throw new WebsiteAgentRuntimeError('SESSION_TITLE_INVALID', 'session title is invalid');
+    managed.piRuntime.session.setSessionName(normalized);
+    managed.record.title = normalized;
+    await this.options.store.updateSession(managed.websiteSessionId, {
+      title: normalized,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ...managed.record };
+  }
+
+  async setSessionPinned(websiteSessionId: string, pinned: boolean): Promise<WebsiteSessionIndex> {
+    const managed = await this.getManaged(websiteSessionId);
+    const pinnedAt = pinned ? new Date().toISOString() : null;
+    managed.record.pinnedAt = pinnedAt;
+    await this.options.store.updateSession(managed.websiteSessionId, {
+      pinnedAt,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ...managed.record };
+  }
+
+  async cloneSession(websiteSessionId: string): Promise<WebsiteSessionIndex> {
+    const source = await this.getManaged(websiteSessionId);
+    if (this.isManagedSessionBusy(source))
+      throw new WebsiteAgentRuntimeError('SESSION_BUSY', 'session is busy');
+    const sourceFile = source.sessionManager.getSessionFile();
+    const leafId = source.sessionManager.getLeafId();
+    if (!sourceFile || !leafId)
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_CLONABLE', 'session cannot be cloned');
+    await access(sourceFile);
+    const sourceManager = SessionManager.open(
+      sourceFile,
+      this.layout.sessionDirectory(this.options.websiteId),
+      this.piCwd,
+    );
+    const clonedFile = sourceManager.createBranchedSession(leafId);
+    if (!clonedFile)
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_CLONABLE', 'session cannot be cloned');
+    const sessions = await this.options.store.listSessions(this.options.websiteId);
+    const cloneTitle = deriveCloneSessionTitle(
+      source.record.title,
+      sessions.map((session) => session.title),
+    );
+    let cloneRecord: WebsiteSessionIndex | undefined;
+    try {
+      const cloneManager = SessionManager.open(
+        clonedFile,
+        this.layout.sessionDirectory(this.options.websiteId),
+        this.piCwd,
+      );
+      cloneRecord = await this.options.store.createSession({
+        websiteId: this.options.websiteId,
+        piSessionId: cloneManager.getSessionId(),
+        sessionFile: this.layout.relativeSessionFile(this.options.websiteId, clonedFile),
+        title: cloneTitle,
+        status: 'ACTIVE',
+        lastActiveAt: null,
+        pinnedAt: null,
+        clonedFromSessionId: source.record.id,
+      });
+      await this.sessions.getOrLoad(cloneRecord.id, () =>
+        this.loadManaged(cloneRecord!, cloneManager),
+      );
+      return { ...cloneRecord };
+    } catch (error) {
+      if (cloneRecord)
+        await this.options.store
+          .deleteSession(this.options.websiteId, cloneRecord.id)
+          .catch(() => undefined);
+      await rm(clonedFile, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async deleteSession(websiteSessionId: string): Promise<void> {
+    const managed = await this.getManaged(websiteSessionId);
+    if (this.isManagedSessionBusy(managed))
+      throw new WebsiteAgentRuntimeError('SESSION_BUSY', 'session is busy');
+    const sessionFile = this.layout.absoluteSessionFile(
+      this.options.websiteId,
+      managed.record.sessionFile,
+    );
+    await this.sessions.close(managed.record.id);
+    const deletingFile = `${sessionFile}.deleting-${randomUUID()}`;
+    let movedFile = false;
+    try {
+      await rename(sessionFile, deletingFile);
+      movedFile = true;
+    } catch (error) {
+      if (!isFileNotFound(error)) throw error;
+    }
+    try {
+      await this.options.store.deleteSession(this.options.websiteId, managed.record.id);
+    } catch (error) {
+      if (movedFile) await rename(deletingFile, sessionFile).catch(() => undefined);
+      throw error;
+    }
+    if (movedFile) await rm(deletingFile, { force: true });
+  }
+
   async switchSession(
     websiteSessionId: string,
     targetWebsiteSessionId?: string,
@@ -762,6 +879,14 @@ export class WebsiteAgentRuntime {
   private async getManaged(websiteSessionId: string): Promise<ManagedSession> {
     const record = await this.openSession(websiteSessionId);
     return this.sessions.getOrLoad(record.id, () => this.loadManaged(record));
+  }
+
+  private isManagedSessionBusy(managed: ManagedSession): boolean {
+    return (
+      managed.isSessionBusy() ||
+      this.interactionBroker.listPending(this.options.websiteId, managed.websiteSessionId).length >
+        0
+    );
   }
 
   private async loadManaged(
@@ -1346,7 +1471,13 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
     async listSessions(websiteId) {
       return [...sessions.values()]
         .filter((session) => session.websiteId === websiteId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .sort((a, b) => {
+          if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
+          return (
+            (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '') ||
+            b.createdAt.localeCompare(a.createdAt)
+          );
+        })
         .map((session) => ({ ...session }));
     },
     async createSession(input) {
@@ -1364,6 +1495,13 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
       const session = sessions.get(websiteSessionId);
       if (!session) throw new Error('website session was not found');
       Object.assign(session, patch, { updatedAt: patch.updatedAt ?? new Date().toISOString() });
+    },
+    async deleteSession(websiteId, websiteSessionId) {
+      const session = sessions.get(websiteSessionId);
+      if (session?.websiteId === websiteId) {
+        sessions.delete(websiteSessionId);
+        for (const [runId, run] of runs) if (run.sessionId === websiteSessionId) runs.delete(runId);
+      }
     },
     async createRun(input) {
       const run: AgentRunIndex = { ...input, id: input.id ?? randomUUID() };

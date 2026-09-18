@@ -126,8 +126,14 @@ export const websiteSession = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
     lastActiveAt: timestamp('last_active_at', { withTimezone: true }),
+    pinnedAt: timestamp('pinned_at', { withTimezone: true }),
+    clonedFromSessionId: uuid('cloned_from_session_id'),
   },
-  (table) => [index('website_session_website_id_idx').on(table.websiteId)],
+  (table) => [
+    index('website_session_website_id_idx').on(table.websiteId),
+    index('website_session_pinned_at_idx').on(table.websiteId, table.pinnedAt),
+    index('website_session_clone_source_idx').on(table.clonedFromSessionId),
+  ],
 );
 
 export const agentRun = pgTable(

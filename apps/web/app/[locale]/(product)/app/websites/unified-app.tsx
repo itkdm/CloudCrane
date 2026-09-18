@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { createAgentSession, listAgentSessions } from '@/lib/agent-client';
+import {
+  cloneAgentSession,
+  createAgentSession,
+  deleteAgentSession,
+  listAgentSessions,
+  updateAgentSession,
+  type AgentSession,
+} from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
 import { TemplatesView } from './components/templates-view';
@@ -25,6 +32,9 @@ type Session = {
   id: string;
   websiteId: string;
   title?: string;
+  pinnedAt: string | null;
+  clonedFromSessionId: string | null;
+  lastActiveAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -80,6 +90,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionSearch, setSessionSearch] = useState('');
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -122,6 +133,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             ...session,
             websiteId: website.id,
             title: session.title ?? undefined,
+            pinnedAt: session.pinnedAt,
+            clonedFromSessionId: session.clonedFromSessionId,
+            lastActiveAt: session.lastActiveAt,
           }));
         }),
       );
@@ -167,16 +181,96 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
 
   const groupedSessions = useMemo<GroupedSessions[]>(
     () =>
-      websites.map((website) => ({
-        websiteId: website.id,
-        websiteName: website.name,
-        status: website.status,
-        previewUrl: website.previewUrl,
-        sessions: sessions
-          .filter((s) => s.websiteId === website.id)
-          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-      })),
-    [sessions, websites],
+      websites
+        .map((website) => ({
+          websiteId: website.id,
+          websiteName: website.name,
+          status: website.status,
+          previewUrl: website.previewUrl,
+          sessions: sessions
+            .filter(
+              (s) =>
+                s.websiteId === website.id &&
+                (!sessionSearch.trim() ||
+                  (s.title ?? '')
+                    .toLocaleLowerCase()
+                    .includes(sessionSearch.trim().toLocaleLowerCase())),
+            )
+            .sort((a, b) => {
+              if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
+              const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+              const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+              return (
+                activeB - activeA ||
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+              );
+            }),
+        }))
+        .filter((group) => !sessionSearch.trim() || group.sessions.length > 0),
+    [sessionSearch, sessions, websites],
+  );
+
+  function mergeSession(websiteId: string, next: AgentSession): void {
+    setSessions((current) => {
+      const mapped: Session = {
+        id: next.id,
+        websiteId,
+        title: next.title ?? undefined,
+        pinnedAt: next.pinnedAt,
+        clonedFromSessionId: next.clonedFromSessionId,
+        lastActiveAt: next.lastActiveAt,
+        createdAt: next.createdAt,
+        updatedAt: next.updatedAt,
+      };
+      return current.some((item) => item.id === next.id)
+        ? current.map((item) => (item.id === next.id ? { ...item, ...mapped } : item))
+        : [...current, mapped];
+    });
+  }
+
+  const handleRenameSession = useCallback(
+    async (websiteId: string, sessionId: string, title: string) => {
+      const result = await updateAgentSession(websiteId, sessionId, { title });
+      mergeSession(websiteId, result.session);
+    },
+    [],
+  );
+
+  const handlePinSession = useCallback(
+    async (websiteId: string, sessionId: string, pinned: boolean) => {
+      const result = await updateAgentSession(websiteId, sessionId, { pinned });
+      mergeSession(websiteId, result.session);
+    },
+    [],
+  );
+
+  const handleCloneSession = useCallback(async (websiteId: string, sessionId: string) => {
+    const result = await cloneAgentSession(websiteId, sessionId);
+    mergeSession(websiteId, result.session);
+    setSelectedWebsite(websiteId);
+    setSelectedSession(result.session.id);
+    setView('websites');
+  }, []);
+
+  const handleDeleteSession = useCallback(
+    async (websiteId: string, sessionId: string) => {
+      await deleteAgentSession(websiteId, sessionId);
+      setSessions((current) => current.filter((item) => item.id !== sessionId));
+      if (selectedSession !== sessionId) return;
+      const next = sessions
+        .filter((item) => item.websiteId === websiteId && item.id !== sessionId)
+        .sort((a, b) => {
+          if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
+          const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+          const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+          return (
+            activeB - activeA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+        })[0];
+      setSelectedWebsite(websiteId);
+      setSelectedSession(next?.id ?? null);
+    },
+    [selectedSession, sessions],
   );
 
   function handleViewChange(nextView: WorkspaceView) {
@@ -267,6 +361,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           title: created.session.title ?? undefined,
           createdAt: created.session.createdAt,
           updatedAt: created.session.updatedAt,
+          pinnedAt: created.session.pinnedAt,
+          clonedFromSessionId: created.session.clonedFromSessionId,
+          lastActiveAt: created.session.lastActiveAt,
         },
       ]);
       setPendingStartPrompt({ id: promptId, websiteId: website.id, text });
@@ -314,6 +411,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
                 title: metadata.title ?? '',
                 createdAt: metadata.createdAt ?? new Date().toISOString(),
                 updatedAt: metadata.updatedAt ?? new Date().toISOString(),
+                pinnedAt: null,
+                clonedFromSessionId: null,
+                lastActiveAt: null,
               },
             ],
       );
@@ -367,6 +467,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onNewSession={handleNewSession}
         onCreateWebsite={() => setCreateWebsiteOpen(true)}
         onSettingsOpen={handleAuthorizeWebsite}
+        searchQuery={sessionSearch}
+        onSearchQueryChange={setSessionSearch}
+        onSessionRename={handleRenameSession}
+        onSessionPin={handlePinSession}
+        onSessionClone={handleCloneSession}
+        onSessionDelete={handleDeleteSession}
       />
       <div className="unified-content">
         {view === 'templates' ? (

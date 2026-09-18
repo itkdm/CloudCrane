@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSessionTitle } from './session-title.js';
+import { deriveCloneSessionTitle, deriveSessionTitle } from './session-title.js';
 
 describe('deriveSessionTitle', () => {
   it('extracts a concise Chinese website task title', () => {
@@ -24,5 +24,17 @@ describe('deriveSessionTitle', () => {
 
   it('never returns an empty title', () => {
     expect(deriveSessionTitle('   ***   ')).toBe('新对话');
+  });
+
+  it('allocates the next clone title within the same title family', () => {
+    expect(
+      deriveCloneSessionTitle('agent-auth (2)', ['agent-auth', 'agent-auth (2)', 'agent-auth (4)']),
+    ).toBe('agent-auth (5)');
+  });
+
+  it('keeps cloned titles within the database limit', () => {
+    const title = deriveCloneSessionTitle('a'.repeat(255), []);
+    expect(title.length).toBeLessThanOrEqual(255);
+    expect(title.endsWith(' (2)')).toBe(true);
   });
 });

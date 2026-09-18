@@ -104,6 +104,29 @@ describe('agent service authorization', () => {
     await app.close();
   });
 
+  it('rejects session metadata mutations for a website the user does not own', async () => {
+    const registry = createRegistry();
+    const app = buildAgentServiceApp({
+      config,
+      registry,
+      auth: createAuth({ user: { id: userId, role: 'user' } }),
+      db: createDb('user-b'),
+    });
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/websites/${websiteId}/sessions/00000000-0000-4000-8000-000000000002`,
+      headers: { origin: config.webOrigin },
+      payload: { title: 'not allowed' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({
+      error: { code: 'WEBSITE_FORBIDDEN', message: 'website access is forbidden' },
+    });
+    await app.close();
+  });
+
   it('allows the owner through CORS and session checks before runtime lookup', async () => {
     const registry = createRegistry();
     const app = buildAgentServiceApp({

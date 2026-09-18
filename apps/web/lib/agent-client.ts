@@ -9,6 +9,18 @@ import {
 
 const serviceUrl = process.env.NEXT_PUBLIC_AGENT_SERVICE_URL ?? 'http://localhost:4101';
 
+export type AgentSession = {
+  id: string;
+  title: string | null;
+  status: 'NEW' | 'ACTIVE' | 'CLOSED';
+  piSessionId: string;
+  pinnedAt: string | null;
+  clonedFromSessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastActiveAt: string | null;
+};
+
 function agentEndpoint(path: string): string {
   return `${serviceUrl.replace(/\/$/, '')}${path}`;
 }
@@ -18,9 +30,7 @@ export async function listAgentSessions(websiteId: string) {
     credentials: 'include',
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as {
-    sessions: Array<{ id: string; title: string | null; createdAt: string; updatedAt: string }>;
-  };
+  return (await response.json()) as { sessions: AgentSession[] };
 }
 
 export async function createAgentSession(websiteId: string) {
@@ -29,9 +39,39 @@ export async function createAgentSession(websiteId: string) {
     credentials: 'include',
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as {
-    session: { id: string; title: string | null; createdAt: string; updatedAt: string };
-  };
+  return (await response.json()) as { session: AgentSession };
+}
+
+export async function updateAgentSession(
+  websiteId: string,
+  sessionId: string,
+  patch: { title?: string; pinned?: boolean },
+) {
+  const response = await fetch(agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}`), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { session: AgentSession };
+}
+
+export async function cloneAgentSession(websiteId: string, sessionId: string) {
+  const response = await fetch(
+    agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/clone`),
+    { method: 'POST', credentials: 'include' },
+  );
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { session: AgentSession };
+}
+
+export async function deleteAgentSession(websiteId: string, sessionId: string) {
+  const response = await fetch(agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}`), {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
 }
 
 export async function uploadReference(

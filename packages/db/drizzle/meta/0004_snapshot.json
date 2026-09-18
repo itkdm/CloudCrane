@@ -1,6 +1,6 @@
 {
-  "id": "f74010aa-ab6b-4b57-ab5a-1d544de167ab",
-  "prevId": "12949d08-d704-4150-894c-39ff40ca5260",
+  "id": "8f96daee-3972-4ad4-947a-a9f9bae67e2f",
+  "prevId": "f74010aa-ab6b-4b57-ab5a-1d544de167ab",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -693,6 +693,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "pinned_at": {
+          "name": "pinned_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cloned_from_session_id": {
+          "name": "cloned_from_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -701,6 +713,42 @@
           "columns": [
             {
               "expression": "website_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "website_session_pinned_at_idx": {
+          "name": "website_session_pinned_at_idx",
+          "columns": [
+            {
+              "expression": "website_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pinned_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "website_session_clone_source_idx": {
+          "name": "website_session_clone_source_idx",
+          "columns": [
+            {
+              "expression": "cloned_from_session_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

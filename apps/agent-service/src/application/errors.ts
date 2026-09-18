@@ -5,6 +5,8 @@ export type AgentServiceErrorCode =
   | 'WORKSPACE_NOT_FOUND'
   | 'WORKSPACE_NOT_READY'
   | 'SESSION_NOT_FOUND'
+  | 'SESSION_NOT_CLONABLE'
+  | 'SESSION_TITLE_INVALID'
   | 'SESSION_BUSY'
   | 'WEBSITE_MUTATION_BUSY'
   | 'CONTEXT_COMPACTION_NOT_NEEDED'
@@ -20,9 +22,13 @@ export class AgentServiceError extends Error {
       ? 400
       : code === 'WEBSITE_FORBIDDEN'
         ? 403
-        : code === 'INTERNAL_ERROR'
-          ? 500
-          : 409,
+        : code === 'SESSION_NOT_FOUND'
+          ? 404
+          : code === 'SESSION_TITLE_INVALID'
+            ? 400
+            : code === 'INTERNAL_ERROR'
+              ? 500
+              : 409,
   ) {
     super(message);
     this.name = 'AgentServiceError';
@@ -35,6 +41,9 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
     error &&
     typeof error === 'object' &&
     ((error as { code?: unknown }).code === 'SESSION_BUSY' ||
+      (error as { code?: unknown }).code === 'SESSION_NOT_FOUND' ||
+      (error as { code?: unknown }).code === 'SESSION_NOT_CLONABLE' ||
+      (error as { code?: unknown }).code === 'SESSION_TITLE_INVALID' ||
       (error as { code?: unknown }).code === 'WEBSITE_MUTATION_BUSY' ||
       (error as { code?: unknown }).code === 'CONTEXT_COMPACTION_NOT_NEEDED' ||
       (error as { code?: unknown }).code === 'INTERACTION_NOT_FOUND')
@@ -43,6 +52,9 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
       error as {
         code:
           | 'SESSION_BUSY'
+          | 'SESSION_NOT_FOUND'
+          | 'SESSION_NOT_CLONABLE'
+          | 'SESSION_TITLE_INVALID'
           | 'WEBSITE_MUTATION_BUSY'
           | 'CONTEXT_COMPACTION_NOT_NEEDED'
           | 'INTERACTION_NOT_FOUND';
