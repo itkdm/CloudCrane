@@ -731,6 +731,12 @@ describe('WebsiteAgentRuntime', () => {
       code: 'SESSION_BUSY',
     });
     await expect(runtime.compact(session.id)).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    await expect(runtime.cloneSession(session.id)).rejects.toMatchObject({
+      code: 'SESSION_BUSY',
+    });
+    await expect(runtime.deleteSession(session.id)).rejects.toMatchObject({
+      code: 'SESSION_BUSY',
+    });
     expect(createRun).toHaveBeenCalledTimes(1);
     release();
     await expect(firstRun).resolves.toMatchObject({ status: 'COMPLETED' });
