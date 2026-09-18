@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Check,
   Copy,
   GitBranch,
   LogOut,
@@ -43,7 +42,7 @@ type GroupedSessions = {
   sessions: Session[];
 };
 
-type SessionDeleteTarget = {
+type SessionDialogTarget = {
   websiteId: string;
   sessionId: string;
   title: string;
@@ -97,11 +96,11 @@ export function UnifiedSidebar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<SessionDialogTarget | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<SessionDeleteTarget | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionDialogTarget | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
@@ -127,17 +126,15 @@ export function UnifiedSidebar({
   }, [settingsOpen]);
 
   useEffect(() => {
-    if (!openMenuSessionId && !editingSessionId) return;
+    if (!openMenuSessionId) return;
     function handlePointerDown(event: PointerEvent) {
       if (!sessionMenuRef.current?.contains(event.target as Node)) {
         setOpenMenuSessionId(null);
-        setEditingSessionId(null);
       }
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setOpenMenuSessionId(null);
-        setEditingSessionId(null);
       }
     }
     document.addEventListener('pointerdown', handlePointerDown);
@@ -146,7 +143,7 @@ export function UnifiedSidebar({
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editingSessionId, openMenuSessionId]);
+  }, [openMenuSessionId]);
 
   useEffect(() => {
     if (!deleteTarget) return;
@@ -159,6 +156,19 @@ export function UnifiedSidebar({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [deleteTarget, pendingAction]);
+
+  useEffect(() => {
+    if (!renameTarget) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !pendingAction) {
+        setRenameTarget(null);
+        setRenameValue('');
+        setActionError(null);
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [pendingAction, renameTarget]);
 
   useEffect(() => {
     setExpandedGroups((current) => {
@@ -347,66 +357,24 @@ export function UnifiedSidebar({
                           key={session.id}
                           className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
                           ref={
-                            openMenuSessionId === session.id || editingSessionId === session.id
-                              ? sessionMenuRef
-                              : undefined
+                            openMenuSessionId === session.id ? sessionMenuRef : undefined
                           }
                         >
-                          {editingSessionId === session.id ? (
-                            <form
-                              className="session-rename-form"
-                              onSubmit={async (event) => {
-                                event.preventDefault();
-                                const title = renameValue.trim();
-                                if (!title || pendingAction) return;
-                                setPendingAction(`rename:${session.id}`);
-                                setActionError(null);
-                                try {
-                                  await onSessionRename(group.websiteId, session.id, title);
-                                  setEditingSessionId(null);
-                                } catch (error) {
-                                  setActionError(
-                                    error instanceof Error
-                                      ? error.message
-                                      : workbenchT('sessionActionFailed'),
-                                  );
-                                } finally {
-                                  setPendingAction(null);
-                                }
-                              }}
-                            >
-                              <input
-                                autoFocus
-                                value={renameValue}
-                                maxLength={255}
-                                onChange={(event) => setRenameValue(event.target.value)}
-                                aria-label={workbenchT('renameSession')}
-                              />
-                              <button
-                                type="submit"
-                                disabled={pendingAction !== null}
-                                aria-label={workbenchT('saveSessionName')}
-                              >
-                                <Check size={14} aria-hidden="true" />
-                              </button>
-                            </form>
-                          ) : (
-                            <button
-                              type="button"
-                              className="session-select-button"
-                              onClick={() => onSessionSelect(group.websiteId, session.id)}
-                            >
-                              <span className="session-title">
-                                {session.title || workbenchT('newSessionTitle')}
-                              </span>
-                              {session.pinnedAt ? (
-                                <Pin size={12} aria-label={workbenchT('pinnedSession')} />
-                              ) : null}
-                              {session.clonedFromSessionId ? (
-                                <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
-                              ) : null}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className="session-select-button"
+                            onClick={() => onSessionSelect(group.websiteId, session.id)}
+                          >
+                            <span className="session-title">
+                              {session.title || workbenchT('newSessionTitle')}
+                            </span>
+                            {session.pinnedAt ? (
+                              <Pin size={12} aria-label={workbenchT('pinnedSession')} />
+                            ) : null}
+                            {session.clonedFromSessionId ? (
+                              <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
+                            ) : null}
+                          </button>
                           <button
                             type="button"
                             className="session-menu-trigger"
@@ -428,8 +396,13 @@ export function UnifiedSidebar({
                                 type="button"
                                 role="menuitem"
                                 onClick={() => {
+                                  setActionError(null);
                                   setRenameValue(session.title || workbenchT('newSessionTitle'));
-                                  setEditingSessionId(session.id);
+                                  setRenameTarget({
+                                    websiteId: group.websiteId,
+                                    sessionId: session.id,
+                                    title: session.title || workbenchT('newSessionTitle'),
+                                  });
                                   setOpenMenuSessionId(null);
                                 }}
                               >
@@ -596,6 +569,80 @@ export function UnifiedSidebar({
                 disabled={pendingAction !== null}
               >
                 {pendingAction ? workbenchT('deletingSession') : workbenchT('deleteSession')}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {renameTarget ? (
+        <div
+          className="website-dialog-backdrop session-rename-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !pendingAction) {
+              setRenameTarget(null);
+              setRenameValue('');
+            }
+          }}
+        >
+          <section
+            className="website-dialog-panel session-rename-dialog-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="session-rename-title"
+            aria-describedby="session-rename-description"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="session-rename-title">{workbenchT('renameSessionTitle')}</h2>
+            <p id="session-rename-description">{workbenchT('renameSessionDescription')}</p>
+            <input
+              autoFocus
+              value={renameValue}
+              maxLength={255}
+              onChange={(event) => setRenameValue(event.target.value)}
+              aria-label={workbenchT('renameSession')}
+            />
+            {actionError ? (
+              <p className="website-modal-error" role="alert">
+                {actionError}
+              </p>
+            ) : null}
+            <div className="website-dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setRenameTarget(null);
+                  setRenameValue('');
+                  setActionError(null);
+                }}
+                disabled={pendingAction !== null}
+              >
+                {common('cancel')}
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={async () => {
+                  const title = renameValue.trim();
+                  if (!title || pendingAction) return;
+                  setPendingAction(`rename:${renameTarget.sessionId}`);
+                  setActionError(null);
+                  try {
+                    await onSessionRename(renameTarget.websiteId, renameTarget.sessionId, title);
+                    setRenameTarget(null);
+                    setRenameValue('');
+                  } catch (error) {
+                    setActionError(
+                      error instanceof Error ? error.message : workbenchT('sessionActionFailed'),
+                    );
+                  } finally {
+                    setPendingAction(null);
+                  }
+                }}
+                disabled={pendingAction !== null || !renameValue.trim()}
+              >
+                {pendingAction ? workbenchT('savingSessionName') : workbenchT('saveSessionName')}
               </button>
             </div>
           </section>

@@ -864,7 +864,7 @@ button:disabled {
 }
 .unified-sidebar .session-menu-trigger:hover,
 .unified-sidebar .session-menu-trigger:focus-visible {
-  background: var(--cc-surface-2);
+  background: transparent;
   color: var(--cc-text);
 }
 .session-menu {
@@ -905,34 +905,6 @@ button:disabled {
 .session-menu button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-.session-rename-form {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  gap: 4px;
-}
-.session-rename-form input {
-  min-width: 0;
-  flex: 1;
-  padding: 3px 5px;
-  border: 1px solid var(--cc-brand);
-  border-radius: 5px;
-  outline: 0;
-  background: var(--cc-surface-0);
-  color: var(--cc-text);
-  font: inherit;
-  font-size: 12px;
-}
-.session-rename-form button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 3px;
-  border: 0;
-  background: transparent;
-  color: var(--cc-brand);
-  cursor: pointer;
 }
 .session-action-error {
   margin: 4px 8px;

@@ -595,6 +595,29 @@
 .session-delete-dialog-panel {
   width: min(440px, calc(100vw - 32px));
 }
+.session-rename-dialog-panel {
+  width: min(520px, calc(100vw - 32px));
+}
+.session-rename-dialog-panel input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 20px;
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  padding: 0 15px;
+  background: var(--cc-surface-0);
+  color: var(--cc-text);
+  font-size: 16px;
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.session-rename-dialog-panel input:focus {
+  border-color: var(--cc-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-brand) 12%, transparent);
+}
 .session-delete-dialog-panel p {
   margin: 0;
   color: var(--cc-text-secondary);
