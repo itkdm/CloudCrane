@@ -49,10 +49,9 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="auth-eyebrow">CLOUDCRANE</p>
-        <h1>{mode === 'sign-in' ? '登录你的工作区' : '创建 CloudCrane 账户'}</h1>
+        <h1>{mode === 'sign-in' ? '登录工作区' : '创建账户'}</h1>
         <p className="auth-description">
-          {mode === 'sign-in' ? '登录后管理你拥有的网站。' : '创建账户后即可创建并管理网站。'}
+          {mode === 'sign-in' ? '管理你创建的网站。' : '创建并管理你的网站。'}
         </p>
         <form onSubmit={submit} className="auth-form">
           {mode === 'sign-up' && (

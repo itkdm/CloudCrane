@@ -92,7 +92,6 @@ function RecoveryCard({
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="auth-eyebrow">CLOUDCRANE</p>
         <h1>{title}</h1>
         <form onSubmit={onSubmit} className="auth-form">
           {children}

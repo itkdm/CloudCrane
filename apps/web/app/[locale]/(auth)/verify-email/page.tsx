@@ -18,7 +18,6 @@ export default function VerifyEmailPage() {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="auth-eyebrow">CLOUDCRANE</p>
         <h1>邮箱验证</h1>
         <p className="auth-description" role="status">
           {status}

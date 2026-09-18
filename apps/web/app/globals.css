@@ -23,13 +23,6 @@
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-lg);
 }
-.auth-eyebrow {
-  margin: 0 0 12px;
-  color: var(--cc-brand);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-}
 .auth-card h1 {
   margin: 0;
   font-size: 28px;
