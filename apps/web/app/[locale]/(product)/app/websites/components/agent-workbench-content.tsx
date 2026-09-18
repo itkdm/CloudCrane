@@ -437,7 +437,6 @@ export function AgentWorkbenchContent({
         maintenance: hasRunningManualMaintenance(conversation),
       };
       if (Object.values(blocked).some(Boolean)) {
-        console.info('[agent] prompt blocked', blocked);
         return false;
       }
       if (!currentSessionId) return false;
@@ -452,10 +451,6 @@ export function AgentWorkbenchContent({
         true,
       );
       if (socket.current?.readyState === WebSocket.OPEN) {
-        console.info('[agent] prompt sending', {
-          hasSession: Boolean(currentSessionId),
-          socketReadyState: socket.current.readyState,
-        });
         const currentSession = sessions.find((session) => session.id === sessionId);
         if (!currentSession?.title?.trim())
           pendingSessionTitlesRef.current.set(requestId, {
@@ -474,9 +469,6 @@ export function AgentWorkbenchContent({
           }),
         );
       } else {
-        console.warn('[agent] prompt dropped: websocket is not open', {
-          socketReadyState: socket.current?.readyState ?? null,
-        });
         pendingSessionTitlesRef.current.delete(requestId);
         queueConversation(
           { type: 'message.status', payload: { requestId, status: 'failed' } },
@@ -500,10 +492,6 @@ export function AgentWorkbenchContent({
       initialPromptConsumedRef.current === initialPrompt.id
     )
       return;
-    console.info('[agent] initial prompt gate passed', {
-      sessionSnapshotVersion,
-      hasSession: Boolean(currentSessionId),
-    });
     initialPromptConsumedRef.current = initialPrompt.id;
     if (submitPrompt(initialPrompt.text)) onInitialPromptConsumed?.(initialPrompt.id);
     else initialPromptConsumedRef.current = undefined;
@@ -615,10 +603,6 @@ export function AgentWorkbenchContent({
           return;
 
         if (projected.event.type === 'session.snapshot') {
-          console.info('[agent] session snapshot accepted', {
-            sessionId: projected.event.payload.session.id,
-            messageCount: projected.event.payload.messages.length,
-          });
           setError((current) => (current?.source === 'session' ? undefined : current));
           const nextSession = projected.event.payload.session;
           setSessionSnapshotVersion((current) => current + 1);

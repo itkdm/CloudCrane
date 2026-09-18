@@ -336,90 +336,25 @@ export function UnifiedSidebar({
                           <div
                             key={session.id}
                             className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
-                            ref={
-                              openMenuSessionId === session.id ? sessionMenuRef : undefined
-                            }
+                            ref={openMenuSessionId === session.id ? sessionMenuRef : undefined}
                             data-session-title={sessionTitle.length > 24 ? sessionTitle : undefined}
                           >
-                          <button
-                            type="button"
-                            className="session-select-button"
-                            onClick={() => onSessionSelect(group.websiteId, session.id)}
-                          >
-                            <span className="session-title">
-                              {sessionTitle}
-                            </span>
-                            {session.clonedFromSessionId ? (
-                              <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
-                            ) : null}
-                          </button>
-                          <div className="session-actions">
                             <button
                               type="button"
-                              className={`session-pin-trigger${session.pinnedAt ? ' pinned' : ''}`}
-                              onClick={async () => {
-                                if (pendingAction) return;
-                                setPendingAction(`pin:${session.id}`);
-                                setActionError(null);
-                                try {
-                                  await onSessionPin(group.websiteId, session.id, !session.pinnedAt);
-                                } catch (error) {
-                                  setActionError(
-                                    error instanceof Error
-                                      ? error.message
-                                      : workbenchT('sessionActionFailed'),
-                                  );
-                                } finally {
-                                  setPendingAction(null);
-                                }
-                              }}
-                              disabled={pendingAction !== null}
-                              aria-label={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
-                              data-tooltip={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
+                              className="session-select-button"
+                              onClick={() => onSessionSelect(group.websiteId, session.id)}
                             >
-                              <Pin size={15} aria-hidden="true" />
+                              <span className="session-title">{sessionTitle}</span>
+                              {session.clonedFromSessionId ? (
+                                <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
+                              ) : null}
                             </button>
-                            <button
-                              type="button"
-                              className={`session-menu-trigger${session.pinnedAt ? ' pinned' : ''}`}
-                              onClick={() => {
-                                setActionError(null);
-                                setOpenMenuSessionId((current) =>
-                                  current === session.id ? null : session.id,
-                                );
-                              }}
-                              aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
-                              aria-expanded={openMenuSessionId === session.id}
-                              aria-haspopup="menu"
-                              data-tooltip={workbenchT('moreActions')}
-                            >
-                              <MoreHorizontal size={15} aria-hidden="true" />
-                            </button>
-                          </div>
-                          {openMenuSessionId === session.id ? (
-                            <div className="session-menu" role="menu">
+                            <div className="session-actions">
                               <button
                                 type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionError(null);
-                                  setRenameValue(sessionTitle);
-                                  setRenameTarget({
-                                    websiteId: group.websiteId,
-                                    sessionId: session.id,
-                                    title: sessionTitle,
-                                  });
-                                  setOpenMenuSessionId(null);
-                                }}
-                              >
-                                <Pencil size={14} aria-hidden="true" />{' '}
-                                {workbenchT('renameSession')}
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                disabled={pendingAction !== null}
+                                className={`session-pin-trigger${session.pinnedAt ? ' pinned' : ''}`}
                                 onClick={async () => {
+                                  if (pendingAction) return;
                                   setPendingAction(`pin:${session.id}`);
                                   setActionError(null);
                                   try {
@@ -428,7 +363,6 @@ export function UnifiedSidebar({
                                       session.id,
                                       !session.pinnedAt,
                                     );
-                                    setOpenMenuSessionId(null);
                                   } catch (error) {
                                     setActionError(
                                       error instanceof Error
@@ -439,55 +373,129 @@ export function UnifiedSidebar({
                                     setPendingAction(null);
                                   }
                                 }}
+                                disabled={pendingAction !== null}
+                                aria-label={
+                                  session.pinnedAt
+                                    ? workbenchT('unpinSession')
+                                    : workbenchT('pinSession')
+                                }
+                                data-tooltip={
+                                  session.pinnedAt
+                                    ? workbenchT('unpinSession')
+                                    : workbenchT('pinSession')
+                                }
                               >
-                                <Pin size={14} aria-hidden="true" />{' '}
-                                {session.pinnedAt
-                                  ? workbenchT('unpinSession')
-                                  : workbenchT('pinSession')}
+                                <Pin size={15} aria-hidden="true" />
                               </button>
                               <button
                                 type="button"
-                                role="menuitem"
-                                disabled={pendingAction !== null}
-                                onClick={async () => {
-                                  setPendingAction(`clone:${session.id}`);
-                                  setActionError(null);
-                                  try {
-                                    await onSessionClone(group.websiteId, session.id);
-                                    setOpenMenuSessionId(null);
-                                  } catch (error) {
-                                    setActionError(
-                                      error instanceof Error
-                                        ? error.message
-                                        : workbenchT('sessionActionFailed'),
-                                    );
-                                  } finally {
-                                    setPendingAction(null);
-                                  }
-                                }}
-                              >
-                                <Copy size={14} aria-hidden="true" /> {workbenchT('cloneSession')}
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                className="danger"
-                                disabled={pendingAction !== null}
+                                className={`session-menu-trigger${session.pinnedAt ? ' pinned' : ''}`}
                                 onClick={() => {
-                                  setDeleteError(null);
-                                  setDeleteTarget({
-                                    websiteId: group.websiteId,
-                                    sessionId: session.id,
-                                    title: session.title || workbenchT('newSessionTitle'),
-                                  });
-                                  setOpenMenuSessionId(null);
+                                  setActionError(null);
+                                  setOpenMenuSessionId((current) =>
+                                    current === session.id ? null : session.id,
+                                  );
                                 }}
+                                aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
+                                aria-expanded={openMenuSessionId === session.id}
+                                aria-haspopup="menu"
+                                data-tooltip={workbenchT('moreActions')}
                               >
-                                <Trash2 size={14} aria-hidden="true" />{' '}
-                                {workbenchT('deleteSession')}
+                                <MoreHorizontal size={15} aria-hidden="true" />
                               </button>
                             </div>
-                          ) : null}
+                            {openMenuSessionId === session.id ? (
+                              <div className="session-menu" role="menu">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setActionError(null);
+                                    setRenameValue(sessionTitle);
+                                    setRenameTarget({
+                                      websiteId: group.websiteId,
+                                      sessionId: session.id,
+                                      title: sessionTitle,
+                                    });
+                                    setOpenMenuSessionId(null);
+                                  }}
+                                >
+                                  <Pencil size={14} aria-hidden="true" />{' '}
+                                  {workbenchT('renameSession')}
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={pendingAction !== null}
+                                  onClick={async () => {
+                                    setPendingAction(`pin:${session.id}`);
+                                    setActionError(null);
+                                    try {
+                                      await onSessionPin(
+                                        group.websiteId,
+                                        session.id,
+                                        !session.pinnedAt,
+                                      );
+                                      setOpenMenuSessionId(null);
+                                    } catch (error) {
+                                      setActionError(
+                                        error instanceof Error
+                                          ? error.message
+                                          : workbenchT('sessionActionFailed'),
+                                      );
+                                    } finally {
+                                      setPendingAction(null);
+                                    }
+                                  }}
+                                >
+                                  <Pin size={14} aria-hidden="true" />{' '}
+                                  {session.pinnedAt
+                                    ? workbenchT('unpinSession')
+                                    : workbenchT('pinSession')}
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  disabled={pendingAction !== null}
+                                  onClick={async () => {
+                                    setPendingAction(`clone:${session.id}`);
+                                    setActionError(null);
+                                    try {
+                                      await onSessionClone(group.websiteId, session.id);
+                                      setOpenMenuSessionId(null);
+                                    } catch (error) {
+                                      setActionError(
+                                        error instanceof Error
+                                          ? error.message
+                                          : workbenchT('sessionActionFailed'),
+                                      );
+                                    } finally {
+                                      setPendingAction(null);
+                                    }
+                                  }}
+                                >
+                                  <Copy size={14} aria-hidden="true" /> {workbenchT('cloneSession')}
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="danger"
+                                  disabled={pendingAction !== null}
+                                  onClick={() => {
+                                    setDeleteError(null);
+                                    setDeleteTarget({
+                                      websiteId: group.websiteId,
+                                      sessionId: session.id,
+                                      title: session.title || workbenchT('newSessionTitle'),
+                                    });
+                                    setOpenMenuSessionId(null);
+                                  }}
+                                >
+                                  <Trash2 size={14} aria-hidden="true" />{' '}
+                                  {workbenchT('deleteSession')}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}

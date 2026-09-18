@@ -793,13 +793,14 @@ export class WebsiteAgentRuntime {
         this.layout.sessionDirectory(this.options.websiteId),
         this.piCwd,
       );
+      const cloneCreatedAt = new Date().toISOString();
       cloneRecord = await this.options.store.createSession({
         websiteId: this.options.websiteId,
         piSessionId: cloneManager.getSessionId(),
         sessionFile: this.layout.relativeSessionFile(this.options.websiteId, clonedFile),
         title: cloneTitle,
         status: 'ACTIVE',
-        lastActiveAt: null,
+        lastActiveAt: cloneCreatedAt,
         pinnedAt: null,
         clonedFromSessionId: source.record.id,
       });
@@ -840,7 +841,20 @@ export class WebsiteAgentRuntime {
       if (movedFile) await rename(deletingFile, sessionFile).catch(() => undefined);
       throw error;
     }
-    if (movedFile) await rm(deletingFile, { force: true });
+    if (movedFile) {
+      try {
+        await rm(deletingFile, { force: true });
+      } catch (error) {
+        logger.warn(
+          {
+            websiteId: this.options.websiteId,
+            websiteSessionId: managed.record.id,
+            error: error instanceof Error ? error.message : 'unknown error',
+          },
+          'deleted session metadata but deferred session file cleanup',
+        );
+      }
+    }
   }
 
   async switchSession(

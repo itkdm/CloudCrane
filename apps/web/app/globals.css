@@ -875,7 +875,9 @@ button:disabled {
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, -2px);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
   white-space: nowrap;
 }
 .unified-sidebar .session-pin-trigger[data-tooltip]:hover::after,
@@ -904,7 +906,9 @@ button:disabled {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-3px);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
   white-space: normal;
 }
 .unified-sidebar .session-item[data-session-title]:hover::after {

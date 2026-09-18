@@ -94,6 +94,13 @@ describe('session management REST endpoints', () => {
     expect(pinned.statusCode).toBe(200);
     expect(runtime.setSessionPinned).toHaveBeenCalledWith(sessionId, true);
 
+    const combined = await app.inject({
+      method: 'PATCH',
+      url: base,
+      payload: { title: 'Renamed again', pinned: false },
+    });
+    expect(combined.statusCode).toBe(400);
+
     const cloned = await app.inject({ method: 'POST', url: `${base}/clone` });
     expect(cloned.statusCode).toBe(200);
     expect(cloned.json().session.clonedFromSessionId).toBe(sessionId);

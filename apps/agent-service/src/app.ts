@@ -207,9 +207,14 @@ export function buildAgentServiceApp(
     if (
       (body.title !== undefined && typeof body.title !== 'string') ||
       (body.pinned !== undefined && typeof body.pinned !== 'boolean') ||
+      (body.title !== undefined && body.pinned !== undefined) ||
       (body.title === undefined && body.pinned === undefined)
     )
-      throw new AgentServiceError('INVALID_ARGUMENT', 'title or pinned is required', 400);
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'exactly one of title or pinned is required',
+        400,
+      );
     let session;
     if (body.title !== undefined)
       session = await runtime.renameSession(request.params.sessionId, body.title);

@@ -180,24 +180,22 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
 
   const groupedSessions = useMemo<GroupedSessions[]>(
     () =>
-      websites
-        .map((website) => ({
-          websiteId: website.id,
-          websiteName: website.name,
-          status: website.status,
-          previewUrl: website.previewUrl,
-          sessions: sessions
-            .filter((s) => s.websiteId === website.id)
-            .sort((a, b) => {
-              if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
-              const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
-              const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
-              return (
-                activeB - activeA ||
-                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-              );
-            }),
-        })),
+      websites.map((website) => ({
+        websiteId: website.id,
+        websiteName: website.name,
+        status: website.status,
+        previewUrl: website.previewUrl,
+        sessions: sessions
+          .filter((s) => s.websiteId === website.id)
+          .sort((a, b) => {
+            if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
+            const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+            const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+            return (
+              activeB - activeA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+          }),
+      })),
     [sessions, websites],
   );
 
