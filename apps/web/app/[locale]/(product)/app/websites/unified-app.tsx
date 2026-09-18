@@ -372,9 +372,26 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         {view === 'templates' ? (
           <TemplatesView />
         ) : websiteLoadState === 'loading' ? (
-          <main className="workspace-empty-state">
-            <div className="workspace-empty-state-inner">
-              <h1>{t('loading')}</h1>
+          <main className="workspace-loading-state" aria-busy="true" aria-live="polite">
+            <div className="workspace-loading-card">
+              <div className="workspace-loading-mark" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="workspace-loading-copy">
+                <p className="workspace-loading-eyebrow">{t('loadingEyebrow')}</p>
+                <h1>{t('loading')}</h1>
+                <p>{t('loadingDescription')}</p>
+              </div>
+              <div className="workspace-loading-progress" aria-hidden="true">
+                <span />
+              </div>
+              <div className="workspace-loading-dots" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
             </div>
           </main>
         ) : websiteLoadState === 'error' ? (
