@@ -4,9 +4,30 @@ import {
   assertWebsiteAccessForUser,
   AuthorizationError,
   headersFromNode,
+  requireSession,
 } from './index.js';
 
 describe('CloudCrane authorization primitives', () => {
+  it('rejects anonymous, expired, or revoked sessions before resource access', async () => {
+    const auth = {
+      api: { getSession: async () => null },
+    } as never;
+
+    await expect(requireSession(auth, { cookie: 'expired-or-revoked' })).rejects.toEqual(
+      new AuthorizationError('AUTHENTICATION_REQUIRED', 'authentication required', 401),
+    );
+  });
+
+  it('rejects banned users even when Better Auth returns a session', async () => {
+    const auth = {
+      api: { getSession: async () => ({ user: { id: 'user-a', banned: true } }) },
+    } as never;
+
+    await expect(requireSession(auth, {})).rejects.toEqual(
+      new AuthorizationError('ACCOUNT_BANNED', 'account is unavailable', 403),
+    );
+  });
+
   it('rejects cross-origin state changes', () => {
     expect(() =>
       assertSameOrigin({ origin: 'https://evil.example' }, 'http://localhost:3000'),
