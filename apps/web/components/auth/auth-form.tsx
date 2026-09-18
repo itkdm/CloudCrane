@@ -36,6 +36,7 @@ function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
         : await authClient.signUp.email({ name, email, password, callbackURL: callbackUrl });
     setPending(false);
     if (result.error) setError(result.error.message ?? t('operationError'));
+    else if (mode === 'sign-up' && !result.data?.user) setError(t('operationError'));
     else if (mode === 'sign-up') {
       if (process.env.NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION === 'false')
         window.location.assign(callbackUrl);
