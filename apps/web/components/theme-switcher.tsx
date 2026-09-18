@@ -22,11 +22,14 @@ export function ThemeSwitcher() {
   const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
-    setTheme(getCurrentTheme());
+    const current = getCurrentTheme();
+    setTheme(current);
+    document.documentElement.dataset.theme = current;
   }, []);
 
   const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
+    const current = getCurrentTheme();
+    const next = current === 'dark' ? 'light' : 'dark';
     setTheme(next);
     localStorage.setItem('cc-theme', next);
     document.documentElement.setAttribute('data-theme', next);
