@@ -42,7 +42,7 @@ export class AgentSocketTransport {
       const url = new URL(request.url ?? '/', 'http://localhost');
       if (url.pathname !== '/v1/agent/connect') return;
       const origin = request.headers.origin;
-      if (origin && origin !== options.config.webOrigin) {
+      if (origin !== options.config.webOrigin) {
         socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
@@ -65,10 +65,9 @@ export class AgentSocketTransport {
       });
       return;
     }
-    const session = await this.options.auth.api.getSession({
-      headers: headersFromNode(request.headers),
-    });
-    if (!session) {
+    const sessionHeaders = headersFromNode(request.headers);
+    const session = await this.options.auth.api.getSession({ headers: sessionHeaders });
+    if (!session || (session.user as { banned?: boolean }).banned) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
@@ -78,7 +77,7 @@ export class AgentSocketTransport {
         ws,
         this.options,
         session.user.id,
-        getUserRole(session),
+        sessionHeaders,
         () => this.connections.delete(connection),
       );
       this.connections.add(connection);
@@ -112,7 +111,7 @@ class AgentSocketConnection {
     private readonly socket: WebSocket,
     private readonly options: AgentSocketOptions,
     private readonly userId: string | undefined,
-    private readonly userRole: string | undefined,
+    private readonly sessionHeaders: Headers | undefined,
     private readonly onClose: () => void,
   ) {
     socket.on('message', (raw) => void this.handleMessage(raw.toString()));
@@ -121,8 +120,8 @@ class AgentSocketConnection {
     this.send('connection.ready', { connectionId: this.connectionId });
   }
 
-  close(): void {
-    this.socket.close();
+  close(code = 1000, reason?: string): void {
+    this.socket.close(code, reason);
     this.dispose();
   }
 
@@ -147,11 +146,13 @@ class AgentSocketConnection {
     }
     const command = parsed.data;
     try {
-      if (this.options.db && this.userId)
+      const currentSession = await this.getCurrentSession();
+      if (this.options.auth && this.options.db && this.sessionHeaders && !currentSession) return;
+      if (this.options.db && currentSession)
         await assertWebsiteAccessForUser(
           this.options.db,
-          this.userId,
-          this.userRole,
+          currentSession.user.id,
+          getUserRole(currentSession),
           command.websiteId,
         );
       await this.dispatch(command);
@@ -174,6 +175,20 @@ class AgentSocketConnection {
       );
       this.sendError(command.requestId, serviceError, command);
     }
+  }
+
+  private async getCurrentSession() {
+    if (!this.options.auth || !this.options.db || !this.sessionHeaders) return undefined;
+    const session = await this.options.auth.api.getSession({ headers: this.sessionHeaders });
+    if (
+      !session ||
+      session.user.id !== this.userId ||
+      (session.user as { banned?: boolean }).banned
+    ) {
+      this.close(1008, 'authentication required');
+      return undefined;
+    }
+    return session;
   }
 
   private async dispatch(command: AgentCommand): Promise<void> {

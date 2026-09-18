@@ -55,29 +55,39 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
       window: 60,
       max: 100,
     },
-    revokeSessionsOnPasswordReset: true,
     emailAndPassword: {
       enabled: true,
+      revokeSessionsOnPasswordReset: true,
       requireEmailVerification,
-      sendResetPassword: async ({ user, url }) =>
-        sendEmail({
+      sendResetPassword: async ({ user, url }) => {
+        void sendEmail({
           to: user.email,
           subject: '重置 CloudCrane 密码',
           text: `请使用以下链接重置密码：${url}`,
           html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
-        }),
+        }).catch(() => undefined);
+      },
     },
     emailVerification: {
-      sendVerificationEmail: async ({ user, url }) =>
-        sendEmail({
+      sendVerificationEmail: async ({ user, url }) => {
+        void sendEmail({
           to: user.email,
           subject: '验证 CloudCrane 邮箱',
           text: `请使用以下链接验证邮箱：${url}`,
           html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
-        }),
+        }).catch(() => undefined);
+      },
       sendOnSignUp: requireEmailVerification,
       sendOnSignIn: requireEmailVerification,
       autoSignInAfterVerification: true,
+    },
+    account: {
+      encryptOAuthTokens: true,
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ['google', 'email-password'],
+        allowDifferentEmails: false,
+      },
     },
     socialProviders:
       googleClientId && googleClientSecret

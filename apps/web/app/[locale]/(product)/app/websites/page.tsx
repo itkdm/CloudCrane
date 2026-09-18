@@ -11,20 +11,25 @@ function parseView(value: string | undefined): 'websites' | 'templates' | undefi
 }
 
 export default async function WebsitesPage({
+  params,
   searchParams,
 }: {
+  params: Promise<{ locale: string }>;
   searchParams: Promise<{ view?: string; websiteId?: string; sessionId?: string }>;
 }) {
-  const params = await searchParams;
+  const { locale } = await params;
+  const query = await searchParams;
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session)
-    redirect(`/sign-in?callbackUrl=/${params.view === 'templates' ? 'templates' : 'app/websites'}`);
+    redirect(
+      `/${locale}/sign-in?callbackUrl=${encodeURIComponent(`/${locale}/app/websites${query.view === 'templates' ? '?view=templates' : ''}`)}`,
+    );
   return (
     <UnifiedApp
       initialState={{
-        view: parseView(params.view),
-        websiteId: params.websiteId ?? null,
-        sessionId: params.sessionId ?? null,
+        view: parseView(query.view),
+        websiteId: query.websiteId ?? null,
+        sessionId: query.sessionId ?? null,
       }}
     />
   );

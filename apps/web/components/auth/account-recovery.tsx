@@ -1,26 +1,29 @@
 'use client';
 
 import { useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import { authClient } from '@/lib/auth-client';
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const locale = useLocale();
+  const t = useTranslations('auth');
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     const result = await authClient.requestPasswordReset({
       email,
-      redirectTo: '/zh/reset-password',
+      redirectTo: `/${locale}/reset-password`,
     });
-    if (result.error) setError('请求失败，请稍后重试。');
-    else setMessage('如果该邮箱已注册，密码重置链接将发送到邮箱。');
+    if (result.error) setError(t('resetRequestError'));
+    else setMessage(t('resetRequestNotice'));
   }
   return (
-    <RecoveryCard title="重置密码" onSubmit={submit}>
+    <RecoveryCard title={t('resetPassword')} onSubmit={submit}>
       <label>
-        邮箱
+        {t('email')}
         <input
           required
           type="email"
@@ -38,7 +41,7 @@ export function ForgotPasswordForm() {
           {message}
         </p>
       )}
-      <button type="submit">发送重置链接</button>
+      <button type="submit">{t('sendResetLink')}</button>
     </RecoveryCard>
   );
 }
@@ -47,16 +50,17 @@ export function ResetPasswordForm({ token }: { token: string }) {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslations('auth');
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const result = await authClient.resetPassword({ newPassword: password, token });
-    if (result.error) setError('链接无效或已过期，请重新申请。');
-    else setMessage('密码已更新，请重新登录。');
+    if (result.error) setError(t('resetInvalid'));
+    else setMessage(t('resetSuccess'));
   }
   return (
-    <RecoveryCard title="设置新密码" onSubmit={submit}>
+    <RecoveryCard title={t('newPassword')} onSubmit={submit}>
       <label>
-        新密码
+        {t('newPassword')}
         <input
           required
           minLength={8}
@@ -75,7 +79,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
           {message}
         </p>
       )}
-      <button type="submit">更新密码</button>
+      <button type="submit">{t('updatePassword')}</button>
     </RecoveryCard>
   );
 }
@@ -89,6 +93,8 @@ function RecoveryCard({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   children: React.ReactNode;
 }) {
+  const locale = useLocale();
+  const t = useTranslations('auth');
   return (
     <main className="auth-page">
       <section className="auth-card">
@@ -96,8 +102,8 @@ function RecoveryCard({
         <form onSubmit={onSubmit} className="auth-form">
           {children}
         </form>
-        <a className="auth-link" href="/zh/sign-in">
-          返回登录
+        <a className="auth-link" href={`/${locale}/sign-in`}>
+          {t('backToSignIn')}
         </a>
       </section>
     </main>

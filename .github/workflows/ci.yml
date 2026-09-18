@@ -26,6 +26,8 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://cloudcrane:cloudcrane@localhost:5432/cloudcrane
+      BETTER_AUTH_SECRET: ci-only-secret-with-at-least-32-characters
+      WEB_ORIGIN: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -64,6 +66,8 @@ jobs:
       CLOUDCRANE_DOCKER_INTEGRATION: '1'
       CLOUDCRANE_REMOTE_INTEGRATION: '1'
       DATABASE_URL: postgresql://cloudcrane:cloudcrane@localhost:5432/cloudcrane
+      BETTER_AUTH_SECRET: ci-only-secret-with-at-least-32-characters
+      WEB_ORIGIN: http://localhost:3000
       WORKSPACE_GATEWAY_CLIENT_TOKEN: integration-client-token
       RUNNER_AUTH_TOKEN: integration-runner-token
       WORKSPACE_ROOT: /tmp/cloudcrane-workspaces

@@ -13,15 +13,19 @@ import {
 
 const now = () => sql`now()`;
 
-export const website = pgTable('website', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  ownerId: text('owner_id').references(() => user.id, { onDelete: 'set null' }),
-  name: varchar('name', { length: 255 }).notNull(),
-  status: varchar('status', { length: 32 }).notNull(),
-  cmsType: varchar('cms_type', { length: 64 }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
-});
+export const website = pgTable(
+  'website',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ownerId: text('owner_id').references(() => user.id, { onDelete: 'set null' }),
+    name: varchar('name', { length: 255 }).notNull(),
+    status: varchar('status', { length: 32 }).notNull(),
+    cmsType: varchar('cms_type', { length: 64 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
+  },
+  (table) => [index('website_owner_id_idx').on(table.ownerId)],
+);
 
 // Better Auth core schema. Keep these names aligned with the adapter defaults.
 export const user = pgTable('user', {

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
@@ -10,6 +12,10 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const locale = useLocale();
+  const t = useTranslations('auth');
+  const searchParams = useSearchParams();
+  const callbackUrl = safeCallbackUrl(searchParams.get('callbackUrl'), locale);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,15 +24,15 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setNotice(null);
     const result =
       mode === 'sign-in'
-        ? await authClient.signIn.email({ email, password, callbackURL: '/zh/app/websites' })
-        : await authClient.signUp.email({ name, email, password, callbackURL: '/zh/app/websites' });
+        ? await authClient.signIn.email({ email, password, callbackURL: callbackUrl })
+        : await authClient.signUp.email({ name, email, password, callbackURL: callbackUrl });
     setPending(false);
-    if (result.error) setError(result.error.message ?? '操作失败，请稍后重试');
+    if (result.error) setError(result.error.message ?? t('operationError'));
     else if (mode === 'sign-up') {
       if (process.env.NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION === 'false')
-        window.location.assign('/zh/app/websites');
-      else setNotice('注册成功，请查收邮箱并完成验证后登录。');
-    } else window.location.assign('/zh/app/websites');
+        window.location.assign(callbackUrl);
+      else setNotice(t('signUpSuccess'));
+    } else window.location.assign(callbackUrl);
   }
 
   async function signInWithGoogle() {
@@ -34,14 +40,14 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setError(null);
     const result = await authClient.signIn.social({
       provider: 'google',
-      callbackURL: '/zh/app/websites',
+      callbackURL: callbackUrl,
     });
     if (result.error) {
       setPending(false);
       setError(
         result.error.message === 'Provider not found'
-          ? 'Google 登录尚未配置，请使用邮箱密码登录。'
-          : (result.error.message ?? 'Google 登录不可用'),
+          ? t('googleUnavailable')
+          : (result.error.message ?? t('googleError')),
       );
     }
   }
@@ -49,14 +55,14 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <h1>{mode === 'sign-in' ? '登录工作区' : '创建账户'}</h1>
+        <h1>{mode === 'sign-in' ? t('signInTitle') : t('signUpTitle')}</h1>
         <p className="auth-description">
-          {mode === 'sign-in' ? '管理你创建的网站。' : '创建并管理你的网站。'}
+          {mode === 'sign-in' ? t('signInDescription') : t('signUpDescription')}
         </p>
         <form onSubmit={submit} className="auth-form">
           {mode === 'sign-up' && (
             <label>
-              用户名
+              {t('username')}
               <input
                 required
                 autoComplete="username"
@@ -66,7 +72,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             </label>
           )}
           <label>
-            邮箱
+            {t('email')}
             <input
               required
               type="email"
@@ -75,7 +81,7 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             />
           </label>
           <label>
-            密码
+            {t('password')}
             <input
               required
               minLength={8}
@@ -95,12 +101,12 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             </p>
           )}
           <button disabled={pending} type="submit">
-            {pending ? '处理中…' : mode === 'sign-in' ? '登录' : '注册'}
+            {pending ? t('processing') : mode === 'sign-in' ? t('signIn') : t('signUp')}
           </button>
         </form>
         {mode === 'sign-in' && (
-          <a className="auth-link" href="/zh/forgot-password">
-            忘记密码？
+          <a className="auth-link" href={`/${locale}/forgot-password`}>
+            {t('forgotPassword')}
           </a>
         )}
         <button
@@ -110,14 +116,21 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           type="button"
         >
           <GoogleIcon />
-          使用 Google 登录
+          {t('googleSignIn')}
         </button>
-        <a className="auth-link" href={mode === 'sign-in' ? '/zh/sign-up' : '/zh/sign-in'}>
-          {mode === 'sign-in' ? '还没有账户？注册' : '已有账户？登录'}
+        <a className="auth-link" href={`/${locale}/${mode === 'sign-in' ? 'sign-up' : 'sign-in'}`}>
+          {mode === 'sign-in' ? t('noAccount') : t('hasAccount')}
         </a>
       </section>
     </main>
   );
+}
+
+function safeCallbackUrl(value: string | null, locale: string): string {
+  const fallback = `/${locale}/app/websites`;
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('://'))
+    return fallback;
+  return value;
 }
 
 function GoogleIcon() {

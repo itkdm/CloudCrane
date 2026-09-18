@@ -8,18 +8,22 @@ import { Link } from '../../../../../../i18n/navigation';
 export default function WebsiteOverviewPage({
   params,
 }: {
-  params: Promise<{ websiteId: string }>;
+  params: Promise<{ locale: string; websiteId: string }>;
 }) {
   return <WebsiteOverviewContent params={params} />;
 }
 
-async function WebsiteOverviewContent({ params }: { params: Promise<{ websiteId: string }> }) {
-  const { websiteId } = await params;
+async function WebsiteOverviewContent({
+  params,
+}: {
+  params: Promise<{ locale: string; websiteId: string }>;
+}) {
+  const { locale, websiteId } = await params;
   try {
     await requireWebsiteAccess(authDb, auth, await headers(), websiteId);
   } catch (error) {
     if (error instanceof AuthorizationError && error.code === 'AUTHENTICATION_REQUIRED')
-      redirect('/zh/sign-in');
+      redirect(`/${locale}/sign-in`);
     notFound();
   }
   return <Overview websiteId={websiteId} />;

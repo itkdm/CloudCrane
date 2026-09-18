@@ -20,10 +20,14 @@ function createRegistry() {
   });
 }
 
-function createAuth(session: unknown): CloudCraneAuth {
+function createAuth(session: unknown, nextSession?: unknown): CloudCraneAuth {
+  const getSession = vi
+    .fn()
+    .mockResolvedValueOnce(session)
+    .mockResolvedValue(nextSession === undefined ? session : nextSession);
   return {
     api: {
-      getSession: vi.fn(async () => session),
+      getSession,
     },
   } as unknown as CloudCraneAuth;
 }
@@ -160,6 +164,43 @@ describe('agent service authorization', () => {
 
     expect(error).toEqual({ code: 'WEBSITE_FORBIDDEN', message: 'website access is forbidden' });
     client.close();
+    await app.close();
+  });
+
+  it('closes an established WebSocket when its session is revoked', async () => {
+    const registry = createRegistry();
+    const app = buildAgentServiceApp({
+      config,
+      registry,
+      auth: createAuth({ user: { id: userId, role: 'user' } }, null),
+      db: createDb(userId),
+    });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin, cookie: 'better-auth.session_token=test' },
+    });
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('close', (code) => resolve(code));
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as { type: string };
+        if (message.type === 'connection.ready')
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'revoked-session',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId: '00000000-0000-4000-8000-000000000002' },
+            }),
+          );
+      });
+    });
+
+    expect(closeCode).toBe(1008);
     await app.close();
   });
 });

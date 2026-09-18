@@ -114,7 +114,9 @@ describe('AgentSocketTransport', () => {
   it('attaches and removes the runtime subscription on disconnect', async () => {
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
     const events: string[] = [];
     await new Promise<void>((resolve, reject) => {
       client.on('message', (raw) => {
@@ -169,7 +171,9 @@ describe('AgentSocketTransport', () => {
   it('dispatches session compaction as a control command without starting a run', async () => {
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
       client.on('message', (raw) => {
@@ -210,7 +214,9 @@ describe('AgentSocketTransport', () => {
     };
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
     const messages: Array<{ type: string; requestId?: string; payload?: { code?: string } }> = [];
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
@@ -270,7 +276,9 @@ describe('AgentSocketTransport', () => {
     runtimeBusy = true;
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
     const messages: Array<{ type: string; requestId?: string; payload?: { code?: string } }> = [];
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
@@ -319,7 +327,9 @@ describe('AgentSocketTransport', () => {
   it('keeps an in-flight preview request across same-client re-registration', async () => {
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
     const previewClientId = '00000000-0000-4000-8000-000000000011';
     const preview = {
       url: 'https://preview.example/',

@@ -1,4 +1,5 @@
 import { ResetPasswordForm } from '@/components/auth/account-recovery';
+import { getTranslations } from 'next-intl/server';
 
 export default async function ResetPasswordPage({
   searchParams,
@@ -6,5 +7,7 @@ export default async function ResetPasswordPage({
   searchParams: Promise<{ token?: string }>;
 }) {
   const { token } = await searchParams;
-  return token ? <ResetPasswordForm token={token} /> : <p>重置链接无效。</p>;
+  if (token) return <ResetPasswordForm token={token} />;
+  const t = await getTranslations('auth');
+  return <p>{t('invalidResetLink')}</p>;
 }

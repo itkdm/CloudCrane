@@ -9,7 +9,7 @@ import {
   Settings,
   UserRound,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
 import { Brand } from '../../../../../../components/layout/brand';
 import { LanguageSwitcher } from '../../../../../../components/layout/language-switcher';
@@ -58,6 +58,7 @@ export function UnifiedSidebar({
   onCreateWebsite,
   onSettingsOpen,
 }: UnifiedSidebarProps) {
+  const locale = useLocale();
   const { data: session } = authClient.useSession();
   const t = useTranslations('navigation');
   const websiteT = useTranslations('websites');
@@ -333,7 +334,7 @@ export function UnifiedSidebar({
                 className="unified-sidebar-settings-row"
                 onClick={() =>
                   void authClient.signOut({
-                    fetchOptions: { onSuccess: () => window.location.assign('/zh/sign-in') },
+                    fetchOptions: { onSuccess: () => window.location.assign(`/${locale}/sign-in`) },
                   })
                 }
               >
