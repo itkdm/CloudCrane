@@ -57,6 +57,17 @@ PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
 ```
 
+## 正式邮件
+
+Resend 已验证 `itkdm.com`，服务器与本地私密配置使用：
+
+```dotenv
+AUTH_EMAIL_FROM="CloudCrane <auth@itkdm.com>"
+AUTH_REQUIRE_EMAIL_VERIFICATION=true
+```
+
+Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT、`rsend` CNAME 和 `send` CNAME。不要开启这些记录的 Cloudflare 代理；API Key 只能放在 `.env.private.local`。
+
 ## 发布与检查
 
 ```bash
