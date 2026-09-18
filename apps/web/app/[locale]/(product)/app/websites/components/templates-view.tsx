@@ -8,7 +8,6 @@ export function TemplatesView() {
   return (
     <main className="workspace-empty-state">
       <div className="workspace-empty-state-inner">
-        <span className="workspace-empty-state-eyebrow">CloudCrane</span>
         <h1>{t('templatesTitle')}</h1>
         <p>{t('templatesDescription')}</p>
         <a

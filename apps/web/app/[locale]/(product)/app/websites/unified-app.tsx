@@ -402,7 +402,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         ) : websites.length === 0 ? (
           <main className="workspace-empty-state">
             <div className="workspace-empty-state-inner">
-              <span className="workspace-empty-state-eyebrow">CloudCrane</span>
               <h1>{t('onboardingTitle')}</h1>
               <div className="workspace-empty-state-actions">
                 <button
