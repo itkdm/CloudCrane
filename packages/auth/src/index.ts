@@ -9,7 +9,10 @@ type Db = PlatformDb['db'];
 
 function configuredWebOrigin(): string {
   return (
-    process.env.WEB_ORIGIN ?? process.env.NEXT_PUBLIC_WEB_ORIGIN ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3000'
+    process.env.WEB_ORIGIN ??
+    process.env.NEXT_PUBLIC_WEB_ORIGIN ??
+    process.env.BETTER_AUTH_URL ??
+    'http://localhost:3000'
   );
 }
 
@@ -103,10 +106,7 @@ export async function getSession(auth: CloudCraneAuth, headers: HeadersInit) {
   return auth.api.getSession({ headers });
 }
 
-export function assertSameOrigin(
-  headers: HeadersInit,
-  expectedOrigin = configuredWebOrigin(),
-) {
+export function assertSameOrigin(headers: HeadersInit, expectedOrigin = configuredWebOrigin()) {
   const origin = new Headers(headers).get('origin');
   if (origin && origin !== expectedOrigin)
     throw new AuthorizationError('ORIGIN_NOT_ALLOWED', 'origin is not allowed', 403);
