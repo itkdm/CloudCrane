@@ -32,6 +32,12 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
     apiKey: process.env.RESEND_API_KEY,
     from: process.env.AUTH_EMAIL_FROM,
   });
+  if (process.env.NODE_ENV === 'production' && requireEmailVerification) {
+    if (!process.env.RESEND_API_KEY || !process.env.AUTH_EMAIL_FROM)
+      throw new Error(
+        'RESEND_API_KEY and AUTH_EMAIL_FROM are required when email verification is enabled in production',
+      );
+  }
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'pg',
@@ -59,13 +65,24 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
       enabled: true,
       revokeSessionsOnPasswordReset: true,
       requireEmailVerification,
+      customSyntheticUser: ({ coreFields, additionalFields, id }) => ({
+        ...coreFields,
+        role: 'user',
+        banned: false,
+        banReason: null,
+        banExpires: null,
+        ...additionalFields,
+        id,
+      }),
       sendResetPassword: async ({ user, url }) => {
         void sendEmail({
           to: user.email,
           subject: '重置 CloudCrane 密码',
           text: `请使用以下链接重置密码：${url}`,
           html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
-        }).catch(() => undefined);
+        }).catch((error: unknown) => {
+          logEmailFailure(error);
+        });
       },
     },
     emailVerification: {
@@ -75,7 +92,9 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
           subject: '验证 CloudCrane 邮箱',
           text: `请使用以下链接验证邮箱：${url}`,
           html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
-        }).catch(() => undefined);
+        }).catch((error: unknown) => {
+          logEmailFailure(error);
+        });
       },
       sendOnSignUp: requireEmailVerification,
       sendOnSignIn: requireEmailVerification,
@@ -95,6 +114,21 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         : undefined,
     plugins: [admin()],
   }) as unknown as ReturnType<typeof betterAuth>;
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'unknown email provider error';
+}
+
+function logEmailFailure(error: unknown): void {
+  console.error(
+    JSON.stringify({
+      service: 'auth',
+      errorCode: 'AUTH_EMAIL_SEND_FAILED',
+      error: safeErrorMessage(error),
+      message: 'failed to send authentication email',
+    }),
+  );
 }
 
 export type CloudCraneAuth = ReturnType<typeof createAuth>;

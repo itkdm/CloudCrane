@@ -14,7 +14,9 @@ export default async function AgentWorkbenchPage({
     await requireWebsiteAccess(authDb, auth, await headers(), websiteId);
   } catch (error) {
     if (error instanceof AuthorizationError && error.code === 'AUTHENTICATION_REQUIRED')
-      redirect(`/${locale}/sign-in`);
+      redirect(
+        `/${locale}/sign-in?callbackUrl=${encodeURIComponent(`/${locale}/app/websites/${websiteId}/agent`)}`,
+      );
     notFound();
   }
   redirect(`/${locale}/app/websites?view=conversations&websiteId=${encodeURIComponent(websiteId)}`);

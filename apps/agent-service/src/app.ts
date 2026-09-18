@@ -12,6 +12,7 @@ import {
   AuthorizationError,
   headersFromNode,
   getUserRole,
+  requireSession,
   type CloudCraneAuth,
 } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
@@ -62,29 +63,22 @@ export function buildAgentServiceApp(
         .code(403)
         .send({ error: { code: 'ORIGIN_NOT_ALLOWED', message: 'origin is not allowed' } });
     if (!options.auth || !options.db) return;
-    const session = await options.auth.api.getSession({
-      headers: headersFromNode(request.headers),
-    });
-    if (!session)
-      return reply
-        .code(401)
-        .send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'authentication required' } });
-    const websiteId = (request.params as { websiteId?: string } | undefined)?.websiteId;
-    if (websiteId) {
-      try {
+    try {
+      const session = await requireSession(options.auth, headersFromNode(request.headers));
+      const websiteId = (request.params as { websiteId?: string } | undefined)?.websiteId;
+      if (websiteId)
         await assertWebsiteAccessForUser(
           options.db,
           session.user.id,
           getUserRole(session),
           websiteId,
         );
-      } catch (error) {
-        if (error instanceof AuthorizationError)
-          return reply
-            .code(error.status)
-            .send({ error: { code: error.code, message: error.message } });
-        throw error;
-      }
+    } catch (error) {
+      if (error instanceof AuthorizationError)
+        return reply
+          .code(error.status)
+          .send({ error: { code: error.code, message: error.message } });
+      throw error;
     }
   });
   app.addHook('onSend', async (request, reply) => {

@@ -23,7 +23,9 @@ async function WebsiteOverviewContent({
     await requireWebsiteAccess(authDb, auth, await headers(), websiteId);
   } catch (error) {
     if (error instanceof AuthorizationError && error.code === 'AUTHENTICATION_REQUIRED')
-      redirect(`/${locale}/sign-in`);
+      redirect(
+        `/${locale}/sign-in?callbackUrl=${encodeURIComponent(`/${locale}/app/websites/${websiteId}`)}`,
+      );
     notFound();
   }
   return <Overview websiteId={websiteId} />;
