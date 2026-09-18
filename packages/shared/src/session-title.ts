@@ -1,5 +1,3 @@
-const CHINESE_TITLE_LIMIT = 24;
-const ENGLISH_TITLE_LIMIT = 56;
 export const SESSION_TITLE_MAX_LENGTH = 255;
 
 const commonPrefixPattern =
@@ -20,10 +18,7 @@ export function deriveSessionTitle(firstPrompt: string): string {
   const candidate = firstClause || stripCommonPrefix(normalized);
   if (!candidate) return '新对话';
 
-  return truncateTitle(
-    candidate,
-    containsChinese(candidate) ? CHINESE_TITLE_LIMIT : ENGLISH_TITLE_LIMIT,
-  );
+  return truncateTitle(candidate, SESSION_TITLE_MAX_LENGTH);
 }
 
 function normalizePrompt(value: string): string {
@@ -53,10 +48,6 @@ function deriveSemanticTitle(value: string): string | undefined {
 function truncateTitle(value: string, limit: number): string {
   const characters = Array.from(value);
   return characters.length > limit ? `${characters.slice(0, limit - 1).join('')}…` : value;
-}
-
-function containsChinese(value: string): boolean {
-  return /[\u3400-\u9fff]/.test(value);
 }
 
 export function deriveCloneSessionTitle(

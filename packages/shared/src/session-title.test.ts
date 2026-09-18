@@ -14,11 +14,14 @@ describe('deriveSessionTitle', () => {
     );
   });
 
-  it('keeps a readable English title within the product limit', () => {
+  it('preserves a full title within the database limit', () => {
     const title = deriveSessionTitle(
       'Please inspect the current homepage and explain what should be improved before making changes.',
     );
-    expect(title.length).toBeLessThanOrEqual(56);
+    expect(title).toBe(
+      'inspect the current homepage and explain what should be improved before making changes.',
+    );
+    expect(title.length).toBeLessThanOrEqual(255);
     expect(title).not.toBe('新对话');
   });
 
