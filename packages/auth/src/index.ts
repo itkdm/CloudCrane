@@ -32,12 +32,6 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
     apiKey: process.env.RESEND_API_KEY,
     from: process.env.AUTH_EMAIL_FROM,
   });
-  if (process.env.NODE_ENV === 'production' && requireEmailVerification) {
-    if (!process.env.RESEND_API_KEY || !process.env.AUTH_EMAIL_FROM)
-      throw new Error(
-        'RESEND_API_KEY and AUTH_EMAIL_FROM are required when email verification is enabled in production',
-      );
-  }
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'pg',
@@ -114,6 +108,16 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         : undefined,
     plugins: [admin()],
   }) as unknown as ReturnType<typeof betterAuth>;
+}
+
+export function validateAuthRuntimeConfig(env: NodeJS.ProcessEnv = process.env): void {
+  const requireEmailVerification = env.AUTH_REQUIRE_EMAIL_VERIFICATION !== 'false';
+  if (env.NODE_ENV === 'production' && requireEmailVerification) {
+    if (!env.RESEND_API_KEY || !env.AUTH_EMAIL_FROM)
+      throw new Error(
+        'RESEND_API_KEY and AUTH_EMAIL_FROM are required when email verification is enabled in production',
+      );
+  }
 }
 
 function safeErrorMessage(error: unknown): string {

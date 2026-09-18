@@ -5,6 +5,7 @@ import {
   AuthorizationError,
   headersFromNode,
   requireSession,
+  validateAuthRuntimeConfig,
 } from './index.js';
 
 describe('CloudCrane authorization primitives', () => {
@@ -64,6 +65,29 @@ describe('CloudCrane authorization primitives', () => {
     expect(
       headersFromNode({ cookie: ['a=1', 'b=2'], origin: 'http://localhost:3000' }).get('cookie'),
     ).toBe('a=1; b=2');
+  });
+
+  it('validates production email configuration without affecting builds', () => {
+    expect(() =>
+      validateAuthRuntimeConfig({
+        NODE_ENV: 'production',
+        AUTH_REQUIRE_EMAIL_VERIFICATION: 'true',
+      }),
+    ).toThrow('RESEND_API_KEY and AUTH_EMAIL_FROM are required');
+    expect(() =>
+      validateAuthRuntimeConfig({
+        NODE_ENV: 'production',
+        AUTH_REQUIRE_EMAIL_VERIFICATION: 'false',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateAuthRuntimeConfig({
+        NODE_ENV: 'production',
+        AUTH_REQUIRE_EMAIL_VERIFICATION: 'true',
+        RESEND_API_KEY: 'test-key',
+        AUTH_EMAIL_FROM: 'CloudCrane <auth@example.com>',
+      }),
+    ).not.toThrow();
   });
 
   it('allows the owner and an explicit admin override', async () => {
