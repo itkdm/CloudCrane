@@ -116,5 +116,11 @@ export function shouldClearErrorOnRunSettled(
 }
 
 export function shouldClearErrorOnRecovery(error: WorkbenchError | undefined): boolean {
-  return error?.source === 'connection' || error?.source === 'preview-explicit';
+  return (
+    error?.source === 'connection' ||
+    error?.source === 'preview-explicit' ||
+    (error?.source === 'command' &&
+      error.code === 'INVALID_ARGUMENT' &&
+      /Preview response is not pending|Preview Client is not registered/i.test(error.message))
+  );
 }

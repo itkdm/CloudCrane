@@ -142,6 +142,8 @@ function friendlyError(error: string | WorkbenchError, t: (key: string) => strin
   if (error.source === 'connection') return t('connectionInterrupted');
   if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(message)) return t('errorPreview');
   if (/PREVIEW_PROTOCOL_ERROR|preview protocol/i.test(message)) return t('errorPreview');
+  if (/Preview response is not pending|Preview Client is not registered/i.test(message))
+    return t('errorPreview');
   if (/timeout/i.test(message)) return t('timeoutPreview');
   if (/connect|socket|disconnected|连接/i.test(message)) return t('connectionInterrupted');
   if (code === 'INVALID_ARGUMENT' || /Website-relative path|路径/i.test(message))
@@ -156,6 +158,8 @@ function friendlyLegacyError(error: string, t: (key: string) => string): string 
       error,
     )
   )
+    return t('errorPreview');
+  if (/Preview response is not pending|Preview Client is not registered/i.test(error))
     return t('errorPreview');
   if (/timeout/i.test(error)) return t('timeoutPreview');
   if (/connect|socket|disconnected|连接/i.test(error)) return t('connectionInterrupted');

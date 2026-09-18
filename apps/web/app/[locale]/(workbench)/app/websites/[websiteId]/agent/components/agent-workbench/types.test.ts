@@ -36,6 +36,13 @@ describe('workbench transient errors', () => {
     expect(shouldClearErrorOnRecovery({ source: 'preview-explicit', message: 'failed' })).toBe(
       true,
     );
+    expect(
+      shouldClearErrorOnRecovery({
+        source: 'command',
+        code: 'INVALID_ARGUMENT',
+        message: 'Preview response is not pending',
+      }),
+    ).toBe(true);
     expect(shouldClearErrorOnRecovery({ source: 'command', message: 'failed' })).toBe(false);
     expect(shouldClearErrorOnRecovery(undefined)).toBe(false);
   });

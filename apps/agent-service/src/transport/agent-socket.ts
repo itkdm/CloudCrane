@@ -249,18 +249,18 @@ class AgentSocketConnection {
       return;
     }
     if (command.type === 'preview.response') {
-      if (this.previewWebsiteId !== command.websiteId || !this.previewClientId)
-        throw new AgentServiceError('INVALID_ARGUMENT', 'Preview Client is not registered', 400);
-      if (
-        !this.options.previewClients.respond(
+      // Preview responses are asynchronous. The browser can legitimately send
+      // one after the server-side request timed out or the socket was replaced.
+      // Such a response has no command caller to notify and must not become a
+      // misleading user-visible command error (especially "unsupported path").
+      if (this.previewWebsiteId && this.previewClientId)
+        this.options.previewClients.respond(
           command.websiteId,
           this.previewClientId,
           command.requestId,
           command.payload,
           this.previewConnection,
-        )
-      )
-        throw new AgentServiceError('INVALID_ARGUMENT', 'Preview response is not pending', 400);
+        );
       return;
     }
     this.requireAttached(command);
