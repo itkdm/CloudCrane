@@ -68,6 +68,16 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         ...additionalFields,
         id,
       }),
+      onExistingUserSignUp: async ({ user }) => {
+        console.info(
+          JSON.stringify({
+            service: 'auth',
+            event: 'AUTH_SIGNUP_EXISTING_USER',
+            userId: user.id,
+            message: 'sign-up request matched an existing account',
+          }),
+        );
+      },
       sendResetPassword: async ({ user, url }) => {
         try {
           await sendEmail({

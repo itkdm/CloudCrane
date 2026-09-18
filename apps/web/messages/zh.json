@@ -40,7 +40,7 @@
     "googleUnavailable": "Google 登录尚未配置，请使用邮箱密码登录。",
     "googleError": "Google 登录不可用",
     "operationError": "操作失败，请稍后重试",
-    "signUpSuccess": "注册成功，请查收邮箱并完成验证后登录。",
+    "signUpSuccess": "注册请求已提交。新邮箱请查收验证邮件；如果已有账号，请直接登录或找回密码。",
     "noAccount": "还没有账户？注册",
     "hasAccount": "已有账户？登录",
     "resetPassword": "重置密码",

@@ -40,7 +40,7 @@
     "googleUnavailable": "Google sign-in is not configured. Use email and password instead.",
     "googleError": "Google sign-in is unavailable",
     "operationError": "Something went wrong. Please try again.",
-    "signUpSuccess": "Account created. Check your email to verify it, then sign in.",
+    "signUpSuccess": "Request submitted. Check your email if this is a new account; otherwise sign in or reset your password.",
     "noAccount": "Don’t have an account? Sign up",
     "hasAccount": "Already have an account? Sign in",
     "resetPassword": "Reset password",
