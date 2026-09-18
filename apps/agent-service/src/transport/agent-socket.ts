@@ -116,7 +116,14 @@ class AgentSocketConnection {
   ) {
     socket.on('message', (raw) => void this.handleMessage(raw.toString()));
     socket.on('close', (code, reason) => this.dispose(code, reason.toString()));
-    socket.on('error', () => this.dispose());
+    socket.on('error', (error) => {
+      logger.warn(
+        { connectionId: this.connectionId, error: error.message.slice(0, 256) },
+        'agent websocket error',
+      );
+      this.dispose(undefined, error.message);
+    });
+    logger.info({ connectionId: this.connectionId }, 'agent websocket connected');
     this.send('connection.ready', { connectionId: this.connectionId });
   }
 
@@ -145,6 +152,16 @@ class AgentSocketConnection {
       return;
     }
     const command = parsed.data;
+    logger.info(
+      {
+        connectionId: this.connectionId,
+        commandType: command.type,
+        requestId: command.requestId,
+        websiteId: command.websiteId,
+        sessionId: command.sessionId,
+      },
+      'agent command received',
+    );
     try {
       const currentSession = await this.getCurrentSession();
       if (this.options.auth && this.options.db && this.sessionHeaders && !currentSession) return;
@@ -156,6 +173,16 @@ class AgentSocketConnection {
           command.websiteId,
         );
       await this.dispatch(command);
+      logger.info(
+        {
+          connectionId: this.connectionId,
+          commandType: command.type,
+          requestId: command.requestId,
+          websiteId: command.websiteId,
+          sessionId: command.sessionId,
+        },
+        'agent command dispatched',
+      );
     } catch (error) {
       const serviceError =
         error instanceof AuthorizationError &&
