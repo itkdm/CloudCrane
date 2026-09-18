@@ -7,6 +7,12 @@ import { eq } from 'drizzle-orm';
 
 type Db = PlatformDb['db'];
 
+function configuredWebOrigin(): string {
+  return (
+    process.env.WEB_ORIGIN ?? process.env.NEXT_PUBLIC_WEB_ORIGIN ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3000'
+  );
+}
+
 function requiredSecret(value: string | undefined): string {
   if (!value || value.length < 32) {
     throw new Error('BETTER_AUTH_SECRET must be configured with at least 32 characters');
@@ -47,9 +53,8 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
       },
     }),
     secret: requiredSecret(process.env.BETTER_AUTH_SECRET),
-    baseURL:
-      process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000',
-    trustedOrigins: [process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000'],
+    baseURL: process.env.BETTER_AUTH_URL ?? configuredWebOrigin(),
+    trustedOrigins: [configuredWebOrigin()],
     advanced: {
       database: {
         joins: false,
@@ -100,7 +105,7 @@ export async function getSession(auth: CloudCraneAuth, headers: HeadersInit) {
 
 export function assertSameOrigin(
   headers: HeadersInit,
-  expectedOrigin = process.env.NEXT_PUBLIC_WEB_ORIGIN ?? 'http://localhost:3000',
+  expectedOrigin = configuredWebOrigin(),
 ) {
   const origin = new Headers(headers).get('origin');
   if (origin && origin !== expectedOrigin)

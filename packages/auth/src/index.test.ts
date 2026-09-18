@@ -16,6 +16,29 @@ describe('CloudCrane authorization primitives', () => {
     ).not.toThrow();
   });
 
+  it('uses the deployment Web Origin when checking same-origin requests', () => {
+    const previousWebOrigin = process.env.WEB_ORIGIN;
+    const previousPublicWebOrigin = process.env.NEXT_PUBLIC_WEB_ORIGIN;
+    const previousAuthUrl = process.env.BETTER_AUTH_URL;
+    process.env.WEB_ORIGIN = 'https://app.example.com';
+    delete process.env.NEXT_PUBLIC_WEB_ORIGIN;
+    delete process.env.BETTER_AUTH_URL;
+
+    try {
+      expect(() => assertSameOrigin({ origin: 'https://app.example.com' })).not.toThrow();
+      expect(() => assertSameOrigin({ origin: 'http://localhost:3000' })).toThrow(
+        'origin is not allowed',
+      );
+    } finally {
+      if (previousWebOrigin === undefined) delete process.env.WEB_ORIGIN;
+      else process.env.WEB_ORIGIN = previousWebOrigin;
+      if (previousPublicWebOrigin === undefined) delete process.env.NEXT_PUBLIC_WEB_ORIGIN;
+      else process.env.NEXT_PUBLIC_WEB_ORIGIN = previousPublicWebOrigin;
+      if (previousAuthUrl === undefined) delete process.env.BETTER_AUTH_URL;
+      else process.env.BETTER_AUTH_URL = previousAuthUrl;
+    }
+  });
+
   it('normalizes Node headers without losing cookies', () => {
     expect(
       headersFromNode({ cookie: ['a=1', 'b=2'], origin: 'http://localhost:3000' }).get('cookie'),
