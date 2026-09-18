@@ -367,7 +367,6 @@ export function UnifiedSidebar({
                             type="button"
                             className="session-select-button"
                             onClick={() => onSessionSelect(group.websiteId, session.id)}
-                            title={sessionTitle}
                           >
                             <span className="session-title">
                               {sessionTitle}
@@ -398,7 +397,7 @@ export function UnifiedSidebar({
                               }}
                               disabled={pendingAction !== null}
                               aria-label={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
-                              title={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
+                              data-tooltip={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
                             >
                               <Pin size={15} aria-hidden="true" />
                             </button>
@@ -414,6 +413,7 @@ export function UnifiedSidebar({
                               aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
                               aria-expanded={openMenuSessionId === session.id}
                               aria-haspopup="menu"
+                              data-tooltip={workbenchT('moreActions')}
                             >
                               <MoreHorizontal size={15} aria-hidden="true" />
                             </button>

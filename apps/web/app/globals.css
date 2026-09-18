@@ -843,14 +843,16 @@ button:disabled {
   cursor: pointer;
 }
 .unified-sidebar .session-actions {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  margin-left: 8px;
+  gap: 4px;
+  margin-left: 6px;
 }
 .unified-sidebar .session-pin-trigger,
 .unified-sidebar .session-menu-trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -873,6 +875,9 @@ button:disabled {
 .unified-sidebar .session-item:focus-within .session-pin-trigger {
   opacity: 1;
 }
+.unified-sidebar .session-pin-trigger.pinned {
+  color: var(--cc-brand);
+}
 .unified-sidebar .session-item:hover .session-menu-trigger,
 .unified-sidebar .session-item:focus-within .session-menu-trigger,
 .unified-sidebar .session-menu-trigger.pinned,
@@ -890,6 +895,35 @@ button:disabled {
 .unified-sidebar .session-menu-trigger:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+.unified-sidebar .session-pin-trigger[data-tooltip]::after,
+.unified-sidebar .session-menu-trigger[data-tooltip]::after {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 5px);
+  left: 50%;
+  padding: 5px 8px;
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  background: var(--cc-surface-0);
+  box-shadow: var(--cc-shadow-sm);
+  color: var(--cc-text);
+  content: attr(data-tooltip);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: nowrap;
+}
+.unified-sidebar .session-pin-trigger[data-tooltip]:hover::after,
+.unified-sidebar .session-pin-trigger[data-tooltip]:focus-visible::after,
+.unified-sidebar .session-menu-trigger[data-tooltip]:hover::after,
+.unified-sidebar .session-menu-trigger[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 .unified-sidebar .session-item[data-session-title]::after {
   position: absolute;
