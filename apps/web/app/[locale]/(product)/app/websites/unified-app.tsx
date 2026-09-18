@@ -90,7 +90,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [sessionSearch, setSessionSearch] = useState('');
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -188,14 +187,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           status: website.status,
           previewUrl: website.previewUrl,
           sessions: sessions
-            .filter(
-              (s) =>
-                s.websiteId === website.id &&
-                (!sessionSearch.trim() ||
-                  (s.title ?? '')
-                    .toLocaleLowerCase()
-                    .includes(sessionSearch.trim().toLocaleLowerCase())),
-            )
+            .filter((s) => s.websiteId === website.id)
             .sort((a, b) => {
               if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
               const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
@@ -205,9 +197,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
                 new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
               );
             }),
-        }))
-        .filter((group) => !sessionSearch.trim() || group.sessions.length > 0),
-    [sessionSearch, sessions, websites],
+        })),
+    [sessions, websites],
   );
 
   function mergeSession(websiteId: string, next: AgentSession): void {
@@ -467,8 +458,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onNewSession={handleNewSession}
         onCreateWebsite={() => setCreateWebsiteOpen(true)}
         onSettingsOpen={handleAuthorizeWebsite}
-        searchQuery={sessionSearch}
-        onSearchQueryChange={setSessionSearch}
         onSessionRename={handleRenameSession}
         onSessionPin={handlePinSession}
         onSessionClone={handleCloneSession}

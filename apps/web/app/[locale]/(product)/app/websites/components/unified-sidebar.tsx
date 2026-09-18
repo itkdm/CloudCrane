@@ -10,11 +10,9 @@ import {
   PanelLeftOpen,
   Pencil,
   Pin,
-  Search,
   Settings,
   Trash2,
   UserRound,
-  X,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Link } from '../../../../../../i18n/navigation';
@@ -59,8 +57,6 @@ type UnifiedSidebarProps = {
   onNewSession: (websiteId: string) => void;
   onCreateWebsite: () => void;
   onSettingsOpen: (websiteId: string) => void;
-  searchQuery: string;
-  onSearchQueryChange: (value: string) => void;
   onSessionRename: (websiteId: string, sessionId: string, title: string) => Promise<void>;
   onSessionPin: (websiteId: string, sessionId: string, pinned: boolean) => Promise<void>;
   onSessionClone: (websiteId: string, sessionId: string) => Promise<void>;
@@ -78,8 +74,6 @@ export function UnifiedSidebar({
   onNewSession,
   onCreateWebsite,
   onSettingsOpen,
-  searchQuery,
-  onSearchQueryChange,
   onSessionRename,
   onSessionPin,
   onSessionClone,
@@ -266,28 +260,12 @@ export function UnifiedSidebar({
 
         <div className="unified-sidebar-sessions">
           <div className="unified-sidebar-section-label">{websiteT('title')}</div>
-          <div className="unified-sidebar-session-search">
-            <Search size={14} aria-hidden="true" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-              placeholder={workbenchT('searchSessions')}
-              aria-label={workbenchT('searchSessions')}
-            />
-            {searchQuery ? (
-              <button type="button" onClick={() => onSearchQueryChange('')} aria-label={t('clear')}>
-                <X size={13} aria-hidden="true" />
-              </button>
-            ) : null}
-          </div>
           {groupedSessions.length === 0 ? (
             <div className="unified-sidebar-websites-empty">{websiteT('noMoreWebsites')}</div>
           ) : null}
           {groupedSessions.map((group) => {
             const expanded = expandedGroups[group.websiteId] ?? true;
-            const sessionsExpanded =
-              Boolean(searchQuery.trim()) || (expandedSessionLists[group.websiteId] ?? false);
+            const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;
             const visibleSessions = sessionsExpanded
               ? group.sessions
               : group.sessions.filter(
@@ -513,7 +491,7 @@ export function UnifiedSidebar({
                           </div>
                         );
                       })}
-                      {group.sessions.length > 5 && !searchQuery.trim() ? (
+                      {group.sessions.length > 5 ? (
                         <button
                           type="button"
                           className="session-list-toggle"

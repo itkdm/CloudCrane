@@ -630,47 +630,6 @@ button:disabled {
   font-weight: 500;
   letter-spacing: 0.01em;
 }
-.unified-sidebar-session-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 4px 10px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: var(--cc-sidebar-text-muted);
-  background: color-mix(in srgb, var(--cc-sidebar-icon) 6%, transparent);
-  transition:
-    border-color 160ms ease,
-    background 160ms ease;
-}
-.unified-sidebar-session-search:focus-within {
-  border-color: color-mix(in srgb, var(--cc-brand) 50%, transparent);
-  background: var(--cc-surface-0);
-}
-.unified-sidebar-session-search input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--cc-sidebar-text-primary);
-  font: inherit;
-  font-size: 12px;
-}
-.unified-sidebar-session-search input::placeholder {
-  color: var(--cc-sidebar-text-muted);
-}
-.unified-sidebar-session-search button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--cc-sidebar-text-muted);
-  cursor: pointer;
-}
 .unified-sidebar-websites-empty {
   padding: 8px 12px;
   color: var(--cc-sidebar-text-muted);
