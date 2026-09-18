@@ -592,6 +592,24 @@
   font-weight: 650;
   letter-spacing: -0.025em;
 }
+.session-delete-dialog-panel {
+  width: min(440px, calc(100vw - 32px));
+}
+.session-delete-dialog-panel p {
+  margin: 0;
+  color: var(--cc-text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.session-delete-dialog-panel .website-dialog-actions {
+  margin-top: 24px;
+}
+.danger-button {
+  background: var(--cc-danger);
+}
+.danger-button:hover {
+  background: color-mix(in srgb, var(--cc-danger) 85%, black);
+}
 .website-dialog-panel label {
   display: block;
   margin-bottom: 9px;

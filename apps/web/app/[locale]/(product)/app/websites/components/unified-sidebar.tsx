@@ -43,6 +43,12 @@ type GroupedSessions = {
   sessions: Session[];
 };
 
+type SessionDeleteTarget = {
+  websiteId: string;
+  sessionId: string;
+  title: string;
+};
+
 type UnifiedSidebarProps = {
   view: WorkspaceView;
   collapsed: boolean;
@@ -82,6 +88,7 @@ export function UnifiedSidebar({
 }: UnifiedSidebarProps) {
   const locale = useLocale();
   const { data: session } = authClient.useSession();
+  const common = useTranslations('common');
   const t = useTranslations('navigation');
   const websiteT = useTranslations('websites');
   const workbenchT = useTranslations('workbench');
@@ -94,6 +101,8 @@ export function UnifiedSidebar({
   const [renameValue, setRenameValue] = useState('');
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionDeleteTarget | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
 
@@ -138,6 +147,18 @@ export function UnifiedSidebar({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [editingSessionId, openMenuSessionId]);
+
+  useEffect(() => {
+    if (!deleteTarget) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !pendingAction) {
+        setDeleteTarget(null);
+        setDeleteError(null);
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [deleteTarget, pendingAction]);
 
   useEffect(() => {
     setExpandedGroups((current) => {
@@ -473,22 +494,14 @@ export function UnifiedSidebar({
                                 role="menuitem"
                                 className="danger"
                                 disabled={pendingAction !== null}
-                                onClick={async () => {
-                                  if (!window.confirm(workbenchT('deleteSessionConfirm'))) return;
-                                  setPendingAction(`delete:${session.id}`);
-                                  setActionError(null);
-                                  try {
-                                    await onSessionDelete(group.websiteId, session.id);
-                                    setOpenMenuSessionId(null);
-                                  } catch (error) {
-                                    setActionError(
-                                      error instanceof Error
-                                        ? error.message
-                                        : workbenchT('sessionActionFailed'),
-                                    );
-                                  } finally {
-                                    setPendingAction(null);
-                                  }
+                                onClick={() => {
+                                  setDeleteError(null);
+                                  setDeleteTarget({
+                                    websiteId: group.websiteId,
+                                    sessionId: session.id,
+                                    title: session.title || workbenchT('newSessionTitle'),
+                                  });
+                                  setOpenMenuSessionId(null);
                                 }}
                               >
                                 <Trash2 size={14} aria-hidden="true" />{' '}
@@ -522,6 +535,72 @@ export function UnifiedSidebar({
           ) : null}
         </div>
       </div>
+
+      {deleteTarget ? (
+        <div
+          className="website-dialog-backdrop session-delete-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !pendingAction) {
+              setDeleteTarget(null);
+              setDeleteError(null);
+            }
+          }}
+        >
+          <section
+            className="website-dialog-panel session-delete-dialog-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="session-delete-title"
+            aria-describedby="session-delete-description"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="session-delete-title">{workbenchT('deleteSessionTitle')}</h2>
+            <p id="session-delete-description">
+              {workbenchT('deleteSessionDescription', { title: deleteTarget.title })}
+            </p>
+            {deleteError ? (
+              <p className="website-modal-error" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
+            <div className="website-dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteError(null);
+                }}
+                disabled={pendingAction !== null}
+              >
+                {common('cancel')}
+              </button>
+              <button
+                className="primary-button danger-button"
+                type="button"
+                onClick={async () => {
+                  if (pendingAction) return;
+                  setPendingAction(`delete:${deleteTarget.sessionId}`);
+                  setDeleteError(null);
+                  try {
+                    await onSessionDelete(deleteTarget.websiteId, deleteTarget.sessionId);
+                    setDeleteTarget(null);
+                  } catch (error) {
+                    setDeleteError(
+                      error instanceof Error ? error.message : workbenchT('sessionActionFailed'),
+                    );
+                  } finally {
+                    setPendingAction(null);
+                  }
+                }}
+                disabled={pendingAction !== null}
+              >
+                {pendingAction ? workbenchT('deletingSession') : workbenchT('deleteSession')}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <div className="unified-sidebar-footer">
         <div className="unified-sidebar-account">
