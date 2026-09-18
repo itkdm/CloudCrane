@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+.auth-layout {
+  min-height: 100dvh;
+}
+
 .auth-page {
   min-height: 100vh;
   display: grid;
