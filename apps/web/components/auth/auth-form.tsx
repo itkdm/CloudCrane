@@ -1,11 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+  return (
+    <Suspense fallback={<main className="auth-page" aria-busy="true" />}>
+      <AuthFormContent mode={mode} />
+    </Suspense>
+  );
+}
+
+function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
