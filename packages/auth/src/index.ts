@@ -4,6 +4,7 @@ import * as schema from '@cloudcrane/db';
 import { betterAuth } from 'better-auth';
 import { admin } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
+import { createResendEmailSender } from './email-sender.js';
 
 type Db = PlatformDb['db'];
 
@@ -23,28 +24,14 @@ function requiredSecret(value: string | undefined): string {
   return value;
 }
 
-async function sendEmail(input: { to: string; subject: string; text: string; html: string }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.AUTH_EMAIL_FROM;
-  if (!apiKey || !from) throw new Error('email provider is not configured');
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      from,
-      to: [input.to],
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-    }),
-  });
-  if (!response.ok) throw new Error(`email provider returned ${response.status}`);
-}
-
 export function createAuth(db: Db): ReturnType<typeof betterAuth> {
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const requireEmailVerification = process.env.AUTH_REQUIRE_EMAIL_VERIFICATION !== 'false';
+  const sendEmail = createResendEmailSender({
+    apiKey: process.env.RESEND_API_KEY,
+    from: process.env.AUTH_EMAIL_FROM,
+  });
   return betterAuth({
     database: drizzleAdapter(db, {
       provider: 'pg',
