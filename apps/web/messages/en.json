@@ -149,6 +149,7 @@
     "closeNotice": "Close notice",
     "streamingNarrative": "Preparing the next steps…",
     "streamingReply": "Generating a reply…",
+    "loadingConversation": "Loading conversation…",
     "promptPlaceholder": "Describe what you want to change…",
     "promptLabel": "Describe the website change",
     "stop": "Stop",

@@ -1286,12 +1286,26 @@
   margin: 0;
 }
 
+.pending-initial-turn .assistant-message {
+  margin-top: 20px;
+}
+
 .conversation-turn-slot + .conversation-turn-slot {
   padding-top: 56px;
 }
 
 .empty-state {
   margin: clamp(48px, 12vh, 120px) auto 0;
+}
+
+.session-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: clamp(48px, 12vh, 120px) auto 0;
+  color: var(--cc-text-secondary);
+  font-size: 13px;
 }
 
 .return-to-latest {

@@ -6,6 +6,8 @@ import type { ConversationTurn, ManualMaintenanceItem, WorkbenchError } from './
 
 type ChatPanelProps = {
   turns: ConversationTurn[];
+  pendingPrompt?: string;
+  sessionLoading?: boolean;
   draft: string;
   running: boolean;
   disabled?: boolean;
@@ -31,6 +33,8 @@ type ChatPanelProps = {
 
 export function ChatPanel({
   turns,
+  pendingPrompt,
+  sessionLoading,
   draft,
   running,
   disabled,
@@ -109,6 +113,8 @@ export function ChatPanel({
       ) : null}
       <MessageList
         turns={turns}
+        pendingPrompt={pendingPrompt}
+        sessionLoading={sessionLoading}
         onExample={onExample}
         manualMaintenanceItems={manualMaintenanceItems}
         onInteractionRespond={onInteractionRespond}

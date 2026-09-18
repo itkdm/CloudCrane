@@ -415,6 +415,7 @@ export function AgentWorkbenchContent({
     if (sessionId !== currentSessionId) {
       flushConversation();
       queueConversation({ type: 'session.snapshot', payload: { messages: [] } }, true);
+      setSessionSnapshotVersion(0);
       setRunIdState(undefined);
       setError(undefined);
       setCurrentSessionId(sessionId);
@@ -712,6 +713,8 @@ export function AgentWorkbenchContent({
   const visiblePreview = previewBelongsToWebsite ? preview : { status: 'loading' as const };
   const visiblePreviewCurrentUrl = previewBelongsToWebsite ? previewCurrentUrl : undefined;
   const visiblePreviewCurrentPath = previewBelongsToWebsite ? previewCurrentPath : undefined;
+  const pendingInitialPrompt =
+    initialPrompt && conversation.turns.length === 0 && !error ? initialPrompt.text : undefined;
 
   return (
     <main className="workbench">
@@ -729,6 +732,8 @@ export function AgentWorkbenchContent({
       >
         <ChatPanel
           turns={conversation.turns}
+          pendingPrompt={pendingInitialPrompt}
+          sessionLoading={sessionSnapshotVersion === 0}
           draft={draft}
           running={Boolean(runId)}
           error={error}
