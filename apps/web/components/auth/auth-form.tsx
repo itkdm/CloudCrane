@@ -38,7 +38,11 @@ export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     });
     if (result.error) {
       setPending(false);
-      setError(result.error.message ?? 'Google 登录不可用');
+      setError(
+        result.error.message === 'Provider not found'
+          ? 'Google 登录尚未配置，请使用邮箱密码登录。'
+          : (result.error.message ?? 'Google 登录不可用'),
+      );
     }
   }
 
