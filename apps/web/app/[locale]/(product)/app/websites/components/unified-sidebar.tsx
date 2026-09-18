@@ -352,44 +352,72 @@ export function UnifiedSidebar({
                     <div className="session-empty">{workbenchT('noSessions')}</div>
                   ) : (
                     <div className="session-list">
-                      {visibleSessions.map((session) => (
-                        <div
-                          key={session.id}
-                          className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
-                          ref={
-                            openMenuSessionId === session.id ? sessionMenuRef : undefined
-                          }
-                        >
+                      {visibleSessions.map((session) => {
+                        const sessionTitle = session.title || workbenchT('newSessionTitle');
+                        return (
+                          <div
+                            key={session.id}
+                            className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
+                            ref={
+                              openMenuSessionId === session.id ? sessionMenuRef : undefined
+                            }
+                            data-session-title={sessionTitle.length > 24 ? sessionTitle : undefined}
+                          >
                           <button
                             type="button"
                             className="session-select-button"
                             onClick={() => onSessionSelect(group.websiteId, session.id)}
+                            title={sessionTitle}
                           >
                             <span className="session-title">
-                              {session.title || workbenchT('newSessionTitle')}
+                              {sessionTitle}
                             </span>
-                            {session.pinnedAt ? (
-                              <Pin size={12} aria-label={workbenchT('pinnedSession')} />
-                            ) : null}
                             {session.clonedFromSessionId ? (
                               <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
                             ) : null}
                           </button>
-                          <button
-                            type="button"
-                            className="session-menu-trigger"
-                            onClick={() => {
-                              setActionError(null);
-                              setOpenMenuSessionId((current) =>
-                                current === session.id ? null : session.id,
-                              );
-                            }}
-                            aria-label={`${workbenchT('sessionMenu')}: ${session.title || workbenchT('newSessionTitle')}`}
-                            aria-expanded={openMenuSessionId === session.id}
-                            aria-haspopup="menu"
-                          >
-                            <MoreHorizontal size={15} aria-hidden="true" />
-                          </button>
+                          <div className="session-actions">
+                            <button
+                              type="button"
+                              className={`session-pin-trigger${session.pinnedAt ? ' pinned' : ''}`}
+                              onClick={async () => {
+                                if (pendingAction) return;
+                                setPendingAction(`pin:${session.id}`);
+                                setActionError(null);
+                                try {
+                                  await onSessionPin(group.websiteId, session.id, !session.pinnedAt);
+                                } catch (error) {
+                                  setActionError(
+                                    error instanceof Error
+                                      ? error.message
+                                      : workbenchT('sessionActionFailed'),
+                                  );
+                                } finally {
+                                  setPendingAction(null);
+                                }
+                              }}
+                              disabled={pendingAction !== null}
+                              aria-label={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
+                              title={session.pinnedAt ? workbenchT('unpinSession') : workbenchT('pinSession')}
+                            >
+                              <Pin size={15} aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              className={`session-menu-trigger${session.pinnedAt ? ' pinned' : ''}`}
+                              onClick={() => {
+                                setActionError(null);
+                                setOpenMenuSessionId((current) =>
+                                  current === session.id ? null : session.id,
+                                );
+                              }}
+                              aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
+                              aria-expanded={openMenuSessionId === session.id}
+                              aria-haspopup="menu"
+                            >
+                              <MoreHorizontal size={15} aria-hidden="true" />
+                            </button>
+                          </div>
                           {openMenuSessionId === session.id ? (
                             <div className="session-menu" role="menu">
                               <button
@@ -397,11 +425,11 @@ export function UnifiedSidebar({
                                 role="menuitem"
                                 onClick={() => {
                                   setActionError(null);
-                                  setRenameValue(session.title || workbenchT('newSessionTitle'));
+                                  setRenameValue(sessionTitle);
                                   setRenameTarget({
                                     websiteId: group.websiteId,
                                     sessionId: session.id,
-                                    title: session.title || workbenchT('newSessionTitle'),
+                                    title: sessionTitle,
                                   });
                                   setOpenMenuSessionId(null);
                                 }}
@@ -482,8 +510,9 @@ export function UnifiedSidebar({
                               </button>
                             </div>
                           ) : null}
-                        </div>
-                      ))}
+                          </div>
+                        );
+                      })}
                       {group.sessions.length > 5 && !searchQuery.trim() ? (
                         <button
                           type="button"

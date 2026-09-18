@@ -842,6 +842,14 @@ button:disabled {
   text-align: left;
   cursor: pointer;
 }
+.unified-sidebar .session-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+.unified-sidebar .session-pin-trigger,
 .unified-sidebar .session-menu-trigger {
   display: inline-flex;
   align-items: center;
@@ -857,15 +865,57 @@ button:disabled {
   opacity: 0;
   cursor: pointer;
 }
+.unified-sidebar .session-pin-trigger {
+  color: var(--cc-sidebar-text-muted);
+}
+.unified-sidebar .session-pin-trigger.pinned,
+.unified-sidebar .session-item:hover .session-pin-trigger,
+.unified-sidebar .session-item:focus-within .session-pin-trigger {
+  opacity: 1;
+}
 .unified-sidebar .session-item:hover .session-menu-trigger,
 .unified-sidebar .session-item:focus-within .session-menu-trigger,
+.unified-sidebar .session-menu-trigger.pinned,
 .unified-sidebar .session-menu-trigger[aria-expanded='true'] {
   opacity: 1;
 }
+.unified-sidebar .session-pin-trigger:hover,
+.unified-sidebar .session-pin-trigger:focus-visible,
 .unified-sidebar .session-menu-trigger:hover,
 .unified-sidebar .session-menu-trigger:focus-visible {
   background: transparent;
   color: var(--cc-text);
+}
+.unified-sidebar .session-pin-trigger:disabled,
+.unified-sidebar .session-menu-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.unified-sidebar .session-item[data-session-title]::after {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: var(--session-title-offset);
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  background: var(--cc-surface-0);
+  box-shadow: var(--cc-shadow-lg);
+  color: var(--cc-text);
+  content: attr(data-session-title);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: normal;
+}
+.unified-sidebar .session-item[data-session-title]:hover::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 .session-menu {
   position: absolute;
