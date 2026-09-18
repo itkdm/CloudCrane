@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { shouldClearErrorOnRunSettled, type WorkbenchError } from './types';
+import {
+  shouldClearErrorOnRecovery,
+  shouldClearErrorOnRunSettled,
+  type WorkbenchError,
+} from './types';
 
 describe('workbench transient errors', () => {
   it('clears an error only when the settled run matches', () => {
@@ -23,5 +27,16 @@ describe('workbench transient errors', () => {
       ),
     ).toBe(false);
     expect(shouldClearErrorOnRunSettled(undefined, 'run-a')).toBe(false);
+  });
+
+  it('clears transient connection and preview errors after recovery', () => {
+    expect(shouldClearErrorOnRecovery({ source: 'connection', message: 'disconnected' })).toBe(
+      true,
+    );
+    expect(shouldClearErrorOnRecovery({ source: 'preview-explicit', message: 'failed' })).toBe(
+      true,
+    );
+    expect(shouldClearErrorOnRecovery({ source: 'command', message: 'failed' })).toBe(false);
+    expect(shouldClearErrorOnRecovery(undefined)).toBe(false);
   });
 });

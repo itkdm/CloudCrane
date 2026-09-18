@@ -22,7 +22,11 @@ import {
   parseAgentEvent,
   parseAgentMessage,
 } from '@/lib/agent-client';
-import { PreviewBridgeClient, PreviewBridgeClientError } from '@/lib/preview-bridge-client';
+import {
+  PREVIEW_READY_TIMEOUT_MS,
+  PreviewBridgeClient,
+  PreviewBridgeClientError,
+} from '@/lib/preview-bridge-client';
 import { ChatPanel } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/chat-panel';
 import {
   conversationReducer,
@@ -36,6 +40,7 @@ import { authorizePreviewAccess, usePreviewAccess } from '@/lib/preview-access';
 import type { PreviewViewportMode } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/preview-viewport';
 import {
   shouldClearErrorOnRunSettled,
+  shouldClearErrorOnRecovery,
   type PreviewState,
   type Session,
   type WorkbenchError,
@@ -85,9 +90,9 @@ export function AgentWorkbenchContent({
   const [previewCurrentUrl, setPreviewCurrentUrl] = useState<string>();
   const [previewCurrentPath, setPreviewCurrentPath] = useState<string>();
   const [previewKey, setPreviewKey] = useState(0);
-  const [bridgeStatus, setBridgeStatus] = useState<
-    'unavailable' | 'attached' | 'detached' | 'error'
-  >('unavailable');
+  const [bridgeStatus, setBridgeStatus] = useState<'waiting' | 'attached' | 'detached' | 'error'>(
+    'waiting',
+  );
   const [previewViewportMode, setPreviewViewportMode] = useState<PreviewViewportMode>('desktop');
   const [previewSplitRatio, setPreviewSplitRatio] = useState(0.45);
   const [isResizingPreview, setIsResizingPreview] = useState(false);
@@ -225,7 +230,7 @@ export function AgentWorkbenchContent({
     setPreviewCurrentUrl(undefined);
     setPreviewCurrentPath(undefined);
     setPreview({ status: 'loading' });
-    setBridgeStatus('unavailable');
+    setBridgeStatus('waiting');
     previewCapabilitiesRef.current = undefined;
     if (refreshTimerRef.current) {
       clearTimeout(refreshTimerRef.current);
@@ -388,7 +393,7 @@ export function AgentWorkbenchContent({
         waiter.reject(new Error('Preview Client was closed'));
         previewReadyRef.current = null;
       }
-      setBridgeStatus('unavailable');
+      setBridgeStatus('waiting');
     };
   }, [preview.status, previewOpen, updatePreviewCapabilities]);
 
@@ -525,8 +530,10 @@ export function AgentWorkbenchContent({
               ensureAccess: payload.operation !== 'observe',
             });
             const response = await handlePreviewRequest(client, payload);
-            if (response.ok)
+            if (response.ok) {
               setPreview((current) => ({ ...current, path: response.observation.path }));
+              setError((current) => (shouldClearErrorOnRecovery(current) ? undefined : current));
+            }
             return response;
           } catch (cause) {
             if (recovered || !isPreviewTimeout(cause)) throw cause;
@@ -539,7 +546,7 @@ export function AgentWorkbenchContent({
       previewOperationRef.current = operation.catch(() => undefined);
       return operation;
     },
-    [ensurePreviewAuthorizationFresh, ensurePreviewReady],
+    [ensurePreviewAuthorizationFresh, ensurePreviewReady, setError],
   );
 
   // Handle WebSocket events
@@ -555,6 +562,7 @@ export function AgentWorkbenchContent({
 
       ws.onopen = () => {
         if (disposed || socket.current !== ws) return;
+        setError((current) => (current?.source === 'connection' ? undefined : current));
         sendCommand({
           type: 'session.attach',
           websiteId,
@@ -906,7 +914,7 @@ function createPreviewReadyWaiter(): PreviewReadyWaiter {
   });
   const timer = window.setTimeout(
     () => rejectPromise(new Error('Preview Client timed out')),
-    8_000,
+    PREVIEW_READY_TIMEOUT_MS,
   );
   return {
     promise,

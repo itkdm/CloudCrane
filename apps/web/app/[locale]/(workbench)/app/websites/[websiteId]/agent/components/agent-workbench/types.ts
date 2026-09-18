@@ -114,3 +114,7 @@ export function shouldClearErrorOnRunSettled(
 ): boolean {
   return Boolean(error?.runId && runId && error.runId === runId);
 }
+
+export function shouldClearErrorOnRecovery(error: WorkbenchError | undefined): boolean {
+  return error?.source === 'connection' || error?.source === 'preview-explicit';
+}
