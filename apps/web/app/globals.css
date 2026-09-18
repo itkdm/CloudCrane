@@ -629,6 +629,12 @@ button:disabled {
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+.unified-sidebar-websites-empty {
+  padding: 8px 12px;
+  color: var(--cc-sidebar-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
 .unified-sidebar-sessions::-webkit-scrollbar {
   width: 6px;
 }

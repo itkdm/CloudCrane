@@ -184,6 +184,9 @@ export function UnifiedSidebar({
 
         <div className="unified-sidebar-sessions">
           <div className="unified-sidebar-section-label">{websiteT('title')}</div>
+          {groupedSessions.length === 0 ? (
+            <div className="unified-sidebar-websites-empty">{websiteT('noMoreWebsites')}</div>
+          ) : null}
           {groupedSessions.map((group) => {
             const expanded = expandedGroups[group.websiteId] ?? true;
             const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;

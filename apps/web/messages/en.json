@@ -73,6 +73,7 @@
   },
   "websites": {
     "title": "Websites",
+    "noMoreWebsites": "No more websites",
     "description": "Manage the websites you are building.",
     "create": "Create website",
     "settings": "Settings",

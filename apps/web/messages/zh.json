@@ -73,6 +73,7 @@
   },
   "websites": {
     "title": "网站",
+    "noMoreWebsites": "暂无更多网站",
     "description": "管理你正在建设的网站。",
     "create": "创建网站",
     "settings": "设置",
