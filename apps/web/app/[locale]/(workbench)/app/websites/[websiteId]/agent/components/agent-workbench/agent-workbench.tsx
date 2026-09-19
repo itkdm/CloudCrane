@@ -315,6 +315,15 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
               : [nextSession, ...current];
           });
         }
+        if (projected.event.type === 'run.started' && sessionId) {
+          setSessions((current) =>
+            current.map((session) =>
+              session.id === sessionId
+                ? { ...session, lastActiveAt: new Date().toISOString() }
+                : session,
+            ),
+          );
+        }
         if (projected.event.type === 'preview.request') {
           void requestPreview(projected.event.payload)
             .then((payload) => {

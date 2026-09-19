@@ -55,6 +55,9 @@ type SessionChange =
       title?: string | null;
       createdAt?: string;
       updatedAt?: string;
+      lastActiveAt?: string | null;
+      pinnedAt?: string | null;
+      clonedFromSessionId?: string | null;
     };
 
 // Simplified workbench without SessionSidebar (managed by UnifiedSidebar)
@@ -619,6 +622,15 @@ export function AgentWorkbenchContent({
             title: nextSession.title,
             createdAt: nextSession.createdAt,
             updatedAt: nextSession.updatedAt,
+            lastActiveAt: nextSession.lastActiveAt,
+            pinnedAt: nextSession.pinnedAt,
+            clonedFromSessionId: nextSession.clonedFromSessionId,
+          });
+        }
+        if (projected.event.type === 'run.started' && currentSessionId) {
+          onSessionChange?.({
+            id: currentSessionId,
+            lastActiveAt: new Date().toISOString(),
           });
         }
 

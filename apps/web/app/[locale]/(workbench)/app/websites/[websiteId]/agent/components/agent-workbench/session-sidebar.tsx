@@ -1,6 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
+import { compareSessionsByActivity, sessionActivityTimestamp } from '@/lib/session-sorting';
 import type { Session } from './types';
 
 type SessionSidebarProps = {
@@ -104,21 +105,27 @@ function groupSessions(sessions: Session[], t: (key: string) => string): Session
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterday = today - 86_400_000;
   const labels = { today: t('today'), yesterday: t('yesterday'), earlier: t('earlier') };
+  const pinnedLabel = t('pinnedSession');
   const groups: Record<string, Session[]> = {
+    [pinnedLabel]: [],
     [labels.today]: [],
     [labels.yesterday]: [],
     [labels.earlier]: [],
   };
 
-  for (const session of sessions) {
-    const created = new Date(session.updatedAt || session.createdAt);
+  for (const session of [...sessions].sort(compareSessionsByActivity)) {
+    if (session.pinnedAt) {
+      groups[pinnedLabel]?.push(session);
+      continue;
+    }
+    const created = new Date(sessionActivityTimestamp(session));
     const day = new Date(created.getFullYear(), created.getMonth(), created.getDate()).getTime();
     const label =
       day === today ? labels.today : day === yesterday ? labels.yesterday : labels.earlier;
     groups[label]?.push(session);
   }
 
-  return [labels.today, labels.yesterday, labels.earlier]
+  return [pinnedLabel, labels.today, labels.yesterday, labels.earlier]
     .map((label) => ({ label, sessions: groups[label] ?? [] }))
     .filter((group) => group.sessions.length > 0);
 }

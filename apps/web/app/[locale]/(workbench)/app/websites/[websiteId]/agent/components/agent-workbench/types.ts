@@ -87,6 +87,9 @@ export type ManualMaintenanceItem = {
 export type Session = {
   id: string;
   title: string | null;
+  pinnedAt?: string | null;
+  lastActiveAt?: string | null;
+  clonedFromSessionId?: string | null;
   createdAt: string;
   updatedAt: string;
 };

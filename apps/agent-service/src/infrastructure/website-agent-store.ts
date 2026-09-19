@@ -67,6 +67,7 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
         sql`${websiteSession.pinnedAt} desc nulls last`,
         sql`${websiteSession.lastActiveAt} desc nulls last`,
         sql`${websiteSession.createdAt} desc`,
+        sql`${websiteSession.id} desc`,
       );
     return rows.map(mapSession);
   }

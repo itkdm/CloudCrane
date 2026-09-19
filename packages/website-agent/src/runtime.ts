@@ -59,6 +59,15 @@ const REMOTE_SKILLS_MAX_DEPTH = 8;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
 
+function sessionActivityTimestamp(
+  session: Pick<WebsiteSessionIndex, 'lastActiveAt' | 'createdAt'>,
+) {
+  const active = session.lastActiveAt ? Date.parse(session.lastActiveAt) : Number.NaN;
+  if (Number.isFinite(active)) return active;
+  const created = Date.parse(session.createdAt);
+  return Number.isFinite(created) ? created : 0;
+}
+
 export const AGENT_RUN_STATUSES = [
   'PENDING',
   'RUNNING',
@@ -595,6 +604,10 @@ export class WebsiteAgentRuntime {
           endedAt: null,
         });
         await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+        managed.record.lastActiveAt = startedAt;
+        await this.options.store.updateSession(managed.websiteSessionId, {
+          lastActiveAt: startedAt,
+        });
         onAccepted?.();
         this.emitLifecycle(managed, {
           type: 'run_started',
@@ -641,7 +654,6 @@ export class WebsiteAgentRuntime {
         managed.record.status = sessionStatus;
         await this.options.store.updateSession(managed.websiteSessionId, {
           status: sessionStatus,
-          lastActiveAt: endedAt,
         });
         settledEventEmitted = true;
         const finalMessageId = getFinalAssistantMessageId(
@@ -815,14 +827,13 @@ export class WebsiteAgentRuntime {
         this.layout.sessionDirectory(this.options.websiteId),
         this.piCwd,
       );
-      const cloneCreatedAt = new Date().toISOString();
       cloneRecord = await this.options.store.createSession({
         websiteId: this.options.websiteId,
         piSessionId: cloneManager.getSessionId(),
         sessionFile: this.layout.relativeSessionFile(this.options.websiteId, clonedFile),
         title: cloneTitle,
         status: 'ACTIVE',
-        lastActiveAt: cloneCreatedAt,
+        lastActiveAt: null,
         pinnedAt: null,
         clonedFromSessionId: source.record.id,
       });
@@ -1580,8 +1591,9 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
         .sort((a, b) => {
           if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
           return (
-            (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '') ||
-            b.createdAt.localeCompare(a.createdAt)
+            sessionActivityTimestamp(b) - sessionActivityTimestamp(a) ||
+            Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
+            (b.id === a.id ? 0 : b.id > a.id ? 1 : -1)
           );
         })
         .map((session) => ({ ...session }));

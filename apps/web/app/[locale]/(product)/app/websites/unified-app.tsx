@@ -17,6 +17,7 @@ import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-c
 import { WebsiteSettingsDialog } from './components/website-settings-dialog';
 import { WorkspaceStart } from './components/workspace-start';
 import './websites.css';
+import { compareSessionsByActivity } from '@/lib/session-sorting';
 
 export type WorkspaceView = 'websites' | 'templates';
 
@@ -46,6 +47,9 @@ type SessionChange =
       title?: string | null;
       createdAt?: string;
       updatedAt?: string;
+      lastActiveAt?: string | null;
+      pinnedAt?: string | null;
+      clonedFromSessionId?: string | null;
     };
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'cloudcrane.sidebar.collapsed';
@@ -189,14 +193,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         previewUrl: website.previewUrl,
         sessions: sessions
           .filter((s) => s.websiteId === website.id)
-          .sort((a, b) => {
-            if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
-            const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
-            const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
-            return (
-              activeB - activeA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-          }),
+          .sort(compareSessionsByActivity),
       })),
     [sessions, websites],
   );
@@ -250,14 +247,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       if (selectedSession !== sessionId) return;
       const next = sessions
         .filter((item) => item.websiteId === websiteId && item.id !== sessionId)
-        .sort((a, b) => {
-          if (Boolean(a.pinnedAt) !== Boolean(b.pinnedAt)) return a.pinnedAt ? -1 : 1;
-          const activeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
-          const activeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
-          return (
-            activeB - activeA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-        })[0];
+        .sort(compareSessionsByActivity)[0];
       setSelectedWebsite(websiteId);
       setSelectedSession(next?.id ?? null);
     },
@@ -391,6 +381,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
                     ...(metadata.title !== undefined ? { title: metadata.title ?? undefined } : {}),
                     ...(metadata.createdAt ? { createdAt: metadata.createdAt } : {}),
                     ...(metadata.updatedAt ? { updatedAt: metadata.updatedAt } : {}),
+                    ...(metadata.lastActiveAt !== undefined
+                      ? { lastActiveAt: metadata.lastActiveAt }
+                      : {}),
+                    ...(metadata.pinnedAt !== undefined ? { pinnedAt: metadata.pinnedAt } : {}),
+                    ...(metadata.clonedFromSessionId !== undefined
+                      ? { clonedFromSessionId: metadata.clonedFromSessionId }
+                      : {}),
                   }
                 : session,
             )
@@ -402,9 +399,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
                 title: metadata.title ?? '',
                 createdAt: metadata.createdAt ?? new Date().toISOString(),
                 updatedAt: metadata.updatedAt ?? new Date().toISOString(),
-                pinnedAt: null,
-                clonedFromSessionId: null,
-                lastActiveAt: null,
+                pinnedAt: metadata.pinnedAt ?? null,
+                clonedFromSessionId: metadata.clonedFromSessionId ?? null,
+                lastActiveAt: metadata.lastActiveAt ?? null,
               },
             ],
       );

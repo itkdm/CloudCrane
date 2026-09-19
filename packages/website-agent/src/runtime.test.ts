@@ -455,7 +455,7 @@ describe('WebsiteAgentRuntime', () => {
     expect(clone.id).not.toBe(source.id);
     expect(clone.piSessionId).not.toBe(source.piSessionId);
     expect(clone.clonedFromSessionId).toBe(source.id);
-    expect(clone.lastActiveAt).toEqual(expect.any(String));
+    expect(clone.lastActiveAt).toBeNull();
     expect(clone.title).toBe('source prompt (2)');
     expect(clone.sessionFile).not.toBe(source.sessionFile);
     expect(
