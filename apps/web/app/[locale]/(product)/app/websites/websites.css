@@ -414,6 +414,7 @@
   border-radius: var(--cc-radius-lg);
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-sm);
+  transition: none;
 }
 .template-card-cover {
   display: grid;
