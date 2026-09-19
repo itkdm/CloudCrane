@@ -370,32 +370,33 @@
 }
 
 .templates-view {
-  width: min(1000px, calc(100% - 64px));
+  width: min(860px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 48px 0 72px;
+  padding: 32px 0 56px;
 }
 .templates-header {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 .templates-header h1 {
   margin: 0;
   color: var(--cc-text);
-  font-size: clamp(28px, 3.5vw, 36px);
+  font-size: clamp(24px, 3vw, 30px);
   letter-spacing: -0.03em;
 }
 .templates-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 .templates-filter {
-  min-height: 34px;
+  min-height: 30px;
   border: 1px solid var(--cc-border);
   border-radius: 999px;
-  padding: 0 14px;
+  padding: 0 12px;
   background: transparent;
   color: var(--cc-text-secondary);
+  font-size: 13px;
   cursor: pointer;
 }
 .templates-filter:hover,
@@ -405,8 +406,8 @@
 }
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 280px));
+  gap: 12px;
 }
 .template-card {
   overflow: hidden;
@@ -420,7 +421,7 @@
 }
 .template-card-cover {
   display: grid;
-  height: 124px;
+  height: 96px;
   place-items: center;
   background: linear-gradient(
     135deg,
@@ -435,14 +436,14 @@
   object-fit: cover;
 }
 .template-card-cover svg {
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
 }
 .template-card-body {
   display: flex;
-  min-height: 164px;
+  min-height: 144px;
   flex-direction: column;
-  padding: 16px;
+  padding: 14px;
 }
 .template-card-category {
   color: var(--cc-brand);
@@ -450,17 +451,17 @@
   font-weight: 650;
 }
 .template-card h2 {
-  margin: 4px 0 6px;
+  margin: 3px 0 5px;
   color: var(--cc-text);
-  font-size: 17px;
+  font-size: 15px;
 }
 .template-card p {
   display: -webkit-box;
   overflow: hidden;
   margin: 0;
   color: var(--cc-text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
@@ -469,21 +470,21 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 12px;
 }
 .template-card-actions a,
 .template-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
+  min-height: 30px;
   gap: 6px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-md);
-  padding: 0 10px;
+  padding: 0 9px;
   background: transparent;
   color: var(--cc-text);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -539,7 +540,7 @@
 @media (max-width: 620px) {
   .templates-view {
     width: min(100% - 32px, 560px);
-    padding-top: 32px;
+    padding-top: 24px;
   }
   .template-grid {
     grid-template-columns: 1fr;
