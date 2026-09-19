@@ -105,7 +105,11 @@ export async function materializeReference(input: {
     );
   await mkdir(stagingRoot, { recursive: true });
   try {
-    const directory = await unzipper.Open.file(input.archivePath, {
+    const openZipFile = unzipper.Open.file as unknown as (
+      filename: string,
+      options: { tailSize: number },
+    ) => ReturnType<typeof unzipper.Open.file>;
+    const directory = await openZipFile(input.archivePath, {
       tailSize: ZIP_DIRECTORY_TAIL_BYTES,
     });
     const files = directory.files.filter((entry) => entry.type !== 'Directory');

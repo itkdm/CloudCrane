@@ -71,7 +71,11 @@ const options = parseArgs(process.argv.slice(2));
 const info = await stat(options.archive);
 if (!info.isFile() || info.size <= 0 || info.size > TEMPLATE_ARTIFACT_MAX_BYTES)
   throw new Error('archive must be a non-empty ZIP smaller than 500 MB');
-const directory = await unzipper.Open.file(options.archive, {
+const openZipFile = unzipper.Open.file as unknown as (
+  filename: string,
+  options: { tailSize: number },
+) => ReturnType<typeof unzipper.Open.file>;
+const directory = await openZipFile(options.archive, {
   tailSize: ZIP_DIRECTORY_TAIL_BYTES,
 });
 const files = directory.files.filter((entry) => entry.type !== 'Directory');
