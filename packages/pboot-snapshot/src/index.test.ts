@@ -18,6 +18,9 @@ import { planPbootMigrations } from './pboot-migrations.js';
 describe('Pboot snapshot boundaries', () => {
   it('classifies managed core, site state, and runtime paths', () => {
     expect(classifySnapshotPath('apps/common/version.php')).toBe('MANAGED_CORE');
+    expect(classifySnapshotPath('config/database.php')).toBe('MANAGED_CORE');
+    expect(classifySnapshotPath('config/config.php')).toBe('SITE_STATE');
+    expect(classifySnapshotPath('config/route.php')).toBe('SITE_STATE');
     expect(classifySnapshotPath('template/default/index.html')).toBe('SITE_STATE');
     expect(classifySnapshotPath('static/upload/logo.png')).toBe('SITE_STATE');
     expect(classifySnapshotPath('data/pbootcms.db')).toBe('SITE_STATE');
@@ -68,7 +71,10 @@ describe('Pboot snapshot boundaries', () => {
     await writeFile(path.join(root, 'template', 'default', 'index.html'), 'site');
     await writeFile(path.join(root, 'runtime', 'cache', 'ignored.txt'), 'runtime');
     const files = await collectSiteStateInventory(root);
-    expect(files.map((file) => file.path)).toEqual(['template/default/index.html']);
+    expect(files.map((file) => file.path)).toEqual([
+      'config/config.php',
+      'template/default/index.html',
+    ]);
     expect(
       buildSnapshotManifest({
         sourceWebsiteId: 'website-1',
@@ -77,7 +83,7 @@ describe('Pboot snapshot boundaries', () => {
         dbSchemaVersion: '3.2.26',
         files,
       }).files,
-    ).toMatchObject({ count: 1, bytes: 4, entries: files });
+    ).toMatchObject({ count: 2, entries: files });
   });
 
   it('builds an immutable manifest plus payload archive and excludes managed/runtime files', async () => {
@@ -115,12 +121,14 @@ describe('Pboot snapshot boundaries', () => {
     const entries = unzipSync(archive);
     expect(Object.keys(entries).sort()).toEqual([
       'manifest.json',
+      'payload/config/config.php',
       'payload/template/default/index.html',
     ]);
     expect(JSON.parse(new TextDecoder().decode(entries['manifest.json']))).toMatchObject({
       artifactType: 'cloudcrane-pboot-site-snapshot',
-      files: { count: 1, bytes: 5 },
+      files: { count: 2 },
     });
+    expect(new TextDecoder().decode(entries['payload/config/config.php'])).toBe('managed');
     expect(new TextDecoder().decode(entries['payload/template/default/index.html'])).toBe('hello');
     expect(result.size).toBe(archive.byteLength);
     expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -200,5 +208,31 @@ describe('Pboot snapshot boundaries', () => {
     expect(() =>
       planPbootMigrations({ engine: 'mysql', sourceVersion: '3.2.24', targetVersion: '3.2.26' }),
     ).toThrow('missing official');
+  });
+
+  it('accepts a trusted older Core release when restoring to a newer target', () => {
+    const manifest = parseSnapshotManifest({
+      artifactType: 'cloudcrane-pboot-site-snapshot',
+      snapshotSchemaVersion: 1,
+      cms: 'pbootcms',
+      sourceWebsiteId: 'website-legacy',
+      sourcePbootVersion: '3.2.24',
+      sourceCoreCommit: '29ff72ee5afc9c6553b949f04d3fc99443879f40',
+      dbEngine: 'sqlite',
+      dbSchemaVersion: '3.2.24',
+      createdAt: '2026-09-19T00:00:00.000Z',
+      files: {
+        count: 1,
+        bytes: 10,
+        entries: [{ path: 'data/pbootcms.db', size: 10, sha256: 'a'.repeat(64) }],
+      },
+    });
+    expect(() =>
+      assertSnapshotCanRestore({
+        manifest,
+        targetPbootVersion: '3.2.26',
+        targetDbSchemaVersion: '3.2.26',
+      }),
+    ).not.toThrow();
   });
 });

@@ -20,7 +20,7 @@ export const snapshotStageRequestSchema = z.object({
   artifactStorageKey: z.string().regex(/^template-[0-9a-f-]+\.zip$/i),
   sourceWebsiteId: z.string().uuid(),
   sourcePbootVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  sourceCoreCommit: z.string().regex(/^[0-9a-f]{7,64}$/i),
+  sourceCoreCommit: z.string().regex(/^[0-9a-f]{40}$/i),
   dbSchemaVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
 });
 export const snapshotStageResponseSchema = z.object({

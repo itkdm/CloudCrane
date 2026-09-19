@@ -3,6 +3,7 @@ import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/
 import path from 'node:path';
 import { zipSync } from 'fflate';
 import { z } from 'zod';
+import { assertTrustedPbootRelease } from './pboot-releases.js';
 
 export const SNAPSHOT_ARTIFACT_TYPE = 'cloudcrane-pboot-site-snapshot' as const;
 export const SNAPSHOT_SCHEMA_VERSION = 1 as const;
@@ -17,7 +18,7 @@ export const snapshotManifestSchema = z.object({
   cms: z.literal('pbootcms'),
   sourceWebsiteId: z.string().min(1).max(255),
   sourcePbootVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  sourceCoreCommit: z.string().regex(/^[0-9a-f]{7,64}$/i),
+  sourceCoreCommit: z.string().regex(/^[0-9a-f]{40}$/i),
   dbEngine: z.literal('sqlite'),
   dbSchemaVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   createdAt: z.string().datetime({ offset: true }),
@@ -45,10 +46,10 @@ const managedCoreExact = new Set([
   'admin.php',
   'api.php',
   '.gitignore',
-  'config/config.php',
+  'config/database.php',
   '.cloudcrane/bootstrap.json',
 ]);
-const managedCorePrefixes = ['apps/', 'core/', 'config/', 'rewrite/'];
+const managedCorePrefixes = ['apps/', 'core/', 'rewrite/'];
 const ephemeralPrefixes = [
   '.git/',
   '.cloudcrane/',
@@ -223,6 +224,7 @@ export async function buildSnapshotArchive(input: {
     !baseMarker.includes(`sourceCommit=${input.sourceCoreCommit}`)
   )
     throw new Error('snapshot source metadata does not match the managed Pboot base');
+  assertTrustedPbootRelease(input.sourcePbootVersion, input.sourceCoreCommit);
   const drift = await detectCoreDrift({
     workspaceRoot: input.workspaceRoot,
     managedBaseRoot: input.managedBaseRoot,
@@ -318,6 +320,7 @@ export function assertSnapshotCanRestore(input: {
   targetPbootVersion: string;
   targetDbSchemaVersion: string;
 }): void {
+  assertTrustedPbootRelease(input.manifest.sourcePbootVersion, input.manifest.sourceCoreCommit);
   const source = input.manifest.dbSchemaVersion;
   if (compareVersions(source, input.targetDbSchemaVersion) > 0)
     throw new Error(`snapshot database version is newer than target: ${source}`);

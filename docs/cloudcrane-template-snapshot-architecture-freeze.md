@@ -24,10 +24,14 @@ Template 不携带旧的 PbootCMS Core，不覆盖入口文件、授权逻辑或
 
 | 分类 | 内容 | Snapshot 行为 |
 | --- | --- | --- |
-| `MANAGED_CORE` | `index.php`、`admin.php`、`api.php`、`apps/`、`core/`、Managed `config/`、CloudCrane 初始化文件 | 不打包；由当前 Managed Base 提供 |
+| `MANAGED_CORE` | `index.php`、`admin.php`、`api.php`、`apps/`、`core/`、`rewrite/`、`config/database.php`、CloudCrane 初始化文件 | 不打包；由当前 Managed Base 提供 |
 | `SITE_STATE` | `template/`、`skin/`、`m/`、`static/` 中的站点资源、根目录站点资源、自定义站点目录、站点业务 SQLite 数据 | 保留原值，发布和恢复时确定性处理 |
 | `EPHEMERAL_RUNTIME` | `runtime/`、`session/`、日志、缓存、临时升级文件、`.cloudcrane/references/`、Git 元数据 | 丢弃，不进入 Artifact |
 | `CORE_DRIFT` | 相对该 Website Managed Base 的 Core 文件修改或新增 | 阻止自动发布，输出可审计的 drift 列表 |
+
+`config/config.php` 和 `config/route.php` 属于 Site Config/站点自定义配置；`config/database.php`
+属于运行时环境配置，由当前 Managed Base 提供，不随 Snapshot 复制。配置边界不再按整个
+`config/` 目录一刀切。
 
 内容（公司信息、电话、邮箱、文章、产品、图片、栏目、SEO、模型、扩展字段、轮播和友情链接）不自动脱敏、不自动删除。实例绑定信息、授权、管理员登录态和 CloudCrane 内部状态不随 Snapshot 复制。
 

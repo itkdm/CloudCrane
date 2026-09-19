@@ -125,6 +125,18 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     if (!artifactRoot || !managedBaseRoot)
       throw new Error('snapshot staging paths are not configured');
     const workspaceRoot = this.persistentPath(workspaceId);
+    const daemon = new WorkspaceDaemonClient(await this.getEndpoint(workspaceId));
+    const integrity = await daemon.exec({
+      command: 'sqlite3',
+      args: ['/workspace/data/pbootcms.db', 'PRAGMA integrity_check;'],
+      cwd: '/workspace',
+      env: {},
+      timeoutMs: 30_000,
+      maxOutputBytes: 16_384,
+      executionId: randomUUID(),
+    });
+    if (integrity.exitCode !== 0 || integrity.stdout.trim() !== 'ok')
+      throw new Error('source Pboot database integrity check failed');
     const resolvedRoot = path.resolve(artifactRoot);
     const outputPath = path.resolve(resolvedRoot, input.artifactStorageKey);
     if (!outputPath.startsWith(`${resolvedRoot}${path.sep}`))

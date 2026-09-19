@@ -5,6 +5,7 @@ declare(strict_types=1);
 const WORKSPACE = '/workspace';
 const TARGET_VERSION = '3.2.26';
 const MANAGED_BASE_MARKER = '/opt/cloudcrane/pbootcms-base/.cloudcrane-base';
+const RELEASE_REGISTRY = '/opt/cloudcrane/pboot-releases.json';
 
 function fail(string $message): never
 {
@@ -43,7 +44,7 @@ function isManagedOrEphemeral(string $relative): bool
         || $relative === '.gitignore'
         || str_starts_with($relative, 'apps/')
         || str_starts_with($relative, 'core/')
-        || str_starts_with($relative, 'config/')
+        || $relative === 'config/database.php'
         || str_starts_with($relative, 'rewrite/')
         || str_starts_with($relative, '.git/')
         || str_starts_with($relative, '.cloudcrane/')
@@ -161,8 +162,14 @@ $sourceCoreCommit = $manifest['sourceCoreCommit'] ?? null;
 if (!is_string($sourceCoreCommit) || !preg_match('/^[0-9a-f]{40}$/i', $sourceCoreCommit)) fail('invalid source Core commit');
 if (!is_file(MANAGED_BASE_MARKER)) fail('managed Pboot Core marker is missing');
 $managedBaseMarker = (string)file_get_contents(MANAGED_BASE_MARKER);
-if (!str_contains($managedBaseMarker, 'pbootcms=' . TARGET_VERSION) || !str_contains($managedBaseMarker, 'sourceCommit=' . $sourceCoreCommit)) {
-    fail('snapshot Core commit does not match the managed Pboot Core');
+if (!str_contains($managedBaseMarker, 'pbootcms=' . TARGET_VERSION)) fail('managed Pboot Core version does not match the runtime');
+$targetCoreCommit = null;
+if (preg_match('/^sourceCommit=([0-9a-f]{40})$/mi', $managedBaseMarker, $matches)) $targetCoreCommit = strtolower($matches[1]);
+if ($targetCoreCommit === null) fail('managed Pboot Core commit marker is missing');
+if (!is_file(RELEASE_REGISTRY)) fail('managed Pboot release registry is missing');
+$releaseRegistry = json_decode((string)file_get_contents(RELEASE_REGISTRY), true);
+if (!is_array($releaseRegistry) || !is_array($releaseRegistry[$sourceVersion] ?? null) || ($releaseRegistry[$sourceVersion]['sourceCommit'] ?? null) !== $sourceCoreCommit) {
+    fail('snapshot source Core release is not trusted');
 }
 $entries = $manifest['files']['entries'] ?? null;
 if (!is_array($entries) || count($entries) !== ($manifest['files']['count'] ?? -1)) fail('invalid snapshot file manifest');
@@ -201,6 +208,8 @@ try {
     if ($exitCode !== 0 || !is_file($migratedDb)) fail('Pboot database migration failed');
     unlink($stagedDb);
     rename($migratedDb, $stagedDb);
+    exec('cloudcrane-rebind-pboot-state ' . escapeshellarg($stagedDb) . ' ' . escapeshellarg(WORKSPACE . '/' . $database), $rebindOutput, $rebindExitCode);
+    if ($rebindExitCode !== 0) fail('managed Pboot state rebind failed');
     $db = new PDO('sqlite:' . $stagedDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('migrated database integrity check failed');
     $db = null;

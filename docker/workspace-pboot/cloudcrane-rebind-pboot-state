@@ -1,0 +1,137 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+function fail(string $message): never
+{
+    fwrite(STDERR, "ERROR {$message}\n");
+    exit(1);
+}
+
+function quoteIdentifier(string $value): string
+{
+    return '"' . str_replace('"', '""', $value) . '"';
+}
+
+function columns(PDO $db, string $table): array
+{
+    $result = [];
+    $statement = $db->query('PRAGMA table_info(' . quoteIdentifier($table) . ')');
+    if ($statement === false) return $result;
+    foreach ($statement as $row) {
+        if (isset($row['name'])) $result[(string)$row['name']] = true;
+    }
+    return $result;
+}
+
+function rows(PDO $db, string $table): array
+{
+    $statement = $db->query('SELECT * FROM ' . quoteIdentifier($table));
+    return $statement === false ? [] : $statement->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function replaceRows(PDO $target, PDO $source, string $table): void
+{
+    $targetColumns = columns($target, $table);
+    $sourceColumns = columns($source, $table);
+    if ($targetColumns === [] || $sourceColumns === []) fail("managed table is missing: {$table}");
+    $shared = array_values(array_filter(array_keys($targetColumns), static fn(string $column): bool => isset($sourceColumns[$column])));
+    if ($shared === []) fail("managed table has no compatible columns: {$table}");
+    $quotedColumns = implode(', ', array_map('quoteIdentifier', $shared));
+    $placeholders = implode(', ', array_fill(0, count($shared), '?'));
+    $target->exec('DELETE FROM ' . quoteIdentifier($table));
+    $insert = $target->prepare('INSERT INTO ' . quoteIdentifier($table) . " ({$quotedColumns}) VALUES ({$placeholders})");
+    foreach (rows($source, $table) as $row) {
+        $insert->execute(array_map(static fn(string $column): mixed => $row[$column] ?? null, $shared));
+    }
+}
+
+function preserveConfig(PDO $target, PDO $source): void
+{
+    $targetColumns = columns($target, 'ay_config');
+    $sourceColumns = columns($source, 'ay_config');
+    if (!isset($targetColumns['name'], $targetColumns['value']) || !isset($sourceColumns['name'], $sourceColumns['value'])) {
+        fail('managed table is missing: ay_config');
+    }
+    $managedNames = ['sn', 'sn_user', 'licensecode'];
+    $select = $target->prepare('SELECT * FROM ' . quoteIdentifier('ay_config') . ' WHERE ' . quoteIdentifier('name') . ' = ? LIMIT 1');
+    $update = $source->prepare('UPDATE ' . quoteIdentifier('ay_config') . ' SET ' . quoteIdentifier('value') . ' = ? WHERE ' . quoteIdentifier('name') . ' = ?');
+    foreach ($managedNames as $name) {
+        $select->execute([$name]);
+        $targetRow = $select->fetch(PDO::FETCH_ASSOC);
+        if ($targetRow === false) continue;
+        $update->execute([(string)$targetRow['value'], $name]);
+        if ($update->rowCount() === 0) {
+            $shared = array_values(array_filter(array_keys($targetColumns), static fn(string $column): bool => isset($sourceColumns[$column])));
+            $values = array_map(static fn(string $column): mixed => $column === 'name' ? $name : ($targetRow[$column] ?? null), $shared);
+            $insert = $source->prepare('INSERT INTO ' . quoteIdentifier('ay_config') . ' (' . implode(', ', array_map('quoteIdentifier', $shared)) . ') VALUES (' . implode(', ', array_fill(0, count($shared), '?')) . ')');
+            $insert->execute($values);
+        }
+    }
+}
+
+function preserveSiteIdentity(PDO $target, PDO $source): void
+{
+    $targetColumns = columns($target, 'ay_site');
+    $sourceColumns = columns($source, 'ay_site');
+    if ($targetColumns === [] || $sourceColumns === []) fail('managed table is missing: ay_site');
+    $identityColumns = array_values(array_filter(['id', 'acode', 'domain'], static fn(string $column): bool => isset($targetColumns[$column], $sourceColumns[$column])));
+    if (count($identityColumns) < 2) fail('ay_site identity columns are missing');
+    $targetRows = rows($target, 'ay_site');
+    $sourceRows = rows($source, 'ay_site');
+    foreach ($targetRows as $index => $targetRow) {
+        $sourceRow = null;
+        foreach ($sourceRows as $candidate) {
+            if (isset($targetRow['id'], $candidate['id']) && (string)$targetRow['id'] === (string)$candidate['id']) {
+                $sourceRow = $candidate;
+                break;
+            }
+        }
+        $sourceRow ??= $sourceRows[$index] ?? null;
+        if ($sourceRow === null) continue;
+        $sets = [];
+        $values = [];
+        foreach (['acode', 'domain'] as $column) {
+            if (isset($targetColumns[$column], $sourceColumns[$column], $targetRow[$column], $sourceRow['id'])) {
+                $sets[] = quoteIdentifier($column) . ' = ?';
+                $values[] = $targetRow[$column];
+            }
+        }
+        if ($sets === []) continue;
+        $values[] = $sourceRow['id'];
+        $statement = $source->prepare('UPDATE ' . quoteIdentifier('ay_site') . ' SET ' . implode(', ', $sets) . ' WHERE ' . quoteIdentifier('id') . ' = ?');
+        $statement->execute($values);
+    }
+}
+
+if ($argc !== 3) fail('usage: cloudcrane-rebind-pboot-state MIGRATED_DB TARGET_DB');
+$sourcePath = realpath($argv[1]);
+$targetPath = realpath($argv[2]);
+if ($sourcePath === false || $targetPath === false || !is_file($sourcePath) || !is_file($targetPath) || $sourcePath === $targetPath) {
+    fail('invalid rebind database paths');
+}
+$outputPath = $sourcePath . '.rebound';
+if (file_exists($outputPath)) fail('rebind output already exists');
+if (!copy($sourcePath, $outputPath)) fail('cannot stage rebound database');
+$target = new PDO('sqlite:' . $targetPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$source = new PDO('sqlite:' . $outputPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+try {
+    if ((string)$target->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('target database integrity check failed');
+    if ((string)$source->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('source database integrity check failed');
+    $source->beginTransaction();
+    replaceRows($target, $source, 'ay_user');
+    preserveConfig($target, $source);
+    preserveSiteIdentity($target, $source);
+    $source->commit();
+    if ((string)$source->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('rebound database integrity check failed');
+    $source = null;
+    $target = null;
+    if (!rename($outputPath, $sourcePath)) fail('cannot promote rebound database');
+    echo "REBOUND\n";
+} catch (Throwable $error) {
+    if ($source->inTransaction()) $source->rollBack();
+    $source = null;
+    $target = null;
+    @unlink($outputPath);
+    fail($error->getMessage());
+}
