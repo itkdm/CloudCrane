@@ -37,7 +37,7 @@ Template 不携带旧的 PbootCMS Core，不覆盖入口文件、授权逻辑或
 忽略规则保护。发布和恢复必须执行 SQLite `PRAGMA integrity_check`；恢复时数据库要完成
 Managed State Rebind，但不得因为数据库被 Git 忽略而阻断文件状态提交。
 
-内容（公司信息、电话、邮箱、文章、产品、图片、栏目、SEO、模型、扩展字段、轮播和友情链接）不自动脱敏、不自动删除。实例绑定信息、授权、管理员登录态和 CloudCrane 内部状态不随 Snapshot 复制。
+内容（公司信息、电话、邮箱、文章、产品、图片、栏目、SEO、模型、扩展字段、轮播和友情链接）不自动脱敏、不自动删除。实例绑定信息、授权、管理员登录态和 CloudCrane 内部状态不随 Snapshot 复制。Pboot `ay_site.acode` 是业务关联键，属于站点业务状态；V1 只重绑定 `domain`，不单独改写 `acode`。
 
 状态策略：
 

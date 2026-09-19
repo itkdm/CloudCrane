@@ -210,6 +210,9 @@ try {
     rename($migratedDb, $stagedDb);
     exec('cloudcrane-rebind-pboot-state ' . escapeshellarg($stagedDb) . ' ' . escapeshellarg(WORKSPACE . '/' . $database), $rebindOutput, $rebindExitCode);
     if ($rebindExitCode !== 0) fail('managed Pboot state rebind failed');
+    if (getenv('CLOUDCRANE_SNAPSHOT_TEST_FAIL_AFTER_REBIND') === '1') {
+        fail('injected snapshot failure after rebind');
+    }
     $db = new PDO('sqlite:' . $stagedDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('migrated database integrity check failed');
     $db = null;

@@ -30,18 +30,18 @@ function rows(PDO $db, string $table): array
     return $statement === false ? [] : $statement->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function replaceRows(PDO $target, PDO $source, string $table): void
+function replaceRowsFrom(PDO $destination, PDO $authoritativeSource, string $table): void
 {
-    $targetColumns = columns($target, $table);
-    $sourceColumns = columns($source, $table);
-    if ($targetColumns === [] || $sourceColumns === []) fail("managed table is missing: {$table}");
-    $shared = array_values(array_filter(array_keys($targetColumns), static fn(string $column): bool => isset($sourceColumns[$column])));
+    $destinationColumns = columns($destination, $table);
+    $sourceColumns = columns($authoritativeSource, $table);
+    if ($destinationColumns === [] || $sourceColumns === []) fail("managed table is missing: {$table}");
+    $shared = array_values(array_filter(array_keys($destinationColumns), static fn(string $column): bool => isset($sourceColumns[$column])));
     if ($shared === []) fail("managed table has no compatible columns: {$table}");
     $quotedColumns = implode(', ', array_map('quoteIdentifier', $shared));
     $placeholders = implode(', ', array_fill(0, count($shared), '?'));
-    $target->exec('DELETE FROM ' . quoteIdentifier($table));
-    $insert = $target->prepare('INSERT INTO ' . quoteIdentifier($table) . " ({$quotedColumns}) VALUES ({$placeholders})");
-    foreach (rows($source, $table) as $row) {
+    $destination->exec('DELETE FROM ' . quoteIdentifier($table));
+    $insert = $destination->prepare('INSERT INTO ' . quoteIdentifier($table) . " ({$quotedColumns}) VALUES ({$placeholders})");
+    foreach (rows($authoritativeSource, $table) as $row) {
         $insert->execute(array_map(static fn(string $column): mixed => $row[$column] ?? null, $shared));
     }
 }
@@ -75,7 +75,7 @@ function preserveSiteIdentity(PDO $target, PDO $source): void
     $targetColumns = columns($target, 'ay_site');
     $sourceColumns = columns($source, 'ay_site');
     if ($targetColumns === [] || $sourceColumns === []) fail('managed table is missing: ay_site');
-    $identityColumns = array_values(array_filter(['id', 'acode', 'domain'], static fn(string $column): bool => isset($targetColumns[$column], $sourceColumns[$column])));
+    $identityColumns = array_values(array_filter(['id', 'domain'], static fn(string $column): bool => isset($targetColumns[$column], $sourceColumns[$column])));
     if (count($identityColumns) < 2) fail('ay_site identity columns are missing');
     $targetRows = rows($target, 'ay_site');
     $sourceRows = rows($source, 'ay_site');
@@ -91,7 +91,7 @@ function preserveSiteIdentity(PDO $target, PDO $source): void
         if ($sourceRow === null) continue;
         $sets = [];
         $values = [];
-        foreach (['acode', 'domain'] as $column) {
+        foreach (['domain'] as $column) {
             if (isset($targetColumns[$column], $sourceColumns[$column], $targetRow[$column], $sourceRow['id'])) {
                 $sets[] = quoteIdentifier($column) . ' = ?';
                 $values[] = $targetRow[$column];
@@ -119,7 +119,10 @@ try {
     if ((string)$target->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('target database integrity check failed');
     if ((string)$source->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('source database integrity check failed');
     $source->beginTransaction();
-    replaceRows($target, $source, 'ay_user');
+    // The target DB is authoritative for managed identity. Only mutate the
+    // staged snapshot DB; the live Website DB must remain read-only until the
+    // snapshot promote commit point.
+    replaceRowsFrom($source, $target, 'ay_user');
     preserveConfig($target, $source);
     preserveSiteIdentity($target, $source);
     $source->commit();
