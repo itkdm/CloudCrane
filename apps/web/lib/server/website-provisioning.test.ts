@@ -268,8 +268,9 @@ describe('website provisioning foundation', () => {
     expect(updateWebsiteStatus).not.toHaveBeenCalled();
   });
 
-  it('repairs website status when the attachment is already ready', async () => {
+  it('reconciles a ready attachment without directly downgrading the website', async () => {
     const updateWebsiteStatus = vi.fn(async () => undefined);
+    const reconcile = vi.fn(async () => undefined);
 
     await expect(
       retryTemplateAttachment('website-1', {
@@ -286,12 +287,14 @@ describe('website provisioning foundation', () => {
           }),
           updateTemplateAttachment: vi.fn(),
           updateWebsiteStatus,
+          reconcileReadyTemplateAttachment: reconcile,
         },
         attachTemplate: vi.fn(),
       }),
     ).resolves.toEqual({ referenceId: 'ref-template' });
 
-    expect(updateWebsiteStatus).toHaveBeenCalledWith('website-1', WEBSITE_AUTHORIZATION_REQUIRED);
+    expect(reconcile).toHaveBeenCalledWith('website-1');
+    expect(updateWebsiteStatus).not.toHaveBeenCalled();
   });
 
   it('does not update website state when atomic finalization loses its CAS', async () => {

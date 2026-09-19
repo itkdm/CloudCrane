@@ -36,6 +36,7 @@ type WebsiteStore = {
     };
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
+  reconcileReadyTemplateAttachment?(websiteId: string): Promise<void>;
   finalizeTemplateAttachment?(input: {
     websiteId: string;
     status: 'ready' | 'failed';
@@ -298,7 +299,8 @@ export async function createWebsite(
     if (!completed)
       throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
   }
-  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+  if (!dependencies.template)
+    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
   return {
     website: { ...created, status: WEBSITE_AUTHORIZATION_REQUIRED },
     provisioned: true,
@@ -313,6 +315,7 @@ export async function retryTemplateAttachment(
       | 'findTemplateAttachment'
       | 'updateTemplateAttachment'
       | 'updateWebsiteStatus'
+      | 'reconcileReadyTemplateAttachment'
       | 'finalizeTemplateAttachment'
     >;
     workspaceId: string;
@@ -326,7 +329,9 @@ export async function retryTemplateAttachment(
   const attachment = await dependencies.store.findTemplateAttachment?.(websiteId);
   if (!attachment) throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板关联不存在');
   if (attachment.status === 'ready' && attachment.referenceId) {
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+    if (dependencies.store.reconcileReadyTemplateAttachment)
+      await dependencies.store.reconcileReadyTemplateAttachment(websiteId);
+    else await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
     return { referenceId: attachment.referenceId };
   }
   const staleBefore = new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS);
@@ -489,6 +494,23 @@ export function createProductionWebsiteStore(ownerId?: string) {
           throw new Error('website finalization state changed before template attachment commit');
         return true;
       });
+    },
+    async reconcileReadyTemplateAttachment(websiteId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      await db
+        .update(website)
+        .set({ status: WEBSITE_AUTHORIZATION_REQUIRED, updatedAt: new Date() })
+        .where(
+          and(
+            eq(website.id as never, websiteId),
+            inArray(website.status as never, [
+              WEBSITE_INITIALIZING,
+              WEBSITE_TEMPLATE_ATTACH_FAILED,
+              WEBSITE_AUTHORIZATION_REQUIRED,
+            ]),
+          ),
+        );
     },
     async updateTemplateAttachment(input) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
