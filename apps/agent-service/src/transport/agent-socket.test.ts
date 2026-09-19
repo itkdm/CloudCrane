@@ -182,6 +182,10 @@ describe('AgentSocketTransport', () => {
       new Promise<number>((resolve, reject) => {
         client.once('unexpected-response', (_request, response) => {
           response.resume();
+          if (response.statusCode === undefined) {
+            reject(new Error('WebSocket rejection did not include an HTTP status code'));
+            return;
+          }
           resolve(response.statusCode);
         });
         client.once('error', reject);
