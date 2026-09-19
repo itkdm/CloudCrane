@@ -2,7 +2,12 @@
 
 CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent 和 PbootCMS 是产品定位或技术概念，不因品牌统一而机械替换。
 
-在实现、修改、重构、调试、审查、测试，或涉及数据库 schema、协议、Agent、Workspace、Runner、Gateway、Web UI 的工作前，若本地存在 `.agents/skills/cloudcrane-engineering/SKILL.md`，应完整阅读该本地技能文件；`.agents/` 是本地协作目录，已被 Git 忽略，不要求也不应提交到仓库。远程仓库或新环境不存在该目录时，以本文件和仓库内 `docs/` 文档作为协作基线，不因缺少本地技能目录阻塞工作。架构变更还必须阅读对应的 `docs/website-coding-agent-tech-01` 至 `tech-07` 文档。
+在实现、修改、重构、调试、审查、测试，或涉及数据库 schema、协议、Agent、Workspace、Runner、Gateway、Web UI 的工作前，按以下规则读取协作规范：
+
+- 若当前本地环境存在 `.agents/skills/cloudcrane-engineering/SKILL.md`，必须完整阅读该文件及其路由到的相关 references。
+- `.agents/` 是本地协作目录，已被 Git 忽略；它不属于仓库交付物，不要求也不应提交到仓库。当前 `origin/main` 的 Git tree 不包含 `.agents/`。
+- 在远程仓库或新环境缺少 `.agents/` 时，以本文件和仓库内 `docs/` 文档作为协作基线；缺少本地技能目录本身不应阻塞工作，也不应为了满足路径创建或提交技能副本。
+- 架构变更还必须阅读对应的 `docs/website-coding-agent-tech-01` 至 `tech-07` 文档。
 
 遵守 Skill 中的边界、依赖方向、数据流、日志、测试和 E2E 规则。既有架构文档视为已确认基线；发现冲突时记录并请求确认，不隐藏或擅自重写。每次提交前完成适用的格式检查、lint、类型检查、测试和构建；Web UI 或用户流程验证必须使用 DEVTOOLS MCP。
 
