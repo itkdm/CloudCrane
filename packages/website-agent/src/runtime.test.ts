@@ -543,7 +543,9 @@ describe('WebsiteAgentRuntime', () => {
         read: vi.fn(async ({ path: remotePath }: { path: string }) => ({
           content: remotePath.endsWith('AGENTS.md')
             ? ''
-            : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
+            : remotePath.includes('template-publish')
+              ? '---\nname: template-publish\ndescription: Publish the current Website as an immutable template.\n---\n# Template Publish\n'
+              : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
           sha256: '1'.repeat(64),
           size: skillMode === 'oversized' ? 262_145 : 128,
           truncated: false,
@@ -557,6 +559,13 @@ describe('WebsiteAgentRuntime', () => {
                 ? [
                     {
                       path: '/workspace/.agents/skills/frontend-design',
+                      type: 'directory' as const,
+                      size: 0,
+                      mode: 0o755,
+                      modifiedAt: new Date().toISOString(),
+                    },
+                    {
+                      path: '/workspace/.agents/skills/template-publish',
                       type: 'directory' as const,
                       size: 0,
                       mode: 0o755,
@@ -583,7 +592,17 @@ describe('WebsiteAgentRuntime', () => {
                           modifiedAt: new Date().toISOString(),
                         },
                       ]
-                  : [],
+                  : remotePath === '/workspace/.agents/skills/template-publish'
+                    ? [
+                        {
+                          path: '/workspace/.agents/skills/template-publish/SKILL.md',
+                          type: 'file' as const,
+                          size: 128,
+                          mode: 0o644,
+                          modifiedAt: new Date().toISOString(),
+                        },
+                      ]
+                    : [],
           };
         }),
         stat: vi.fn(async ({ path: remotePath }: { path: string }) => {
@@ -597,7 +616,8 @@ describe('WebsiteAgentRuntime', () => {
             };
           if (
             remotePath === '/workspace/.agents/skills' ||
-            remotePath === '/workspace/.agents/skills/frontend-design'
+            remotePath === '/workspace/.agents/skills/frontend-design' ||
+            remotePath === '/workspace/.agents/skills/template-publish'
           )
             return {
               path: remotePath,
@@ -631,6 +651,7 @@ describe('WebsiteAgentRuntime', () => {
     expect(firstPrompt).toContain(referenceRoot);
     expect(firstPrompt).toContain('The writable target is `/workspace`.');
 
+    expect(firstPrompt).toContain('Publish the current Website as an immutable template.');
     description = 'Use dark blue buttons and verify Preview.';
     await runtime.prompt(session.id, 'design the page again');
     const secondPrompt = await runtime.getSystemPrompt(session.id);

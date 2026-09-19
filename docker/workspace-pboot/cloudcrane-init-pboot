@@ -7,7 +7,7 @@ marker="$workspace/.cloudcrane/bootstrap.json"
 
 install_builtin_skills() {
   mkdir -p "$workspace/.agents/skills"
-  for skill in pboot-template-migration pbootcms-upgrade; do
+  for skill in pboot-template-migration pbootcms-upgrade template-publish; do
     if [ -d "/opt/cloudcrane/skills/$skill" ] && [ ! -e "$workspace/.agents/skills/$skill" ]; then
       cp -a "/opt/cloudcrane/skills/$skill" "$workspace/.agents/skills/"
     fi
