@@ -65,4 +65,53 @@ describe('reference upload route', () => {
     await app.close();
     await rm('.test-reference-upload-data', { recursive: true, force: true });
   });
+
+  it('allows uploads larger than the default JSON body limit to reach multipart validation', async () => {
+    const runtime = {
+      workspaceId: '00000000-0000-4000-0000-000000000004',
+      isReferenceUploadPending: () => true,
+      resolveReferenceUpload: () => undefined,
+      shutdown: async () => undefined,
+    } as unknown as WebsiteAgentRuntime;
+    const app = buildAgentServiceApp({
+      config: {
+        port: 0,
+        webOrigin: 'http://localhost:3000',
+        workspaceGatewayEndpoint: 'http://localhost:4102',
+        workspaceGatewayClientToken: 'test-token',
+        agentDataRoot: '.test-data',
+        previewGatewayOriginTemplate: 'https://site-{websiteId}.preview.example/',
+        previewSigningSecret: 'test-preview-signing-secret',
+        previewTokenTtlSeconds: 20,
+        modelProvider: undefined,
+        modelId: undefined,
+        modelAuthPath: undefined,
+        referenceRoot: '.test-reference-upload-data',
+        referenceUploadMaxBytes: 100 * 1024 * 1024,
+        modelConfigured: false,
+      },
+      registry: new WebsiteRuntimeRegistry({
+        bindingStore: {
+          findWebsiteWorkspace: async () => ({
+            websiteId,
+            workspaceId: runtime.workspaceId,
+            websiteStatus: 'ready',
+            workspaceStatus: 'running',
+            previewPort: 4103,
+          }),
+        },
+        createRuntime: async () => runtime,
+      }),
+    });
+    const multipart = multipartZip('x'.repeat(300 * 1024));
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/websites/${websiteId}/sessions/${sessionId}/interactions/${interactionId}/reference-upload`,
+      headers: { 'content-type': multipart.contentType },
+      payload: multipart.body,
+    });
+    expect(response.statusCode).toBe(422);
+    await app.close();
+    await rm('.test-reference-upload-data', { recursive: true, force: true });
+  });
 });

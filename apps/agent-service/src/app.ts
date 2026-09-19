@@ -146,6 +146,7 @@ export function buildAgentServiceApp(
   });
   app.post<{ Params: { websiteId: string; sessionId: string; interactionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId/interactions/:interactionId/reference-upload',
+    { bodyLimit: options.config.referenceUploadMaxBytes + 1024 * 1024 },
     async (request, reply) => {
       const runtime = await getRuntime(options.registry, request.params.websiteId);
       if (!isUuid(request.params.sessionId) || !isUuid(request.params.interactionId))
