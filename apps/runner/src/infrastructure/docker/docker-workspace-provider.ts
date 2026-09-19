@@ -14,6 +14,9 @@ import type {
 } from '../../ports/workspace-provider.js';
 
 export class DockerWorkspaceProvider implements WorkspaceProvider {
+  private readonly reconciliationLocks = new Map<string, Promise<Docker.Container>>();
+  private readonly reconcilingWorkspaces = new Set<string>();
+
   constructor(
     private readonly config: RunnerConfig,
     private readonly docker = new Docker(),
@@ -76,8 +79,9 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async start(workspaceId: string): Promise<WorkspaceRuntime> {
-    const container = await this.container(workspaceId);
-    await container.start();
+    const container = await this.ensureRuntimeCompatible(workspaceId);
+    const info = await container.inspect();
+    if (!info.State?.Running) await container.start();
     await this.waitForPreview(container);
     return this.runtime(workspaceId, container.id, 'running');
   }
@@ -88,14 +92,16 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async getStatus(workspaceId: string): Promise<WorkspaceRuntime> {
-    const container = await this.container(workspaceId);
+    const container = await this.ensureRuntimeCompatible(workspaceId);
     const info = await container.inspect();
     const status = info.State?.Running ? 'running' : 'stopped';
     return this.runtime(workspaceId, container.id, status);
   }
 
   async getEndpoint(workspaceId: string): Promise<string> {
-    const container = await this.container(workspaceId);
+    const container = this.reconcilingWorkspaces.has(workspaceId)
+      ? await this.container(workspaceId)
+      : await this.ensureRuntimeCompatible(workspaceId);
     const info = await container.inspect();
     const binding = info.NetworkSettings?.Ports?.['7070/tcp']?.[0];
     if (!binding?.HostPort) throw new Error('Workspace daemon endpoint is unavailable');
@@ -163,6 +169,69 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   private async container(workspaceId: string): Promise<Docker.Container> {
     this.assertWorkspaceId(workspaceId);
     return this.docker.getContainer(`cloudcrane-workspace-${workspaceId}`);
+  }
+
+  private async ensureRuntimeCompatible(workspaceId: string): Promise<Docker.Container> {
+    const existing = this.reconciliationLocks.get(workspaceId);
+    if (existing) return existing;
+    const reconciliation = this.reconcileRuntime(workspaceId).finally(() => {
+      this.reconciliationLocks.delete(workspaceId);
+    });
+    this.reconciliationLocks.set(workspaceId, reconciliation);
+    return reconciliation;
+  }
+
+  private async reconcileRuntime(workspaceId: string): Promise<Docker.Container> {
+    const container = await this.container(workspaceId);
+    const info = await container.inspect();
+    const referencePath = await this.referencePath(workspaceId);
+    if (this.matchesRuntimeSpec(workspaceId, info, referencePath)) return container;
+
+    const networkMode = info.HostConfig?.NetworkMode;
+    const network = networkMode ? this.docker.getNetwork(networkMode) : undefined;
+    if (network) {
+      const networkInfo = await network.inspect();
+      if (networkInfo.Name !== `cloudcrane-workspace-${workspaceId}`) {
+        throw new Error('Cannot reconcile runtime with an unmanaged Docker network');
+      }
+    }
+    if (info.State?.Running) await container.stop();
+    await container.remove({ force: true });
+    await network?.remove();
+    this.reconcilingWorkspaces.add(workspaceId);
+    try {
+      const runtime = await this.create(workspaceId);
+      return this.container(runtime.workspaceId);
+    } finally {
+      this.reconcilingWorkspaces.delete(workspaceId);
+    }
+  }
+
+  private matchesRuntimeSpec(
+    workspaceId: string,
+    info: Docker.ContainerInspectInfo,
+    referencePath: string | undefined,
+  ): boolean {
+    const mounts = info.Mounts ?? [];
+    const workspaceMount = mounts.find((mount) => mount.Destination === '/workspace');
+    const referenceMount = mounts.find(
+      (mount) => mount.Destination === '/workspace/.cloudcrane/references',
+    );
+    const persistentPath = this.persistentPath(workspaceId);
+    const workspaceIsCompatible =
+      workspaceMount?.Source === persistentPath && workspaceMount.RW === true;
+    const referenceIsCompatible = referencePath
+      ? referenceMount?.Source === referencePath && referenceMount.RW === false
+      : !referenceMount;
+    return (
+      info.Config?.Image === this.config.workspaceImage &&
+      workspaceIsCompatible &&
+      referenceIsCompatible &&
+      info.HostConfig?.Privileged === false &&
+      info.HostConfig?.PidMode === '' &&
+      info.HostConfig?.IpcMode === 'private' &&
+      info.HostConfig?.SecurityOpt?.includes('no-new-privileges:true') === true
+    );
   }
   private async runtime(
     workspaceId: string,

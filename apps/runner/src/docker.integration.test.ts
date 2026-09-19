@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import Docker, { type ContainerInspectInfo } from 'dockerode';
 import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from './config.js';
@@ -260,4 +262,71 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       if (created) await provider.destroyRuntime(workspaceId).catch(() => undefined);
     }
   }, 120_000);
+
+  it('reconciles a legacy runtime without a reference bind and preserves Workspace files', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000043';
+    const config = loadRunnerConfig();
+    const docker = new Docker();
+    const provider = new DockerWorkspaceProvider(config, docker);
+    const persistentPath = path.join(config.workspaceRoot, workspaceId, 'workspace');
+    let runtimeCreated = false;
+    try {
+      await provider.create(workspaceId);
+      runtimeCreated = true;
+      await provider.destroyRuntime(workspaceId);
+      runtimeCreated = false;
+      await mkdir(persistentPath, { recursive: true });
+      await writeFile(path.join(persistentPath, 'reconcile-preserves.txt'), 'preserved');
+      const network = await docker.createNetwork({
+        Name: `cloudcrane-workspace-${workspaceId}`,
+        Driver: 'bridge',
+        Internal: false,
+      });
+      const legacy = await docker.createContainer({
+        Image: config.workspaceImage,
+        name: `cloudcrane-workspace-${workspaceId}`,
+        User: '1000:1000',
+        WorkingDir: '/workspace',
+        Env: [
+          `WORKSPACE_ID=${workspaceId}`,
+          'WORKSPACE_DAEMON_PORT=7070',
+          'WORKSPACE_DAEMON_HOST=0.0.0.0',
+        ],
+        ExposedPorts: { '7070/tcp': {}, '8080/tcp': {} },
+        HostConfig: {
+          Binds: [`${persistentPath}:/workspace`],
+          NetworkMode: network.id,
+          PortBindings: {
+            '7070/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
+            '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }],
+          },
+          Privileged: false,
+          PidMode: '',
+          IpcMode: 'private',
+          SecurityOpt: ['no-new-privileges:true'],
+          NanoCpus: config.cpuLimit,
+          Memory: config.memoryLimitBytes,
+          PidsLimit: config.pidsLimit,
+          AutoRemove: false,
+        },
+      });
+      await legacy.start();
+      runtimeCreated = true;
+      const legacyId = legacy.id;
+      const reconciled = await provider.getStatus(workspaceId);
+      expect(reconciled.containerRef).toBeTruthy();
+      expect(reconciled.containerRef).not.toBe(legacyId);
+      const inspected = await docker.getContainer(reconciled.containerRef!).inspect();
+      expect(inspected.HostConfig?.Binds).toContain(
+        `${path.join(config.referenceRoot!, workspaceId)}:/workspace/.cloudcrane/references:ro`,
+      );
+      expect(
+        await new WorkspaceDaemonClient(await provider.getEndpoint(workspaceId), 10_000).read({
+          path: '/workspace/reconcile-preserves.txt',
+        }),
+      ).toMatchObject({ content: 'preserved' });
+    } finally {
+      if (runtimeCreated) await provider.destroyRuntime(workspaceId).catch(() => undefined);
+    }
+  }, 180_000);
 });
