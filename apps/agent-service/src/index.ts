@@ -64,6 +64,7 @@ const app = buildAgentServiceApp({
   auth,
   db: platform.db,
   previewClientRegistry: previewClients,
+  logger,
 });
 
 const close = async (signal: string) => {

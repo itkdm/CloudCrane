@@ -16,6 +16,7 @@ import {
   type CloudCraneAuth,
 } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
+import { createLogger, type ServiceLogger } from '@cloudcrane/shared';
 import { signPreviewToken } from '@cloudcrane/preview-access';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
@@ -37,12 +38,14 @@ export type AgentServiceAppOptions = {
   auth?: CloudCraneAuth;
   db?: PlatformDb['db'];
   previewClientRegistry?: PreviewClientRegistry;
+  logger?: ServiceLogger;
 };
 
 export function buildAgentServiceApp(
   options: AgentServiceAppOptions,
 ): FastifyInstance & { agentSocket: AgentSocketTransport } {
   const app = Fastify({ bodyLimit: 256 * 1024 });
+  const logger = options.logger ?? createLogger('agent-service.http');
   void app.register(multipart, {
     limits: { files: 1, fileSize: options.config.referenceUploadMaxBytes },
   });
@@ -299,12 +302,31 @@ export function buildAgentServiceApp(
       });
     },
   );
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ReferenceMaterializationError)
       return reply
         .code(error.statusCode)
         .send({ error: { code: 'INVALID_REFERENCE', message: error.message } });
     const mapped = asAgentServiceError(error);
+    const params = request.params as {
+      websiteId?: string;
+      sessionId?: string;
+      interactionId?: string;
+    };
+    logger.error(
+      {
+        err: error,
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+        websiteId: params.websiteId,
+        sessionId: params.sessionId,
+        interactionId: params.interactionId,
+        errorCode: mapped.code,
+        statusCode: mapped.statusCode,
+      },
+      'agent service request failed',
+    );
     return reply
       .code(mapped.statusCode)
       .send({ error: { code: mapped.code, message: mapped.message } });
