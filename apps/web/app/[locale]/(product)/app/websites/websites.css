@@ -185,40 +185,40 @@
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(10, 14, 20, 0.75);
-  backdrop-filter: blur(4px);
+  padding: 16px;
+  background: rgba(10, 14, 20, 0.68);
+  backdrop-filter: blur(3px);
 }
 .website-authorization-panel {
   position: relative;
   overflow: auto;
-  max-height: min(760px, calc(100dvh - 48px));
-  width: min(640px, calc(100vw - 32px));
-  padding: 32px;
+  max-height: min(680px, calc(100dvh - 32px));
+  width: min(560px, calc(100vw - 32px));
+  padding: 24px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-lg);
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-lg);
 }
 .website-authorization-panel h2 {
-  margin: 0 0 12px;
-  font-size: 24px;
+  margin: 0 0 10px;
+  font-size: 21px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--cc-text);
 }
 .website-authorization-panel > p {
-  margin: 0 0 24px;
+  margin: 0 0 18px;
   color: var(--cc-text-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.55;
 }
 .website-authorization-panel ol {
-  margin: 24px 0;
-  padding-left: 24px;
+  margin: 18px 0;
+  padding-left: 20px;
   color: var(--cc-text-secondary);
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.65;
 }
 .website-authorization-panel ol a {
   color: var(--cc-brand);
@@ -749,43 +749,43 @@
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgba(10, 14, 20, 0.75);
-  backdrop-filter: blur(4px);
+  padding: 16px;
+  background: rgba(10, 14, 20, 0.68);
+  backdrop-filter: blur(3px);
 }
 .website-dialog-panel {
   position: relative;
-  width: min(520px, calc(100vw - 32px));
-  padding: 30px 32px 28px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 22px 24px 20px;
   border: 1px solid var(--cc-border);
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-lg);
 }
 .website-dialog-panel h2 {
-  margin: 0 0 28px;
+  margin: 0 0 18px;
   color: var(--cc-text);
-  font-size: 26px;
+  font-size: 21px;
   font-weight: 650;
   letter-spacing: -0.025em;
 }
 .session-delete-dialog-panel {
-  width: min(440px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
 }
 .session-rename-dialog-panel {
-  width: min(520px, calc(100vw - 32px));
+  width: min(440px, calc(100vw - 32px));
 }
 .session-rename-dialog-panel input {
   display: block;
   width: 100%;
-  min-height: 48px;
-  margin-top: 20px;
+  min-height: 42px;
+  margin-top: 16px;
   border: 1px solid var(--cc-border);
   border-radius: 10px;
   padding: 0 15px;
   background: var(--cc-surface-0);
   color: var(--cc-text);
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
   transition:
     border-color 180ms ease,
@@ -798,11 +798,11 @@
 .session-delete-dialog-panel p {
   margin: 0;
   color: var(--cc-text-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.55;
 }
 .session-delete-dialog-panel .website-dialog-actions {
-  margin-top: 24px;
+  margin-top: 20px;
 }
 .danger-button {
   background: var(--cc-danger);
@@ -820,13 +820,13 @@
 .website-dialog-panel input {
   display: block;
   width: 100%;
-  min-height: 48px;
+  min-height: 42px;
   border: 1px solid var(--cc-border);
   border-radius: 10px;
   padding: 0 15px;
   background: var(--cc-surface-0);
   color: var(--cc-text);
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
   transition:
     border-color 180ms ease,
@@ -839,27 +839,30 @@
 .website-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 28px;
+  gap: 8px;
+  margin-top: 20px;
 }
 .website-dialog-actions .primary-button,
 .website-dialog-actions .secondary-button {
-  min-width: 96px;
+  min-width: 80px;
+  min-height: 38px;
+  padding: 0 16px;
+  font-size: 14px;
 }
 .website-dialog-close {
   position: absolute;
-  top: 18px;
-  right: 18px;
+  top: 14px;
+  right: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--cc-text-tertiary);
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
@@ -870,26 +873,26 @@
 .website-settings-panel {
   position: relative;
   overflow: auto;
-  max-height: min(760px, calc(100dvh - 48px));
-  width: min(640px, calc(100vw - 32px));
-  padding: 32px;
+  max-height: min(680px, calc(100dvh - 32px));
+  width: min(560px, calc(100vw - 32px));
+  padding: 24px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-lg);
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-lg);
 }
 .website-settings-panel h2 {
-  margin: 0 0 24px;
+  margin: 0 0 18px;
   color: var(--cc-text);
-  font-size: 24px;
+  font-size: 21px;
 }
 .website-settings-section {
-  margin-top: 24px;
-  padding-top: 20px;
+  margin-top: 18px;
+  padding-top: 16px;
   border-top: 1px solid var(--cc-border);
 }
 .website-settings-section h3 {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: var(--cc-text);
   font-size: 15px;
 }
