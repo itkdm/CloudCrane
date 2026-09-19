@@ -33,6 +33,10 @@ Template 不携带旧的 PbootCMS Core，不覆盖入口文件、授权逻辑或
 属于运行时环境配置，由当前 Managed Base 提供，不随 Snapshot 复制。配置边界不再按整个
 `config/` 目录一刀切。
 
+`data/pbootcms.db` 虽然属于 `SITE_STATE`，但仍是 Website 运行时数据库，受 `data/*.db` 的 Git
+忽略规则保护。发布和恢复必须执行 SQLite `PRAGMA integrity_check`；恢复时数据库要完成
+Managed State Rebind，但不得因为数据库被 Git 忽略而阻断文件状态提交。
+
 内容（公司信息、电话、邮箱、文章、产品、图片、栏目、SEO、模型、扩展字段、轮播和友情链接）不自动脱敏、不自动删除。实例绑定信息、授权、管理员登录态和 CloudCrane 内部状态不随 Snapshot 复制。
 
 状态策略：
