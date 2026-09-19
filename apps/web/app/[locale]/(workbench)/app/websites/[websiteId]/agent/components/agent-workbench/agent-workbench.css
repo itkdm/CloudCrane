@@ -2000,9 +2000,15 @@
 }
 
 .reference-upload-file span {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
+}
+
+.reference-upload-file.has-file span {
+  text-align: left;
 }
 
 .reference-upload-file input {

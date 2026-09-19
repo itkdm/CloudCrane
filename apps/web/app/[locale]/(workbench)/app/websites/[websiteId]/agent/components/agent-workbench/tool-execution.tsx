@@ -206,7 +206,7 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
       {cancelled ? <p>{t('referenceUploadCancelled')}</p> : null}
       {!completed && !cancelled ? (
         <>
-          <label className="reference-upload-file">
+          <label className={`reference-upload-file${file ? ' has-file' : ''}`}>
             <span>{file?.name ?? t('referenceUploadDescription')}</span>
             <input
               type="file"
