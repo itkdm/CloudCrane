@@ -306,7 +306,6 @@
     "referenceUploadTitle": "上传 PbootCMS 参考包",
     "referenceUploadDescription": "选择一个 ZIP 文件，导入为工作区只读参考资料。",
     "referenceUploadChoose": "上传 ZIP",
-    "referenceUploadSelectFile": "选择 ZIP 文件",
     "referenceUploadUploading": "正在上传…",
     "referenceUploadFailed": "上传失败，请重试",
     "referenceUploadTooLarge": "文件不能超过 {size} MB",

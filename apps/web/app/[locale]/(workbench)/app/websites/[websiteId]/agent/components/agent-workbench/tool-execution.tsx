@@ -206,9 +206,8 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
       {cancelled ? <p>{t('referenceUploadCancelled')}</p> : null}
       {!completed && !cancelled ? (
         <>
-          <p>{t('referenceUploadDescription')}</p>
           <label className="reference-upload-file">
-            <span>{file?.name ?? t('referenceUploadSelectFile')}</span>
+            <span>{file?.name ?? t('referenceUploadDescription')}</span>
             <input
               type="file"
               accept={interaction.accept.join(',')}

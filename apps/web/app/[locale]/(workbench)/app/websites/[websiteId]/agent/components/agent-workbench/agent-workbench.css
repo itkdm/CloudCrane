@@ -1934,7 +1934,7 @@
 .reference-upload-execution {
   display: grid;
   gap: 6px;
-  margin: 6px 0 4px 22px;
+  margin: 6px 0 4px;
   padding: 11px 13px;
   border: 1px solid var(--cc-conversation-border);
   border-radius: 9px;
