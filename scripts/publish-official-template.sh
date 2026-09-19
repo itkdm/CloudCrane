@@ -19,9 +19,10 @@ import zipfile
 root = pathlib.Path(sys.argv[1])
 archive = pathlib.Path(sys.argv[2])
 with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-    for path in (root / "template", root / "static").rglob("*"):
-        if path.is_file():
-            output.write(path, path.relative_to(root).as_posix())
+    for base in (root / "template", root / "static"):
+        for path in base.rglob("*"):
+            if path.is_file():
+                output.write(path, path.relative_to(root).as_posix())
 PY
 fi
 
