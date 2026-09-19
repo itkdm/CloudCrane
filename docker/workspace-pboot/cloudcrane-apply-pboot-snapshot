@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 const WORKSPACE = '/workspace';
 const TARGET_VERSION = '3.2.26';
+const MANAGED_BASE_MARKER = '/opt/cloudcrane/pbootcms-base/.cloudcrane-base';
 
 function fail(string $message): never
 {
@@ -101,6 +102,15 @@ if (!is_array($manifest) || ($manifest['artifactType'] ?? null) !== 'cloudcrane-
 if (($manifest['snapshotSchemaVersion'] ?? null) !== 1 || ($manifest['dbEngine'] ?? null) !== 'sqlite') fail('unsupported snapshot schema');
 $sourceVersion = $manifest['sourcePbootVersion'] ?? null;
 if (!is_string($sourceVersion) || !preg_match('/^\d+\.\d+\.\d+$/', $sourceVersion)) fail('invalid source Pboot version');
+$dbSchemaVersion = $manifest['dbSchemaVersion'] ?? null;
+if (!is_string($dbSchemaVersion) || !preg_match('/^\d+\.\d+\.\d+$/', $dbSchemaVersion)) fail('invalid database schema version');
+$sourceCoreCommit = $manifest['sourceCoreCommit'] ?? null;
+if (!is_string($sourceCoreCommit) || !preg_match('/^[0-9a-f]{40}$/i', $sourceCoreCommit)) fail('invalid source Core commit');
+if (!is_file(MANAGED_BASE_MARKER)) fail('managed Pboot Core marker is missing');
+$managedBaseMarker = (string)file_get_contents(MANAGED_BASE_MARKER);
+if (!str_contains($managedBaseMarker, 'pbootcms=' . TARGET_VERSION) || !str_contains($managedBaseMarker, 'sourceCommit=' . $sourceCoreCommit)) {
+    fail('snapshot Core commit does not match the managed Pboot Core');
+}
 $entries = $manifest['files']['entries'] ?? null;
 if (!is_array($entries) || count($entries) !== ($manifest['files']['count'] ?? -1)) fail('invalid snapshot file manifest');
 $seen = [];
@@ -131,7 +141,7 @@ try {
     }
     $stagedDb = $stageRoot . '/' . $database;
     $migratedDb = $stagedDb . '.migrated';
-    $command = 'cloudcrane-migrate-pboot-sqlite ' . escapeshellarg($stagedDb) . ' ' . escapeshellarg($migratedDb) . ' ' . escapeshellarg($sourceVersion);
+    $command = 'cloudcrane-migrate-pboot-sqlite ' . escapeshellarg($stagedDb) . ' ' . escapeshellarg($migratedDb) . ' ' . escapeshellarg($dbSchemaVersion);
     exec($command, $output, $exitCode);
     if ($exitCode !== 0 || !is_file($migratedDb)) fail('Pboot database migration failed');
     unlink($stagedDb);
@@ -160,7 +170,10 @@ try {
     $db = new PDO('sqlite:' . WORKSPACE . '/' . $database, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('promoted database integrity check failed');
     $db = null;
-    exec('git -C ' . escapeshellarg(WORKSPACE) . ' add -A', $gitOutput, $gitExitCode);
+    $gitPaths = array_values(array_unique(array_merge($backedUp, $promoted)));
+    if ($gitPaths === []) fail('snapshot did not change site state');
+    $gitAdd = 'git -C ' . escapeshellarg(WORKSPACE) . ' add -- ' . implode(' ', array_map('escapeshellarg', $gitPaths));
+    exec($gitAdd, $gitOutput, $gitExitCode);
     if ($gitExitCode !== 0) fail('cannot stage restored site state');
     exec('git -C ' . escapeshellarg(WORKSPACE) . ' commit -m ' . escapeshellarg('chore: restore Pboot site snapshot'), $gitOutput, $gitExitCode);
     if ($gitExitCode !== 0 && $gitExitCode !== 1) fail('cannot commit restored site state');
