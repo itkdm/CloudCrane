@@ -588,10 +588,11 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       },
       createRuntime: () => runtime,
     });
+    const webOrigin = 'http://localhost:3000';
     const agentApp = buildAgentServiceApp({
       config: {
         port: 0,
-        webOrigin: 'http://localhost:3000',
+        webOrigin,
         workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
         workspaceGatewayClientToken: clientToken,
         agentDataRoot: dataRoot,
@@ -612,8 +613,10 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     const address = agentApp.server.address();
     if (!address || typeof address === 'string')
       throw new Error('Agent Service did not bind a port');
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
-    const clientB = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`);
+    const websocketUrl = `ws://127.0.0.1:${address.port}/v1/agent/connect`;
+    const websocketOptions = { headers: { origin: webOrigin } };
+    const client = new WebSocket(websocketUrl, websocketOptions);
+    const clientB = new WebSocket(websocketUrl, websocketOptions);
     const previewClientA = '00000000-0000-4000-8000-000000000511';
     const previewClientB = '00000000-0000-4000-8000-000000000512';
     const previewCapabilities: PreviewCapability[] = [

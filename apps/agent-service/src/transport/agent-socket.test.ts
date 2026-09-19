@@ -174,6 +174,27 @@ describe('AgentSocketTransport', () => {
     expect(forbidden.statusCode).toBe(403);
   });
 
+  it('rejects WebSocket clients without the configured origin', async () => {
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const url = `ws://127.0.0.1:${address.port}/v1/agent/connect`;
+    const statusCode = (client: WebSocket) =>
+      new Promise<number>((resolve, reject) => {
+        client.once('unexpected-response', (_request, response) => {
+          response.resume();
+          resolve(response.statusCode);
+        });
+        client.once('error', reject);
+      });
+
+    const missingOrigin = new WebSocket(url);
+    const wrongOrigin = new WebSocket(url, {
+      headers: { origin: 'https://untrusted.example' },
+    });
+    await expect(statusCode(missingOrigin)).resolves.toBe(403);
+    await expect(statusCode(wrongOrigin)).resolves.toBe(403);
+  });
+
   it('dispatches session compaction as a control command without starting a run', async () => {
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('test server has no port');
