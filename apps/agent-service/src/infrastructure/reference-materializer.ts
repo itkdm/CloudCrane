@@ -10,6 +10,7 @@ import unzipper from 'unzipper';
 import {
   TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES,
   TEMPLATE_ARTIFACT_FILE_MAX_BYTES,
+  ZIP_DIRECTORY_TAIL_BYTES,
 } from './template-limits.js';
 
 export const REFERENCE_EXPANDED_MAX_BYTES = 500 * 1024 * 1024;
@@ -104,7 +105,9 @@ export async function materializeReference(input: {
     );
   await mkdir(stagingRoot, { recursive: true });
   try {
-    const directory = await unzipper.Open.file(input.archivePath);
+    const directory = await unzipper.Open.file(input.archivePath, {
+      tailSize: ZIP_DIRECTORY_TAIL_BYTES,
+    });
     const files = directory.files.filter((entry) => entry.type !== 'Directory');
     if (files.length === 0) throw new ReferenceMaterializationError('ZIP archive is empty', 422);
     if (files.length > REFERENCE_FILE_COUNT_MAX)

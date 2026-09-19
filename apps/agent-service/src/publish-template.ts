@@ -11,6 +11,7 @@ import {
   TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES,
   TEMPLATE_ARTIFACT_FILE_MAX_BYTES,
   TEMPLATE_ARTIFACT_MAX_BYTES,
+  ZIP_DIRECTORY_TAIL_BYTES,
 } from './infrastructure/template-limits.js';
 
 const MAX_FILES = 20_000;
@@ -70,7 +71,9 @@ const options = parseArgs(process.argv.slice(2));
 const info = await stat(options.archive);
 if (!info.isFile() || info.size <= 0 || info.size > TEMPLATE_ARTIFACT_MAX_BYTES)
   throw new Error('archive must be a non-empty ZIP smaller than 500 MB');
-const directory = await unzipper.Open.file(options.archive);
+const directory = await unzipper.Open.file(options.archive, {
+  tailSize: ZIP_DIRECTORY_TAIL_BYTES,
+});
 const files = directory.files.filter((entry) => entry.type !== 'Directory');
 if (files.length === 0) throw new Error('archive is empty');
 const snapshotManifest = await readSnapshotManifest(files);
