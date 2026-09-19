@@ -12,6 +12,7 @@ dist/
 # Local review captures and other non-source artifacts
 .artifacts/
 .agents/
+.cloudcrane-data/
 
 # IDE temporary files
 .idea/
