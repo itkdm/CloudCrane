@@ -58,6 +58,7 @@ PREVIEW_COOKIE_SECURE=true
 # 生产数据目录与代码目录分离，避免发布代码时覆盖运行时数据。
 WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/var/lib/cloudcrane/pbootcms-base
 TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
+AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
 
 ## 正式邮件
