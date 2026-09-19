@@ -2,7 +2,7 @@
 
 CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent 和 PbootCMS 是产品定位或技术概念，不因品牌统一而机械替换。
 
-在实现、修改、重构、调试、审查、测试，或涉及数据库 schema、协议、Agent、Workspace、Runner、Gateway、Web UI 的工作前，必须完整阅读 `.agents/skills/cloudcrane-engineering/SKILL.md`。架构变更还必须阅读对应的 `docs/website-coding-agent-tech-01` 至 `tech-07` 文档。
+在实现、修改、重构、调试、审查、测试，或涉及数据库 schema、协议、Agent、Workspace、Runner、Gateway、Web UI 的工作前，若本地存在 `.agents/skills/cloudcrane-engineering/SKILL.md`，应完整阅读该本地技能文件；`.agents/` 是本地协作目录，已被 Git 忽略，不要求也不应提交到仓库。远程仓库或新环境不存在该目录时，以本文件和仓库内 `docs/` 文档作为协作基线，不因缺少本地技能目录阻塞工作。架构变更还必须阅读对应的 `docs/website-coding-agent-tech-01` 至 `tech-07` 文档。
 
 遵守 Skill 中的边界、依赖方向、数据流、日志、测试和 E2E 规则。既有架构文档视为已确认基线；发现冲突时记录并请求确认，不隐藏或擅自重写。每次提交前完成适用的格式检查、lint、类型检查、测试和构建；Web UI 或用户流程验证必须使用 DEVTOOLS MCP。
 
@@ -43,6 +43,6 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 
 ## Skill 路由
 
-- 所有 CloudCrane 工程工作先完整阅读 `.agents/skills/cloudcrane-engineering/SKILL.md` 及其相关 references。
+- 所有 CloudCrane 工程工作优先阅读本文件；如果本地存在 `.agents/skills/cloudcrane-engineering/SKILL.md`，再按其中路由阅读相关 references。不要把被 `.gitignore` 忽略的 `.agents/` 当作远程仓库的必需文件，也不要为了满足该路径创建或提交本地技能副本。
 - 涉及架构、数据库 schema、协议、Agent、Workspace、Runner、Gateway 或 Web UI 时，按 Skill 路由阅读对应 Tech 文档；涉及真实 PbootCMS 模板迁移时才使用 `pboot-template-migration` Skill。
 - Skill 与本文件或用户明确范围冲突时，记录冲突并以用户范围为准，不隐藏冲突。
