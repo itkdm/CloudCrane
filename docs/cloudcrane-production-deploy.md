@@ -50,6 +50,7 @@ Cloudflare SSL/TLS 模式为“完全（严格）”。服务器使用 Let’s E
 ```dotenv
 WEB_ORIGIN=https://app.itkdm.com
 BETTER_AUTH_URL=https://app.itkdm.com
+NODE_ENV=production
 NEXT_PUBLIC_AGENT_SERVICE_URL=/agent
 PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://site-{websiteId}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com
@@ -59,6 +60,12 @@ PREVIEW_COOKIE_SECURE=true
 WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/var/lib/cloudcrane/pbootcms-base
 TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
+```
+
+正式线上启动只使用一个 tmux 会话：
+
+```bash
+CLOUDCRANE_TMUX_SESSION=cloudcrane-production bash ./scripts/server-acceptance-start.sh
 ```
 
 ## 正式邮件
