@@ -36,6 +36,15 @@ type WebsiteStore = {
     };
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
+  finalizeTemplateAttachment?(input: {
+    websiteId: string;
+    status: 'ready' | 'failed';
+    websiteStatus: string;
+    expectedAttemptCount: number;
+    referenceId?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  }): Promise<boolean>;
   updateTemplateAttachment?(input: {
     websiteId: string;
     status: string;
@@ -74,6 +83,48 @@ type TemplateAttachment = {
   artifactStorageKey: string;
   artifactSha256: string;
 };
+
+async function finalizeTemplateAttachment(
+  store: Pick<
+    WebsiteStore,
+    'updateWebsiteStatus' | 'updateTemplateAttachment' | 'finalizeTemplateAttachment'
+  >,
+  input: {
+    websiteId: string;
+    status: 'ready' | 'failed';
+    websiteStatus: string;
+    expectedAttemptCount?: number;
+    referenceId?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  },
+): Promise<boolean> {
+  if (store.finalizeTemplateAttachment && input.expectedAttemptCount !== undefined)
+    return store.finalizeTemplateAttachment({
+      websiteId: input.websiteId,
+      status: input.status,
+      websiteStatus: input.websiteStatus,
+      expectedAttemptCount: input.expectedAttemptCount,
+      ...(input.referenceId ? { referenceId: input.referenceId } : {}),
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+      ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+    });
+
+  const updated = await store.updateTemplateAttachment?.({
+    websiteId: input.websiteId,
+    status: input.status,
+    ...(input.referenceId ? { referenceId: input.referenceId } : {}),
+    ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+    ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+    expectedStatus: 'materializing',
+    ...(input.expectedAttemptCount === undefined
+      ? {}
+      : { expectedAttemptCount: input.expectedAttemptCount }),
+  });
+  if (updated === false) return false;
+  await store.updateWebsiteStatus(input.websiteId, input.websiteStatus);
+  return true;
+}
 
 export class WebsiteProvisioningError extends Error {
   constructor(
@@ -215,37 +266,37 @@ export async function createWebsite(
     if (claimed === false)
       throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
     const claimedAttempt = typeof claimed === 'number' ? claimed : undefined;
+    let reference: { referenceId: string };
     try {
-      const reference = await dependencies.attachTemplate({
+      reference = await dependencies.attachTemplate({
         websiteId,
         workspaceId,
         template: dependencies.template,
       });
-      const completed = await dependencies.store.updateTemplateAttachment?.({
-        websiteId,
-        status: 'ready',
-        referenceId: reference.referenceId,
-        expectedStatus: 'materializing',
-        ...(claimedAttempt === undefined ? {} : { expectedAttemptCount: claimedAttempt }),
-      });
-      if (completed === false)
-        throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
     } catch (error) {
-      const failed = await dependencies.store.updateTemplateAttachment?.({
+      const failed = await finalizeTemplateAttachment(dependencies.store, {
         websiteId,
         status: 'failed',
+        websiteStatus: WEBSITE_TEMPLATE_ATTACH_FAILED,
+        expectedAttemptCount: claimedAttempt,
         errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
         errorMessage: error instanceof Error ? error.message : 'template attachment failed',
-        expectedStatus: 'materializing',
-        ...(claimedAttempt === undefined ? {} : { expectedAttemptCount: claimedAttempt }),
       });
-      if (failed === false) throw error;
-      await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
+      if (!failed) throw error;
       return {
         website: { ...created, status: WEBSITE_TEMPLATE_ATTACH_FAILED },
         provisioned: false,
       };
     }
+    const completed = await finalizeTemplateAttachment(dependencies.store, {
+      websiteId,
+      status: 'ready',
+      websiteStatus: WEBSITE_AUTHORIZATION_REQUIRED,
+      expectedAttemptCount: claimedAttempt,
+      referenceId: reference.referenceId,
+    });
+    if (!completed)
+      throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
   }
   await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
   return {
@@ -259,7 +310,10 @@ export async function retryTemplateAttachment(
   dependencies: {
     store: Pick<
       WebsiteStore,
-      'findTemplateAttachment' | 'updateTemplateAttachment' | 'updateWebsiteStatus'
+      | 'findTemplateAttachment'
+      | 'updateTemplateAttachment'
+      | 'updateWebsiteStatus'
+      | 'finalizeTemplateAttachment'
     >;
     workspaceId: string;
     attachTemplate: (input: {
@@ -271,8 +325,10 @@ export async function retryTemplateAttachment(
 ): Promise<{ referenceId: string }> {
   const attachment = await dependencies.store.findTemplateAttachment?.(websiteId);
   if (!attachment) throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板关联不存在');
-  if (attachment.status === 'ready' && attachment.referenceId)
+  if (attachment.status === 'ready' && attachment.referenceId) {
+    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
     return { referenceId: attachment.referenceId };
+  }
   const staleBefore = new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS);
   if (attachment.status === 'materializing' && attachment.updatedAt > staleBefore)
     throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
@@ -285,36 +341,35 @@ export async function retryTemplateAttachment(
   });
   if (typeof claimed !== 'number')
     throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
+  let result: { referenceId: string };
   try {
-    const result = await dependencies.attachTemplate({
+    result = await dependencies.attachTemplate({
       websiteId,
       workspaceId: dependencies.workspaceId,
       template: { id: attachment.templateId, ...attachment },
     });
-    const completed = await dependencies.store.updateTemplateAttachment?.({
-      websiteId,
-      status: 'ready',
-      referenceId: result.referenceId,
-      expectedStatus: 'materializing',
-      expectedAttemptCount: claimed,
-    });
-    if (completed === false)
-      throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
-    return result;
   } catch (error) {
-    const failed = await dependencies.store.updateTemplateAttachment?.({
+    const failed = await finalizeTemplateAttachment(dependencies.store, {
       websiteId,
       status: 'failed',
+      websiteStatus: WEBSITE_TEMPLATE_ATTACH_FAILED,
+      expectedAttemptCount: claimed,
       errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
       errorMessage: error instanceof Error ? error.message : 'template attachment failed',
-      expectedStatus: 'materializing',
-      expectedAttemptCount: claimed,
     });
-    if (failed === false) throw error;
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
+    if (!failed) throw error;
     throw error;
   }
+  const completed = await finalizeTemplateAttachment(dependencies.store, {
+    websiteId,
+    status: 'ready',
+    websiteStatus: WEBSITE_AUTHORIZATION_REQUIRED,
+    expectedAttemptCount: claimed,
+    referenceId: result.referenceId,
+  });
+  if (!completed)
+    throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
+  return result;
 }
 
 export function createProductionWebsiteStore(ownerId?: string) {
@@ -384,6 +439,56 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .from(website)
         .where(ownerId ? eq(website.ownerId as never, ownerId) : undefined)
         .orderBy(desc(website.createdAt as never));
+    },
+    async finalizeTemplateAttachment(input) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return db.transaction(async (tx: any) => {
+        const attachmentRows = await tx
+          .update(websiteTemplateAttachment)
+          .set({
+            status: input.status,
+            ...(input.referenceId
+              ? { referenceId: input.referenceId, completedAt: new Date() }
+              : {}),
+            ...(input.status === 'ready'
+              ? { completedAt: new Date(), lastErrorCode: null, lastErrorMessage: null }
+              : {
+                  completedAt: null,
+                  lastErrorCode: input.errorCode ?? null,
+                  lastErrorMessage: input.errorMessage ?? null,
+                }),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(websiteTemplateAttachment.websiteId as never, input.websiteId),
+              eq(websiteTemplateAttachment.status as never, 'materializing'),
+              eq(websiteTemplateAttachment.attemptCount as never, input.expectedAttemptCount),
+            ),
+          )
+          .returning({ id: websiteTemplateAttachment.id });
+        if (attachmentRows.length === 0) return false;
+
+        const websiteRows = await tx
+          .update(website)
+          .set({ status: input.websiteStatus, updatedAt: new Date() })
+          .where(
+            and(
+              eq(website.id as never, input.websiteId),
+              inArray(website.status as never, [
+                WEBSITE_INITIALIZING,
+                WEBSITE_TEMPLATE_ATTACH_FAILED,
+                WEBSITE_AUTHORIZATION_REQUIRED,
+              ]),
+            ),
+          )
+          .returning({ id: website.id });
+        if (websiteRows.length === 0)
+          throw new Error('website finalization state changed before template attachment commit');
+        return true;
+      });
     },
     async updateTemplateAttachment(input) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

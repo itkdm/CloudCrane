@@ -76,7 +76,8 @@ describe('website provisioning foundation', () => {
 
   it('materializes a selected template before authorization', async () => {
     const attach = vi.fn(async () => ({ referenceId: 'ref_template' }));
-    const attachment = vi.fn(async () => undefined);
+    const attachment = vi.fn(async () => 4);
+    const finalize = vi.fn(async () => true);
     const result = await createWebsite('站点', {
       ownerId: 'user-1',
       template: {
@@ -84,7 +85,7 @@ describe('website provisioning foundation', () => {
         artifactStorageKey: 'template-a.zip',
         artifactSha256: 'a'.repeat(64),
       },
-      store: store({ updateTemplateAttachment: attachment }),
+      store: store({ updateTemplateAttachment: attachment, finalizeTemplateAttachment: finalize }),
       attachTemplate: attach,
       runtime: () => ({
         create: vi.fn(async () => ({ status: 'running' })),
@@ -100,8 +101,13 @@ describe('website provisioning foundation', () => {
         template: expect.objectContaining({ artifactStorageKey: 'template-a.zip' }),
       }),
     );
-    expect(attachment).toHaveBeenLastCalledWith(
-      expect.objectContaining({ status: 'ready', referenceId: 'ref_template' }),
+    expect(finalize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'ready',
+        websiteStatus: WEBSITE_AUTHORIZATION_REQUIRED,
+        expectedAttemptCount: 4,
+        referenceId: 'ref_template',
+      }),
     );
     expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
   });
@@ -258,6 +264,63 @@ describe('website provisioning foundation', () => {
     expect(update).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ status: 'ready', expectedAttemptCount: 4 }),
+    );
+    expect(updateWebsiteStatus).not.toHaveBeenCalled();
+  });
+
+  it('repairs website status when the attachment is already ready', async () => {
+    const updateWebsiteStatus = vi.fn(async () => undefined);
+
+    await expect(
+      retryTemplateAttachment('website-1', {
+        workspaceId: 'workspace-1',
+        store: {
+          findTemplateAttachment: async () => ({
+            templateId: 'template-1',
+            artifactStorageKey: 'template-1.zip',
+            artifactSha256: 'a'.repeat(64),
+            status: 'ready',
+            referenceId: 'ref-template',
+            attemptCount: 4,
+            updatedAt: new Date(),
+          }),
+          updateTemplateAttachment: vi.fn(),
+          updateWebsiteStatus,
+        },
+        attachTemplate: vi.fn(),
+      }),
+    ).resolves.toEqual({ referenceId: 'ref-template' });
+
+    expect(updateWebsiteStatus).toHaveBeenCalledWith('website-1', WEBSITE_AUTHORIZATION_REQUIRED);
+  });
+
+  it('does not update website state when atomic finalization loses its CAS', async () => {
+    const updateWebsiteStatus = vi.fn();
+    const finalize = vi.fn(async () => false);
+
+    await expect(
+      retryTemplateAttachment('website-1', {
+        workspaceId: 'workspace-1',
+        store: {
+          findTemplateAttachment: async () => ({
+            templateId: 'template-1',
+            artifactStorageKey: 'template-1.zip',
+            artifactSha256: 'a'.repeat(64),
+            status: 'failed',
+            referenceId: null,
+            attemptCount: 3,
+            updatedAt: new Date(),
+          }),
+          updateTemplateAttachment: vi.fn(async () => 4),
+          finalizeTemplateAttachment: finalize,
+          updateWebsiteStatus,
+        },
+        attachTemplate: async () => ({ referenceId: 'ref-template' }),
+      }),
+    ).rejects.toThrow('模板应用已被其他任务接管');
+
+    expect(finalize).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedAttemptCount: 4, status: 'ready' }),
     );
     expect(updateWebsiteStatus).not.toHaveBeenCalled();
   });
