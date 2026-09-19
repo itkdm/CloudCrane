@@ -50,6 +50,13 @@
       "when": 1789817928774,
       "tag": "0006_aberrant_outlaw_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790070000000,
+      "tag": "0007_snapshot_metadata_reconcile",
+      "breakpoints": true
     }
   ]
 }
