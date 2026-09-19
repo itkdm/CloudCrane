@@ -414,7 +414,14 @@
   border-radius: var(--cc-radius-lg);
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-sm);
+  animation: none;
   transition: none;
+  transform: none;
+}
+.template-card:hover {
+  border-color: var(--cc-border);
+  box-shadow: var(--cc-shadow-sm);
+  transform: none;
 }
 .template-card-cover {
   display: grid;
