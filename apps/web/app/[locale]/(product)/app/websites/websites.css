@@ -370,30 +370,30 @@
 }
 
 .templates-view {
-  width: min(860px, calc(100% - 48px));
+  width: min(760px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 32px 0 56px;
+  padding: 24px 0 44px;
 }
 .templates-header {
-  margin-bottom: 16px;
+  margin-bottom: 13px;
 }
 .templates-header h1 {
   margin: 0;
   color: var(--cc-text);
-  font-size: clamp(24px, 3vw, 30px);
+  font-size: clamp(22px, 2.6vw, 27px);
   letter-spacing: -0.03em;
 }
 .templates-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 13px;
 }
 .templates-filter {
-  min-height: 30px;
+  min-height: 28px;
   border: 1px solid var(--cc-border);
   border-radius: 999px;
-  padding: 0 12px;
+  padding: 0 11px;
   background: transparent;
   color: var(--cc-text-secondary);
   font-size: 13px;
@@ -406,8 +406,8 @@
 }
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 280px));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 250px));
+  gap: 10px;
 }
 .template-card {
   overflow: hidden;
@@ -421,7 +421,7 @@
 }
 .template-card-cover {
   display: grid;
-  height: 96px;
+  height: 84px;
   place-items: center;
   background: linear-gradient(
     135deg,
@@ -436,14 +436,14 @@
   object-fit: cover;
 }
 .template-card-cover svg {
-  width: 26px;
-  height: 26px;
+  width: 23px;
+  height: 23px;
 }
 .template-card-body {
   display: flex;
-  min-height: 144px;
+  min-height: 128px;
   flex-direction: column;
-  padding: 14px;
+  padding: 12px;
 }
 .template-card-category {
   color: var(--cc-brand);
@@ -451,9 +451,9 @@
   font-weight: 650;
 }
 .template-card h2 {
-  margin: 3px 0 5px;
+  margin: 2px 0 4px;
   color: var(--cc-text);
-  font-size: 15px;
+  font-size: 14px;
 }
 .template-card p {
   display: -webkit-box;
@@ -470,21 +470,21 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: auto;
-  padding-top: 12px;
+  padding-top: 10px;
 }
 .template-card-actions a,
 .template-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 28px;
   gap: 6px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-md);
-  padding: 0 9px;
+  padding: 0 8px;
   background: transparent;
   color: var(--cc-text);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -540,7 +540,7 @@
 @media (max-width: 620px) {
   .templates-view {
     width: min(100% - 32px, 560px);
-    padding-top: 24px;
+    padding-top: 20px;
   }
   .template-grid {
     grid-template-columns: 1fr;
