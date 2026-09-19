@@ -236,7 +236,12 @@ try {
     $db = new PDO('sqlite:' . WORKSPACE . '/' . $database, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('promoted database integrity check failed');
     $db = null;
+    // The SQLite database is runtime state and is intentionally ignored by the
+    // Website repository. It must be promoted and integrity-checked, but it
+    // must not be passed to `git add`, otherwise restore fails on the
+    // workspace's `data/*.db` ignore rule.
     $gitPaths = array_values(array_unique(array_merge($backedUp, $promoted)));
+    $gitPaths = array_values(array_filter($gitPaths, static fn(string $path): bool => $path !== $database));
     if ($gitPaths === []) fail('snapshot did not change site state');
     $gitAdd = 'git -C ' . escapeshellarg(WORKSPACE) . ' add -- ' . implode(' ', array_map('escapeshellarg', $gitPaths));
     exec($gitAdd, $gitOutput, $gitExitCode);

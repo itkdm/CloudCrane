@@ -97,7 +97,7 @@ void main().catch((error: unknown) => {
 
 function parseArgs(args: string[]): Map<string, string> {
   const result = new Map<string, string>();
-  for (const arg of args) {
+  for (const arg of args[0] === '--' ? args.slice(1) : args) {
     const match = /^--([^=]+)=(.*)$/.exec(arg);
     if (!match || !match[1] || match[2] === undefined)
       throw new Error(`argument must use --key=value: ${arg}`);
