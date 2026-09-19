@@ -16,6 +16,8 @@ export type RunnerConfig = {
 export function loadRunnerConfig(env = process.env): RunnerConfig {
   const runnerId = env.RUNNER_ID ?? '00000000-0000-4000-8000-000000000010';
   z.string().uuid().parse(runnerId);
+  if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
+    throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',

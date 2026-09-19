@@ -7,6 +7,10 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import unzipper from 'unzipper';
+import {
+  TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES,
+  TEMPLATE_ARTIFACT_FILE_MAX_BYTES,
+} from './template-limits.js';
 
 export const REFERENCE_EXPANDED_MAX_BYTES = 500 * 1024 * 1024;
 export const REFERENCE_FILE_COUNT_MAX = 20_000;
@@ -30,6 +34,8 @@ export async function materializeReference(input: {
   sha256: string;
   size: number;
   archiveMaxBytes: number;
+  expandedMaxBytes?: number;
+  extractedFileMaxBytes?: number;
   source?: ReferenceMaterializationSource;
   templateId?: string;
   referenceId?: string;
@@ -49,7 +55,14 @@ export async function materializeReference(input: {
   const referenceId = input.referenceId ?? `ref_${randomUUID()}`;
   if (!/^ref_[0-9a-f-]+$/i.test(referenceId))
     throw new ReferenceMaterializationError('Invalid reference id', 422);
-  const stagingRoot = path.join(input.referenceRoot, '.staging', referenceId);
+  const stagingRoot = path.join(
+    input.referenceRoot,
+    '.staging',
+    input.workspaceId,
+    `${referenceId}-${randomUUID()}`,
+  );
+  const expandedMaxBytes = input.expandedMaxBytes ?? REFERENCE_EXPANDED_MAX_BYTES;
+  const extractedFileMaxBytes = input.extractedFileMaxBytes ?? REFERENCE_EXTRACTED_FILE_MAX_BYTES;
   const finalRoot = path.join(workspaceRoot, referenceId);
   const existingMetadata = await readFile(
     path.join(finalRoot, '.cloudcrane-reference.json'),
@@ -108,10 +121,10 @@ export async function materializeReference(input: {
         throw new ReferenceMaterializationError('ZIP contains duplicate entries', 422);
       normalizedPaths.add(relative);
       const uncompressed = Number(entry.uncompressedSize ?? 0);
-      if (!Number.isSafeInteger(uncompressed) || uncompressed > REFERENCE_EXTRACTED_FILE_MAX_BYTES)
+      if (!Number.isSafeInteger(uncompressed) || uncompressed > extractedFileMaxBytes)
         throw new ReferenceMaterializationError('ZIP contains an oversized file', 422);
       expanded += uncompressed;
-      if (expanded > REFERENCE_EXPANDED_MAX_BYTES)
+      if (expanded > expandedMaxBytes)
         throw new ReferenceMaterializationError('Expanded ZIP is too large', 422);
       const target = path.join(stagingRoot, relative);
       await mkdir(path.dirname(target), { recursive: true });
@@ -120,9 +133,9 @@ export async function materializeReference(input: {
         transform(chunk, _encoding, callback) {
           actualFileBytes += chunk.length;
           actualExpanded += chunk.length;
-          if (actualFileBytes > REFERENCE_EXTRACTED_FILE_MAX_BYTES)
+          if (actualFileBytes > extractedFileMaxBytes)
             return callback(new ReferenceMaterializationError('Expanded file is too large', 422));
-          if (actualExpanded > REFERENCE_EXPANDED_MAX_BYTES)
+          if (actualExpanded > expandedMaxBytes)
             return callback(new ReferenceMaterializationError('Expanded ZIP is too large', 422));
           callback(null, chunk);
         },
@@ -194,6 +207,8 @@ export async function materializeTemplateReference(input: {
     sha256: actualSha256,
     size: info.size,
     archiveMaxBytes: input.maxBytes,
+    expandedMaxBytes: TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES,
+    extractedFileMaxBytes: TEMPLATE_ARTIFACT_FILE_MAX_BYTES,
     source: 'template_snapshot',
     templateId: input.templateId,
     referenceId: `ref_${input.templateId}`,

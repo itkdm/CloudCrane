@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { DEFAULT_REFERENCE_UPLOAD_MAX_BYTES } from '@cloudcrane/website-agent';
 import { z } from 'zod';
+import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 
 const configSchema = z.object({
   port: z.coerce.number().int().positive().default(4101),
@@ -16,7 +17,12 @@ const configSchema = z.object({
   previewTokenTtlSeconds: z.coerce.number().int().positive().max(3600).default(600),
   referenceRoot: z.string().min(1).default('.cloudcrane-data/references'),
   templateArtifactRoot: z.string().min(1).default('.cloudcrane-data/templates'),
-  internalServiceToken: z.string().min(16).default('cloudcrane-internal-dev-token'),
+  internalServiceToken: z.string().min(16).optional(),
+  templateArtifactMaxBytes: z.coerce
+    .number()
+    .int()
+    .min(TEMPLATE_ARTIFACT_MAX_BYTES)
+    .default(TEMPLATE_ARTIFACT_MAX_BYTES),
   referenceUploadMaxBytes: z.coerce
     .number()
     .int()
@@ -26,17 +32,20 @@ const configSchema = z.object({
 
 export type AgentServiceConfig = Omit<
   z.infer<typeof configSchema>,
-  'agentDataRoot' | 'templateArtifactRoot' | 'internalServiceToken'
+  'agentDataRoot' | 'templateArtifactRoot' | 'templateArtifactMaxBytes'
 > & {
   agentDataRoot: string;
   templateArtifactRoot?: string;
   internalServiceToken?: string;
+  templateArtifactMaxBytes?: number;
   modelConfigured: boolean;
 };
 
 export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
   if (env.NODE_ENV === 'production' && !env.AGENT_SERVICE_INTERNAL_TOKEN)
     throw new Error('AGENT_SERVICE_INTERNAL_TOKEN is required in production');
+  if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
+    throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
   const parsed = configSchema.parse({
     port: env.AGENT_SERVICE_PORT,
     webOrigin: env.WEB_ORIGIN ?? env.NEXT_PUBLIC_WEB_ORIGIN,
@@ -52,6 +61,7 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
     templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
     internalServiceToken: env.AGENT_SERVICE_INTERNAL_TOKEN,
+    templateArtifactMaxBytes: env.TEMPLATE_ARTIFACT_MAX_BYTES,
     referenceUploadMaxBytes: env.REFERENCE_UPLOAD_MAX_BYTES,
   });
   return {

@@ -29,6 +29,7 @@ import {
   removeReference,
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
+import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 
 export type AgentServiceAppOptions = {
   config: AgentServiceConfig;
@@ -62,7 +63,7 @@ export function buildAgentServiceApp(
       if (
         !hasInternalToken(
           request.headers['x-cloudcrane-internal-token'],
-          options.config.internalServiceToken ?? 'cloudcrane-internal-dev-token',
+          options.config.internalServiceToken,
         )
       )
         return reply
@@ -136,7 +137,7 @@ export function buildAgentServiceApp(
       templateId: request.body.templateId,
       referenceRoot: options.config.referenceRoot,
       workspaceId: binding.workspaceId,
-      maxBytes: options.config.referenceUploadMaxBytes,
+      maxBytes: options.config.templateArtifactMaxBytes ?? TEMPLATE_ARTIFACT_MAX_BYTES,
     });
     return reply.code(201).send(result);
   });
@@ -363,7 +364,8 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-function hasInternalToken(value: string | string[] | undefined, expected: string): boolean {
+function hasInternalToken(value: string | string[] | undefined, expected?: string): boolean {
+  if (!expected) return false;
   const actual = Array.isArray(value) ? value[0] : value;
   if (!actual) return false;
   const actualBytes = Buffer.from(actual);

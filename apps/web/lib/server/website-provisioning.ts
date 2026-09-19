@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createPlatformDb, website, websiteTemplateAttachment, workspace } from '@cloudcrane/db';
 import { createLogger } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
@@ -42,7 +42,8 @@ type WebsiteStore = {
     errorCode?: string;
     errorMessage?: string;
     incrementAttempt?: boolean;
-  }): Promise<void>;
+    expectedStatus?: string | string[];
+  }): Promise<boolean | void>;
   findTemplateAttachment?(websiteId: string): Promise<{
     templateId: string;
     artifactStorageKey: string;
@@ -204,6 +205,7 @@ export async function createWebsite(
       websiteId,
       status: 'materializing',
       incrementAttempt: true,
+      expectedStatus: 'pending',
     });
     try {
       const reference = await dependencies.attachTemplate({
@@ -215,6 +217,7 @@ export async function createWebsite(
         websiteId,
         status: 'ready',
         referenceId: reference.referenceId,
+        expectedStatus: 'materializing',
       });
     } catch (error) {
       await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
@@ -223,6 +226,7 @@ export async function createWebsite(
         status: 'failed',
         errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
         errorMessage: error instanceof Error ? error.message : 'template attachment failed',
+        expectedStatus: 'materializing',
       });
       return {
         website: { ...created, status: WEBSITE_TEMPLATE_ATTACH_FAILED },
@@ -256,11 +260,16 @@ export async function retryTemplateAttachment(
   if (!attachment) throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板关联不存在');
   if (attachment.status === 'ready' && attachment.referenceId)
     return { referenceId: attachment.referenceId };
-  await dependencies.store.updateTemplateAttachment?.({
+  if (attachment.status === 'materializing')
+    throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
+  const claimed = await dependencies.store.updateTemplateAttachment?.({
     websiteId,
     status: 'materializing',
     incrementAttempt: true,
+    expectedStatus: 'failed',
   });
+  if (claimed === false)
+    throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
   try {
     const result = await dependencies.attachTemplate({
       websiteId,
@@ -271,6 +280,7 @@ export async function retryTemplateAttachment(
       websiteId,
       status: 'ready',
       referenceId: result.referenceId,
+      expectedStatus: 'materializing',
     });
     await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
     return result;
@@ -280,6 +290,7 @@ export async function retryTemplateAttachment(
       status: 'failed',
       errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
       errorMessage: error instanceof Error ? error.message : 'template attachment failed',
+      expectedStatus: 'materializing',
     });
     await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
     throw error;
@@ -357,22 +368,34 @@ export function createProductionWebsiteStore(ownerId?: string) {
     async updateTemplateAttachment(input) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = platform.db;
-      const current = await db
-        .select({ attemptCount: websiteTemplateAttachment.attemptCount })
-        .from(websiteTemplateAttachment)
-        .where(eq(websiteTemplateAttachment.websiteId as never, input.websiteId))
-        .limit(1);
-      await db
+      const conditions = [eq(websiteTemplateAttachment.websiteId as never, input.websiteId)];
+      if (input.expectedStatus) {
+        conditions.push(
+          Array.isArray(input.expectedStatus)
+            ? inArray(websiteTemplateAttachment.status as never, input.expectedStatus)
+            : eq(websiteTemplateAttachment.status as never, input.expectedStatus),
+        );
+      }
+      const result = await db
         .update(websiteTemplateAttachment)
         .set({
           status: input.status,
-          ...(input.incrementAttempt ? { attemptCount: (current[0]?.attemptCount ?? 0) + 1 } : {}),
+          ...(input.incrementAttempt
+            ? { attemptCount: sql`${websiteTemplateAttachment.attemptCount} + 1` }
+            : {}),
           ...(input.referenceId ? { referenceId: input.referenceId, completedAt: new Date() } : {}),
+          ...(input.status === 'materializing' || input.status === 'ready'
+            ? { lastErrorCode: null, lastErrorMessage: null }
+            : {}),
+          ...(input.status === 'ready' ? { completedAt: new Date() } : {}),
+          ...(input.status === 'failed' ? { completedAt: null } : {}),
           ...(input.errorCode ? { lastErrorCode: input.errorCode } : {}),
           ...(input.errorMessage ? { lastErrorMessage: input.errorMessage } : {}),
           updatedAt: new Date(),
         })
-        .where(eq(websiteTemplateAttachment.websiteId as never, input.websiteId));
+        .where(and(...conditions))
+        .returning({ id: websiteTemplateAttachment.id });
+      return result.length > 0;
     },
     async findTemplateAttachment(websiteId) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

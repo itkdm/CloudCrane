@@ -1,19 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, copyFile, mkdir, stat } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { createPlatformDb, template } from '@cloudcrane/db';
 import unzipper from 'unzipper';
+import {
+  TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES,
+  TEMPLATE_ARTIFACT_FILE_MAX_BYTES,
+  TEMPLATE_ARTIFACT_MAX_BYTES,
+} from './infrastructure/template-limits.js';
 
-const MAX_ARTIFACT_BYTES = 500 * 1024 * 1024;
-const MAX_EXPANDED_BYTES = 1 * 1024 * 1024 * 1024;
 const MAX_FILES = 20_000;
-const MAX_SINGLE_FILE_BYTES = 100 * 1024 * 1024;
 const ALLOWED_ROOTS = new Set(['template', 'skin', 'static']);
 const FORBIDDEN_PARTS = new Set([
   '.git',
   '.env',
+  '.aws',
+  '.gnupg',
+  '.ssh',
   'admin',
   'cache',
   'data',
@@ -22,12 +28,32 @@ const FORBIDDEN_PARTS = new Set([
   'runtime',
   'session',
   'secret',
+  '.npmrc',
 ]);
 const FORBIDDEN_FILE_NAMES = [
   /^\.env(?:\.|$)/,
   /^(?:admin|auth|config|credential|database|license|password|secret|token|user|users)(?:\.|$)/,
   /^(?:pbootcms|app|cloudcrane).*(?:\.db|\.sqlite|\.sql|\.log)$/,
+  /^(?:id_rsa|id_ed25519|private[-_]?key)(?:\..*)?$/,
 ];
+const FORBIDDEN_EXTENSIONS = new Set([
+  '.bash',
+  '.bin',
+  '.cjs',
+  '.crt',
+  '.der',
+  '.dll',
+  '.exe',
+  '.jks',
+  '.key',
+  '.p12',
+  '.pem',
+  '.phar',
+  '.php',
+  '.phtml',
+  '.sh',
+  '.so',
+]);
 
 type Options = {
   archive: string;
@@ -41,7 +67,7 @@ type Options = {
 
 const options = parseArgs(process.argv.slice(2));
 const info = await stat(options.archive);
-if (!info.isFile() || info.size <= 0 || info.size > MAX_ARTIFACT_BYTES)
+if (!info.isFile() || info.size <= 0 || info.size > TEMPLATE_ARTIFACT_MAX_BYTES)
   throw new Error('archive must be a non-empty ZIP smaller than 500 MB');
 const directory = await unzipper.Open.file(options.archive);
 const files = directory.files.filter((entry) => entry.type !== 'Directory');
@@ -54,10 +80,11 @@ for (const entry of files) {
   if (normalizedPaths.has(normalized)) throw new Error(`duplicate archive entry: ${entry.path}`);
   normalizedPaths.add(normalized);
   const uncompressedSize = entry.uncompressedSize ?? 0;
-  if (uncompressedSize > MAX_SINGLE_FILE_BYTES)
+  if (uncompressedSize > TEMPLATE_ARTIFACT_FILE_MAX_BYTES)
     throw new Error(`archive file is too large: ${entry.path}`);
   expandedBytes += uncompressedSize;
-  if (expandedBytes > MAX_EXPANDED_BYTES) throw new Error('archive expands beyond 1 GB');
+  if (expandedBytes > TEMPLATE_ARTIFACT_EXPANDED_MAX_BYTES)
+    throw new Error('archive expands beyond 1 GB');
 }
 
 const id = randomUUID();
@@ -87,6 +114,9 @@ try {
     status: 'published',
     publishedAt: new Date(),
   });
+} catch (error) {
+  await rm(target, { force: true }).catch(() => undefined);
+  throw error;
 } finally {
   await platform.pool.end();
 }
@@ -132,11 +162,13 @@ function validateEntry(value: string, type: string): string {
   const parts = normalized.split('/');
   const root = parts[0];
   const basename = parts.at(-1)?.toLowerCase() ?? '';
+  const extension = path.posix.extname(basename);
   if (
     !root ||
     !ALLOWED_ROOTS.has(root) ||
     parts.some((part) => FORBIDDEN_PARTS.has(part.toLowerCase())) ||
-    FORBIDDEN_FILE_NAMES.some((pattern) => pattern.test(basename))
+    FORBIDDEN_FILE_NAMES.some((pattern) => pattern.test(basename)) ||
+    FORBIDDEN_EXTENSIONS.has(extension)
   )
     throw new Error(`archive entry is outside the approved template allowlist: ${value}`);
   return normalized;
