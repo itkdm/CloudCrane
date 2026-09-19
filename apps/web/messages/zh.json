@@ -315,8 +315,6 @@
   },
   "workspace": {
     "templatesTitle": "模板",
-    "templatesEyebrow": "精选起点",
-    "templatesDescription": "选择一个经过验证的网站起点，创建属于你的独立工作区。",
     "templatesLoading": "正在加载模板…",
     "templatesLoadError": "模板加载失败，请稍后重试。",
     "templatesEmpty": "暂无可用模板。",

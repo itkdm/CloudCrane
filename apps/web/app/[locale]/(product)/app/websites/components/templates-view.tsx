@@ -55,9 +55,7 @@ export function TemplatesView({
     <main className="templates-view" aria-labelledby="templates-title">
       <header className="templates-header">
         <div>
-          <p className="templates-eyebrow">{t('templatesEyebrow')}</p>
           <h1 id="templates-title">{t('templatesTitle')}</h1>
-          <p>{t('templatesDescription')}</p>
         </div>
       </header>
       {status === 'loading' ? (

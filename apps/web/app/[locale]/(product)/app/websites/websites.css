@@ -370,33 +370,18 @@
 }
 
 .templates-view {
-  width: min(1120px, calc(100% - 64px));
+  width: min(1000px, calc(100% - 64px));
   margin: 0 auto;
-  padding: 56px 0 80px;
+  padding: 48px 0 72px;
 }
 .templates-header {
-  margin-bottom: 28px;
-}
-.templates-eyebrow {
-  margin: 0 0 8px;
-  color: var(--cc-brand);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  margin-bottom: 22px;
 }
 .templates-header h1 {
-  margin: 0 0 8px;
-  color: var(--cc-text);
-  font-size: clamp(28px, 4vw, 40px);
-  letter-spacing: -0.03em;
-}
-.templates-header p:last-child {
-  max-width: 640px;
   margin: 0;
-  color: var(--cc-text-secondary);
-  font-size: 15px;
-  line-height: 1.7;
+  color: var(--cc-text);
+  font-size: clamp(28px, 3.5vw, 36px);
+  letter-spacing: -0.03em;
 }
 .templates-filters {
   display: flex;
@@ -420,8 +405,8 @@
 }
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
+  gap: 16px;
 }
 .template-card {
   overflow: hidden;
@@ -441,7 +426,7 @@
 }
 .template-card-cover {
   display: grid;
-  height: 156px;
+  height: 124px;
   place-items: center;
   background: linear-gradient(
     135deg,
@@ -456,14 +441,14 @@
   object-fit: cover;
 }
 .template-card-cover svg {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
 }
 .template-card-body {
   display: flex;
-  min-height: 190px;
+  min-height: 164px;
   flex-direction: column;
-  padding: 18px;
+  padding: 16px;
 }
 .template-card-category {
   color: var(--cc-brand);
@@ -471,9 +456,9 @@
   font-weight: 650;
 }
 .template-card h2 {
-  margin: 5px 0 8px;
+  margin: 4px 0 6px;
   color: var(--cc-text);
-  font-size: 18px;
+  font-size: 17px;
 }
 .template-card p {
   display: -webkit-box;
@@ -490,18 +475,18 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: auto;
-  padding-top: 18px;
+  padding-top: 14px;
 }
 .template-card-actions a,
 .template-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 34px;
+  min-height: 32px;
   gap: 6px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-md);
-  padding: 0 11px;
+  padding: 0 10px;
   background: transparent;
   color: var(--cc-text);
   font-size: 13px;

@@ -315,8 +315,6 @@
   },
   "workspace": {
     "templatesTitle": "Templates",
-    "templatesEyebrow": "Curated starting points",
-    "templatesDescription": "Choose a verified website starting point and create an independent workspace.",
     "templatesLoading": "Loading templates…",
     "templatesLoadError": "Templates could not be loaded. Try again later.",
     "templatesEmpty": "No templates are available yet.",
