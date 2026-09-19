@@ -19,7 +19,7 @@ description: Publish the current CloudCrane PbootCMS Website as an immutable, ve
 3. 审查内容是否明显包含真实业务资料。默认保留公司名、联系方式、文章、产品、图片、栏目、SEO、轮播和模型等 Site State；不要自动脱敏。若看起来是生产业务数据，使用 `question` 询问用户是直接发布还是先改成示例内容。用户选择修改时，先完成修改，再重新执行相关检查。
 4. 从当前 Website 已知信息收集模板元数据。仅在无法合理确定必填值时使用 `question`；不要猜测或虚构 Demo URL。详细规则见 `template-metadata.md`。
 5. 检查 Core Drift。无 Drift 才能继续；有 Drift 时列出证据，判断是否能迁移为 Site State 或必须先处理，并在用户确认前停止。不得把旧 Pboot Core、授权、管理员、运行时或系统状态发布进模板。
-6. 调用当前系统提供的确定性 Website → Snapshot → immutable Artifact → Template 发布能力。不要自己执行 `zip`、手写 Snapshot、生成 SQL、直接插入 Template 表或绕过 SHA-256、版本元数据、Artifact 校验和 DB 完整性门禁。当前会话没有该确定性能力时必须 fail closed 并报告原因。
+6. 调用当前系统提供的 `template_publish` Tool 完成确定性 Website → Snapshot → immutable Artifact → Template 发布。Tool 只接受本模板的名称、描述、分类和可选链接；Website、Workspace、版本元数据与产物路径由服务端绑定。不要自己执行 `zip`、手写 Snapshot、生成 SQL、直接插入 Template 表或绕过 SHA-256、版本元数据、Artifact 校验和 DB 完整性门禁。当前会话没有该确定性 Tool 时必须 fail closed 并报告原因。
 7. 发布后验证 Template 记录、`published` 状态、Artifact 元数据、`sourceWebsiteId`、Snapshot/版本信息、Demo/Cover 元数据和 Template Catalog 可见性。Published Template 不可原地修改；后续更新应修改源 Website 后重新发布新的 Snapshot。
 
 ## 必须停止

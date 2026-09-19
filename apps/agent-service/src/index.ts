@@ -4,6 +4,7 @@ import { createAuth, validateAuthRuntimeConfig } from '@cloudcrane/auth';
 import { createLogger } from '@cloudcrane/shared';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
+import { TemplatePublishingService } from '@cloudcrane/template-publishing';
 import { buildAgentServiceApp } from './app.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 import { loadAgentServiceConfig } from './config.js';
@@ -28,6 +29,12 @@ const model = config.modelConfigured
   : undefined;
 if (config.modelConfigured && !model) throw new Error('configured agent model is not available');
 const previewClients = new PreviewClientRegistry();
+const templatePublisher = new TemplatePublishingService(
+  platform,
+  config.workspaceGatewayEndpoint,
+  config.workspaceGatewayClientToken,
+  config.templateArtifactRoot!,
+);
 
 const registry = new WebsiteRuntimeRegistry({
   bindingStore: new DrizzleWebsiteBindingStore(platform),
@@ -43,6 +50,12 @@ const registry = new WebsiteRuntimeRegistry({
       model,
       previewObservationProvider: new ClientPreviewProvider(previewClients),
       referenceUploadMaxBytes: config.referenceUploadMaxBytes,
+      templatePublisher: (request) =>
+        templatePublisher.publish({
+          ...request,
+          websiteId: binding.websiteId,
+          workspaceId: binding.workspaceId,
+        }),
     }),
 });
 const app = buildAgentServiceApp({

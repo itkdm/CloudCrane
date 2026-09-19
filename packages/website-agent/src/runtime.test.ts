@@ -14,6 +14,7 @@ import {
   createInMemoryWebsiteAgentStore,
   projectMessages,
   WebsiteAgentRuntime,
+  createTemplatePublishTool,
   type WorkspaceClientFactory,
   type WebsiteAgentLifecycleEvent,
 } from './runtime.js';
@@ -36,6 +37,48 @@ async function missingReferenceStat({ path: remotePath }: { path: string }) {
 }
 
 describe('WebsiteAgentRuntime', () => {
+  it('publishes only the current Website through the guarded template tool', async () => {
+    const publish = vi.fn(
+      async (request: { name: string; description: string; category: string }) => ({
+        id: 'template-1',
+        artifactStorageKey: 'template-1.zip',
+        artifactSha256: 'a'.repeat(64),
+        artifactSize: 123,
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: 'core-commit',
+        dbSchemaVersion: '3.2.26',
+        ...request,
+      }),
+    );
+    const tool = createTemplatePublishTool(publish, () => ({
+      runId: '00000000-0000-4000-8000-000000000003',
+      traceId: '00000000-0000-4000-8000-000000000004',
+    }));
+    const result = await tool.execute(
+      'call-1',
+      { name: 'Demo', description: 'Verified demo', category: '企业官网' },
+      undefined,
+      undefined,
+      undefined as never,
+    );
+
+    expect(publish).toHaveBeenCalledWith({
+      name: 'Demo',
+      description: 'Verified demo',
+      category: '企业官网',
+    });
+    expect(JSON.stringify(result.content)).toContain('Template published successfully.');
+    await expect(
+      createTemplatePublishTool(publish, () => undefined).execute(
+        'call-2',
+        { name: 'Demo', description: 'Verified demo', category: '企业官网' },
+        undefined,
+        undefined,
+        undefined as never,
+      ),
+    ).rejects.toThrow('active AgentRun');
+  });
+
   it('emits the real Pi session identity for interaction requests', () => {
     const runtime = new WebsiteAgentRuntime({
       websiteId,

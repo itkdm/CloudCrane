@@ -1,9 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { createPlatformDb, template, workspace } from '@cloudcrane/db';
-import { parseSnapshotManifest } from '@cloudcrane/pboot-snapshot';
-import { WorkspaceClient } from '@cloudcrane/workspace-client';
+import { createPlatformDb, workspace } from '@cloudcrane/db';
+import { TemplatePublishingService } from '@cloudcrane/template-publishing';
 import { eq } from 'drizzle-orm';
 
 const values = parseArgs(process.argv.slice(2));
@@ -28,61 +25,31 @@ async function main(): Promise<void> {
       .limit(1);
     const workspaceId = rows[0]?.workspaceId;
     if (!workspaceId) throw new Error('website workspace was not found');
-    const client = new WorkspaceClient(endpoint, token, { websiteId, workspaceId });
-    const marker = await client.fs.read({
-      path: '/workspace/.cloudcrane/bootstrap.json',
-      maxBytes: 2_048,
+    const published = await new TemplatePublishingService(
+      platform,
+      endpoint,
+      token,
+      artifactRoot,
+    ).publish({
+      websiteId,
+      workspaceId,
+      name,
+      description,
+      category,
+      coverUrl: values.get('cover-url'),
+      demoUrl: values.get('demo-url'),
+      versionMetadata: {
+        sourcePbootVersion: values.get('source-pboot-version') ?? '',
+        sourceCoreCommit: values.get('source-core-commit') ?? '',
+        dbSchemaVersion: values.get('db-schema-version') ?? '',
+      },
     });
-    const bootstrap = JSON.parse(marker.content) as { version?: string; sourceCommit?: string };
-    const sourcePbootVersion = values.get('source-pboot-version') ?? bootstrap.version;
-    const sourceCoreCommit = values.get('source-core-commit') ?? bootstrap.sourceCommit;
-    const dbSchemaVersion = values.get('db-schema-version') ?? sourcePbootVersion;
-    if (!sourcePbootVersion || !sourceCoreCommit || !dbSchemaVersion)
-      throw new Error('snapshot version metadata is incomplete');
-    const artifactStorageKey = `template-${randomUUID()}.zip`;
-    const staged = await client.snapshot.stage({
-      artifactStorageKey,
-      sourceWebsiteId: websiteId,
-      sourcePbootVersion,
-      sourceCoreCommit,
-      dbSchemaVersion,
-    });
-    const manifest = parseSnapshotManifest(staged.manifest);
-    const id = randomUUID();
-    try {
-      await platform.db.insert(template).values({
-        id,
-        sourceWebsiteId: websiteId,
-        name,
-        description,
-        category,
-        coverUrl: values.get('cover-url'),
-        demoUrl: values.get('demo-url'),
-        cmsType: 'pbootcms',
-        artifactStorageKey: staged.artifactStorageKey,
-        artifactSha256: staged.artifactSha256,
-        artifactSize: staged.artifactSize,
-        artifactType: manifest.artifactType,
-        snapshotSchemaVersion: manifest.snapshotSchemaVersion,
-        sourcePbootVersion: manifest.sourcePbootVersion,
-        sourceCoreCommit: manifest.sourceCoreCommit,
-        dbEngine: manifest.dbEngine,
-        dbSchemaVersion: manifest.dbSchemaVersion,
-        status: 'published',
-        publishedAt: new Date(),
-      });
-    } catch (error) {
-      await rm(path.join(artifactRoot, staged.artifactStorageKey), { force: true }).catch(
-        () => undefined,
-      );
-      throw error;
-    }
     console.log(
       JSON.stringify({
-        id,
-        artifactStorageKey: staged.artifactStorageKey,
-        artifactSha256: staged.artifactSha256,
-        artifactSize: staged.artifactSize,
+        id: published.id,
+        artifactStorageKey: published.artifactStorageKey,
+        artifactSha256: published.artifactSha256,
+        artifactSize: published.artifactSize,
       }),
     );
   } finally {

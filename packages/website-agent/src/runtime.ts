@@ -114,6 +114,24 @@ export type WorkspaceClientFactory = (
   contextProvider: () => WorkspaceClientContext,
 ) => WorkspaceClient;
 
+export type TemplatePublishRequest = {
+  name: string;
+  description: string;
+  category: string;
+  demoUrl?: string;
+  coverUrl?: string;
+};
+
+export type TemplatePublishResult = {
+  id: string;
+  artifactStorageKey: string;
+  artifactSha256: string;
+  artifactSize: number;
+  sourcePbootVersion: string;
+  sourceCoreCommit: string;
+  dbSchemaVersion: string;
+};
+
 export type WebsiteAgentRuntimeOptions = {
   websiteId: string;
   workspaceId: string;
@@ -126,6 +144,7 @@ export type WebsiteAgentRuntimeOptions = {
   workspaceClientFactory?: WorkspaceClientFactory;
   previewObservationProvider?: PreviewObservationProvider;
   referenceUploadMaxBytes?: number;
+  templatePublisher?: (request: TemplatePublishRequest) => Promise<TemplatePublishResult>;
 };
 
 export type AgentRunResult = {
@@ -979,6 +998,17 @@ export class WebsiteAgentRuntime {
         this.options.websiteId,
         this.options.referenceUploadMaxBytes ?? DEFAULT_REFERENCE_UPLOAD_MAX_BYTES,
       ),
+      ...(this.options.templatePublisher
+        ? {
+            template_publish: wrapMutationTool(
+              createTemplatePublishTool(this.options.templatePublisher, () =>
+                this.runContext.getStore(),
+              ),
+              this.options.websiteId,
+              () => this.runContext.getStore(),
+            ),
+          }
+        : {}),
     };
     const modelFacingCwdExtension: InlineExtension = {
       name: 'cloudcrane-logical-cwd',
@@ -1765,6 +1795,58 @@ function createQuestionTool(
           wasCustom: false,
           optionIndex: interaction.optionIndex,
         },
+      };
+    },
+  };
+}
+
+const templatePublishParameters = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 120 }),
+  description: Type.String({ minLength: 1, maxLength: 4_000 }),
+  category: Type.String({ minLength: 1, maxLength: 64 }),
+  demoUrl: Type.Optional(Type.String({ maxLength: 2_000 })),
+  coverUrl: Type.Optional(Type.String({ maxLength: 2_000 })),
+});
+
+export function createTemplatePublishTool(
+  publish: (request: TemplatePublishRequest) => Promise<TemplatePublishResult>,
+  getRunContext: () => RunContext | undefined,
+): ToolDefinition<typeof templatePublishParameters> {
+  return {
+    name: 'template_publish',
+    label: 'Publish Website as template',
+    description:
+      'Publish the current Website as an immutable template after the template-publish Skill checks pass. Never use this to publish another Website or to bypass a failed check.',
+    promptSnippet: 'publish the current Website as an immutable template',
+    promptGuidelines: [
+      'Read the template-publish Skill and its references before calling this tool.',
+      'Run and report the required preflight and Preview checks before publishing.',
+      'Ask the user before publishing suspected real business data; do not auto-sanitize.',
+      'Do not call this tool when Core Drift, DB integrity, metadata, or Preview checks fail.',
+    ],
+    parameters: templatePublishParameters,
+    executionMode: 'sequential',
+    execute: async (_toolCallId, params) => {
+      if (!getRunContext()) throw new Error('template_publish requires an active AgentRun');
+      const result = await publish(params);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: [
+              'Template published successfully.',
+              `Template ID: ${result.id}`,
+              `Artifact: ${result.artifactStorageKey}`,
+              `Artifact SHA-256: ${result.artifactSha256}`,
+              `Artifact size: ${result.artifactSize}`,
+              `Source Pboot version: ${result.sourcePbootVersion}`,
+              `Source Core commit: ${result.sourceCoreCommit}`,
+              `Database schema version: ${result.dbSchemaVersion}`,
+              'Verify the Template Catalog entry before reporting completion.',
+            ].join('\n'),
+          },
+        ],
+        details: result,
       };
     },
   };

@@ -65,6 +65,9 @@ importers:
       '@cloudcrane/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@cloudcrane/template-publishing':
+        specifier: workspace:*
+        version: link:../../packages/template-publishing
       '@cloudcrane/website-agent':
         specifier: workspace:*
         version: link:../../packages/website-agent
@@ -359,6 +362,21 @@ importers:
       pino:
         specifier: 10.3.1
         version: 10.3.1
+
+  packages/template-publishing:
+    dependencies:
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../db
+      '@cloudcrane/pboot-snapshot':
+        specifier: workspace:*
+        version: link:../pboot-snapshot
+      '@cloudcrane/workspace-client':
+        specifier: workspace:*
+        version: link:../workspace-client
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.0)
 
   packages/website-agent:
     dependencies:

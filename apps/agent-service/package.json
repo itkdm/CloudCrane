@@ -18,6 +18,7 @@
     "@cloudcrane/preview-protocol": "workspace:*",
     "@cloudcrane/pboot-snapshot": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
+    "@cloudcrane/template-publishing": "workspace:*",
     "@cloudcrane/website-agent": "workspace:*",
     "@cloudcrane/workspace-client": "workspace:*",
     "@earendil-works/pi-ai": "0.84.4",
