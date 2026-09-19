@@ -52,6 +52,8 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         '/workspace/admin.php',
         '/workspace/data/pbootcms.db',
         '/workspace/AGENTS.md',
+        '/workspace/.agents/skills/pboot-template-migration/SKILL.md',
+        '/workspace/.agents/skills/pbootcms-upgrade/SKILL.md',
       ])
         await expect(client.stat({ path })).resolves.toMatchObject({ path });
       for (const path of [

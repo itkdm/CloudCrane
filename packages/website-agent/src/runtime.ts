@@ -54,6 +54,8 @@ const REMOTE_REFERENCE_ROOT = '/workspace/.cloudcrane/references';
 export const DEFAULT_REFERENCE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
+const REMOTE_SKILLS_MAX_FILES = 256;
+const REMOTE_SKILLS_MAX_DEPTH = 8;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
 
@@ -398,6 +400,7 @@ export class WebsiteAgentRuntime {
   private readonly workspaceClient: WorkspaceClient;
   private readonly modelRuntimePromise: Promise<ModelRuntime>;
   private readonly interactionBroker: HumanInteractionBroker;
+  private readonly skillRefreshes = new Map<string, Promise<void>>();
 
   get workspaceId(): string {
     return this.options.workspaceId;
@@ -1326,25 +1329,59 @@ export class WebsiteAgentRuntime {
     return path.join(this.layout.root, this.options.websiteId, 'agent', 'remote-skills');
   }
 
-  private async refreshRemoteSkills(targetDir: string, previousNames: string[]): Promise<void> {
+  private refreshRemoteSkills(targetDir: string, previousNames: string[]): Promise<void> {
+    const current = this.skillRefreshes.get(targetDir);
+    if (current) return current;
+    const refresh = this.refreshRemoteSkillsUnsafe(targetDir, previousNames).finally(() => {
+      if (this.skillRefreshes.get(targetDir) === refresh) this.skillRefreshes.delete(targetDir);
+    });
+    this.skillRefreshes.set(targetDir, refresh);
+    return refresh;
+  }
+
+  private async refreshRemoteSkillsUnsafe(
+    targetDir: string,
+    previousNames: string[],
+  ): Promise<void> {
     const stagingDir = `${targetDir}.staging-${randomUUID()}`;
     const backupDir = `${targetDir}.backup-${randomUUID()}`;
     const files: Array<{ remotePath: string; relativePath: string; size: number }> = [];
     let totalBytes = 0;
     let skippedFiles = 0;
     let incompleteRefresh = false;
+    let hadPreviousMirror = false;
     try {
+      try {
+        await access(targetDir);
+        hadPreviousMirror = true;
+      } catch (error) {
+        if (!isFileNotFound(error)) throw error;
+      }
+      try {
+        const root = await this.workspaceClient.fs.stat({ path: REMOTE_SKILLS_ROOT });
+        if (root.type !== 'directory') throw new Error('remote skills root is not a directory');
+      } catch (error) {
+        if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') {
+          await rm(targetDir, { recursive: true, force: true });
+          await mkdir(targetDir, { recursive: true });
+          previousNames.splice(0, previousNames.length);
+          return;
+        }
+        throw error;
+      }
       await this.collectRemoteSkillFiles(REMOTE_SKILLS_ROOT, '', files);
       const eligibleFiles: typeof files = [];
       for (const file of files) {
         if (file.size > REMOTE_SKILL_FILE_MAX_BYTES) {
           skippedFiles++;
+          incompleteRefresh = true;
           continue;
         }
         totalBytes += file.size;
         if (totalBytes > REMOTE_SKILLS_TOTAL_MAX_BYTES) {
           totalBytes -= file.size;
           skippedFiles++;
+          incompleteRefresh = true;
           continue;
         }
         eligibleFiles.push(file);
@@ -1371,12 +1408,22 @@ export class WebsiteAgentRuntime {
           incompleteRefresh = true;
           continue;
         }
+        if (result.size > REMOTE_SKILL_FILE_MAX_BYTES) {
+          skippedFiles++;
+          incompleteRefresh = true;
+          continue;
+        }
+        totalBytes += result.size - file.size;
+        if (totalBytes > REMOTE_SKILLS_TOTAL_MAX_BYTES) {
+          skippedFiles++;
+          incompleteRefresh = true;
+          continue;
+        }
         const localPath = path.join(stagingDir, ...file.relativePath.split('/'));
         await mkdir(path.dirname(localPath), { recursive: true });
         await writeFile(localPath, result.content, 'utf8');
       }
       if (incompleteRefresh) throw new Error('remote skill mirror would be incomplete');
-      let hadPreviousMirror = false;
       try {
         await rename(targetDir, backupDir);
         hadPreviousMirror = true;
@@ -1411,12 +1458,6 @@ export class WebsiteAgentRuntime {
       );
     } catch (error) {
       await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
-      if (error instanceof WorkspaceClientError && error.code === 'FILE_NOT_FOUND') {
-        await rm(targetDir, { recursive: true, force: true });
-        await mkdir(targetDir, { recursive: true });
-        previousNames.splice(0, previousNames.length);
-        return;
-      }
       logger.warn(
         {
           websiteId: this.options.websiteId,
@@ -1424,6 +1465,7 @@ export class WebsiteAgentRuntime {
         },
         'remote website skills refresh failed; retaining previous mirror',
       );
+      if (!hadPreviousMirror) throw error;
     }
   }
 
@@ -1432,15 +1474,25 @@ export class WebsiteAgentRuntime {
     relativeDir: string,
     files: Array<{ remotePath: string; relativePath: string; size: number }>,
   ): Promise<void> {
+    const depth = relativeDir ? relativeDir.split('/').length : 0;
+    if (depth > REMOTE_SKILLS_MAX_DEPTH)
+      throw new Error('remote skill directory exceeds the maximum depth');
     const result = await this.workspaceClient.fs.list({ path: remoteDir });
     for (const entry of result.entries) {
-      const name = entry.path.slice(remoteDir.length).replace(/^\/+/, '');
+      const prefix = remoteDir.endsWith('/') ? remoteDir : `${remoteDir}/`;
+      if (!entry.path.startsWith(prefix))
+        throw new Error(`invalid remote skill path: ${entry.path}`);
+      const name = entry.path.slice(prefix.length);
       if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..')
         throw new Error(`invalid remote skill path: ${entry.path}`);
       const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
       if (entry.type === 'directory') {
         await this.collectRemoteSkillFiles(entry.path, relativePath, files);
+      } else if (entry.type === 'symlink') {
+        throw new Error(`remote skill path is a symlink: ${relativePath}`);
       } else if (entry.type === 'file') {
+        if (files.length >= REMOTE_SKILLS_MAX_FILES)
+          throw new Error('remote skills exceed the maximum file count');
         files.push({ remotePath: entry.path, relativePath, size: entry.size });
       }
     }

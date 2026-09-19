@@ -24,7 +24,7 @@ const workspaceId = '00000000-0000-4000-8000-000000000002';
 const referenceRoot = '/workspace/.cloudcrane/references';
 
 async function missingReferenceStat({ path: remotePath }: { path: string }) {
-  if (remotePath === referenceRoot)
+  if (remotePath === referenceRoot || remotePath === '/workspace/.agents/skills')
     throw new WorkspaceClientError('FILE_NOT_FOUND', 'template reference is not mounted');
   return {
     path: remotePath,
@@ -190,7 +190,7 @@ describe('WebsiteAgentRuntime', () => {
           };
         }),
         stat: vi.fn(async ({ path: remotePath }: { path: string }) => {
-          if (remotePath === referenceRoot)
+          if (remotePath === referenceRoot || remotePath === '/workspace/.agents/skills')
             throw new WorkspaceClientError('FILE_NOT_FOUND', 'template reference is not mounted');
           return {
             path: remotePath,
@@ -537,6 +537,7 @@ describe('WebsiteAgentRuntime', () => {
     modelRuntime.registerNativeProvider(faux.provider);
     let description = 'Use dark green buttons and verify Preview.';
     let failSkillRefresh = false;
+    let skillMode: 'normal' | 'oversized' | 'symlink' = 'normal';
     const client = {
       fs: {
         read: vi.fn(async ({ path: remotePath }: { path: string }) => ({
@@ -544,7 +545,7 @@ describe('WebsiteAgentRuntime', () => {
             ? ''
             : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
           sha256: '1'.repeat(64),
-          size: 128,
+          size: skillMode === 'oversized' ? 262_145 : 128,
           truncated: false,
         })),
         list: vi.fn(async ({ path: remotePath }: { path: string }) => {
@@ -563,20 +564,41 @@ describe('WebsiteAgentRuntime', () => {
                     },
                   ]
                 : remotePath === '/workspace/.agents/skills/frontend-design'
-                  ? [
-                      {
-                        path: '/workspace/.agents/skills/frontend-design/SKILL.md',
-                        type: 'file' as const,
-                        size: 128,
-                        mode: 0o644,
-                        modifiedAt: new Date().toISOString(),
-                      },
-                    ]
+                  ? skillMode === 'symlink'
+                    ? [
+                        {
+                          path: '/workspace/.agents/skills/frontend-design/SKILL.md',
+                          type: 'symlink' as const,
+                          size: 128,
+                          mode: 0o777,
+                          modifiedAt: new Date().toISOString(),
+                        },
+                      ]
+                    : [
+                        {
+                          path: '/workspace/.agents/skills/frontend-design/SKILL.md',
+                          type: 'file' as const,
+                          size: 128,
+                          mode: 0o644,
+                          modifiedAt: new Date().toISOString(),
+                        },
+                      ]
                   : [],
           };
         }),
         stat: vi.fn(async ({ path: remotePath }: { path: string }) => {
           if (remotePath === referenceRoot)
+            return {
+              path: remotePath,
+              type: 'directory' as const,
+              size: 0,
+              mode: 0o755,
+              modifiedAt: new Date().toISOString(),
+            };
+          if (
+            remotePath === '/workspace/.agents/skills' ||
+            remotePath === '/workspace/.agents/skills/frontend-design'
+          )
             return {
               path: remotePath,
               type: 'directory' as const,
@@ -620,6 +642,16 @@ describe('WebsiteAgentRuntime', () => {
     ).resolves.toMatchObject({
       status: 'COMPLETED',
     });
+    expect(await runtime.getSystemPrompt(session.id)).toContain(
+      'Use dark blue buttons and verify Preview.',
+    );
+    skillMode = 'oversized';
+    await runtime.prompt(session.id, 'keep the previous skill on oversized refresh');
+    expect(await runtime.getSystemPrompt(session.id)).toContain(
+      'Use dark blue buttons and verify Preview.',
+    );
+    skillMode = 'symlink';
+    await runtime.prompt(session.id, 'keep the previous skill on symlink refresh');
     expect(await runtime.getSystemPrompt(session.id)).toContain(
       'Use dark blue buttons and verify Preview.',
     );

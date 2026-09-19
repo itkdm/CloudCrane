@@ -29,6 +29,7 @@ COPY docker/workspace-pboot/cloudcrane-apply-pboot-snapshot /usr/local/bin/cloud
 COPY docker/workspace-pboot/pboot-migrations /opt/cloudcrane/pboot-migrations
 COPY docker/workspace-pboot/pboot-releases.json /opt/cloudcrane/pboot-releases.json
 COPY docker/workspace-pboot/skills/pboot-template-migration /opt/cloudcrane/skills/pboot-template-migration
+COPY docker/workspace-pboot/skills/pbootcms-upgrade /opt/cloudcrane/skills/pbootcms-upgrade
 RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-normalize-k714 /usr/local/bin/cloudcrane-migrate-pboot-sqlite /usr/local/bin/cloudcrane-rebind-pboot-state /usr/local/bin/cloudcrane-apply-pboot-snapshot
 
 RUN npm install --global pnpm@10.11.0 \

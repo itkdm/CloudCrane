@@ -5,10 +5,20 @@ workspace=/workspace
 base=/opt/cloudcrane/pbootcms-base
 marker="$workspace/.cloudcrane/bootstrap.json"
 
+install_builtin_skills() {
+  mkdir -p "$workspace/.agents/skills"
+  for skill in pboot-template-migration pbootcms-upgrade; do
+    if [ -d "/opt/cloudcrane/skills/$skill" ] && [ ! -e "$workspace/.agents/skills/$skill" ]; then
+      cp -a "/opt/cloudcrane/skills/$skill" "$workspace/.agents/skills/"
+    fi
+  done
+}
+
 if [ -f "$marker" ]; then
   test -f "$workspace/index.php"
   test -f "$workspace/data/pbootcms.db"
   test -d "$workspace/.git"
+  install_builtin_skills
   printf '%s\n' 'ALREADY_INITIALIZED'
   exit 0
 fi
@@ -34,10 +44,7 @@ fi
 cp -a "$base"/. "$workspace"/
 rm -f "$workspace/.cloudcrane-base"
 mkdir -p "$workspace/.cloudcrane"
-if [ -d /opt/cloudcrane/skills/pboot-template-migration ]; then
-  mkdir -p "$workspace/.agents/skills"
-  cp -a /opt/cloudcrane/skills/pboot-template-migration "$workspace/.agents/skills/"
-fi
+install_builtin_skills
 cat > "$workspace/AGENTS.md" <<'EOF'
 # PbootCMS Website
 

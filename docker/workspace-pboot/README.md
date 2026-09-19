@@ -10,4 +10,4 @@ The image also contains the K714-only `cloudcrane-normalize-k714` helper. It acc
 cloudcrane-normalize-k714 /private/path/to/k714-source
 ```
 
-The image build also includes the tracked `pboot-template-migration` runtime skill from `docker/workspace-pboot/skills/`. During workspace initialization, `cloudcrane-init-pboot` copies it into `/workspace/.agents/skills/`. The repository root `.agents/` directory is local agent configuration and is intentionally ignored by Git; image builds must not depend on it.
+The image build also includes the tracked `pboot-template-migration` and `pbootcms-upgrade` runtime skills from `docker/workspace-pboot/skills/`. During workspace initialization, `cloudcrane-init-pboot` copies them into `/workspace/.agents/skills/`. The repository root `.agents/` directory is local agent configuration and is intentionally ignored by Git; image builds must not depend on it.

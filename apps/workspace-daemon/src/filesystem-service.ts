@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   FsListResponse,
@@ -21,7 +21,9 @@ export class FilesystemService {
 
   async read(request: FsReadRequest): Promise<FsReadResponse> {
     const filePath = await this.resolver.resolveExisting(request.path);
-    const info = await stat(filePath);
+    const info = await lstat(filePath);
+    if (info.isSymbolicLink())
+      throw new WorkspaceDaemonError('PATH_OUT_OF_SCOPE', 'Symbolic links are not allowed');
     if (!info.isFile()) throw new WorkspaceDaemonError('INVALID_ARGUMENT', 'Path must be a file');
     const maxBytes = request.maxBytes ?? DEFAULT_MAX_READ_BYTES;
     const hash = createHash('sha256');
@@ -81,10 +83,16 @@ export class FilesystemService {
 
   async stat(request: { path: string }): Promise<FsStatResponse> {
     const filePath = await this.resolver.resolveExisting(request.path);
-    const info = await stat(filePath);
+    const info = await lstat(filePath);
     return {
       path: request.path,
-      type: info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'symlink',
+      type: info.isSymbolicLink()
+        ? 'symlink'
+        : info.isDirectory()
+          ? 'directory'
+          : info.isFile()
+            ? 'file'
+            : 'symlink',
       size: info.size,
       mode: info.mode,
       modifiedAt: info.mtime.toISOString(),
