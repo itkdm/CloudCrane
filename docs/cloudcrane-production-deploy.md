@@ -55,8 +55,9 @@ PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://site-{websiteId}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com
 PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
-WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/opt/cloudcrane/pbootcms-base
-TEMPLATE_ARTIFACT_ROOT=/opt/cloudcrane/.cloudcrane-data/templates
+# 生产数据目录与代码目录分离，避免发布代码时覆盖运行时数据。
+WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/var/lib/cloudcrane/pbootcms-base
+TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 ```
 
 ## 正式邮件
