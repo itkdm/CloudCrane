@@ -45,7 +45,6 @@ const managedCoreExact = new Set([
   'index.php',
   'admin.php',
   'api.php',
-  '.gitignore',
   'config/database.php',
   '.cloudcrane/bootstrap.json',
 ]);
@@ -60,6 +59,7 @@ const ephemeralPrefixes = [
   'data/backup/',
   'data/upgrade/',
 ];
+const ephemeralExact = new Set(['.gitignore']);
 
 function normalizeRelativePath(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '');
@@ -79,6 +79,7 @@ function normalizeRelativePath(value: string): string {
 
 export function classifySnapshotPath(value: string): SnapshotPathClass {
   const relative = normalizeRelativePath(value);
+  if (ephemeralExact.has(relative)) return 'EPHEMERAL_RUNTIME';
   if (
     ephemeralPrefixes.some(
       (prefix) => relative === prefix.slice(0, -1) || relative.startsWith(prefix),

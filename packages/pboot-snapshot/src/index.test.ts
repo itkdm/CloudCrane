@@ -21,6 +21,7 @@ describe('Pboot snapshot boundaries', () => {
     expect(classifySnapshotPath('config/database.php')).toBe('MANAGED_CORE');
     expect(classifySnapshotPath('config/config.php')).toBe('SITE_STATE');
     expect(classifySnapshotPath('config/route.php')).toBe('SITE_STATE');
+    expect(classifySnapshotPath('.gitignore')).toBe('EPHEMERAL_RUNTIME');
     expect(classifySnapshotPath('template/default/index.html')).toBe('SITE_STATE');
     expect(classifySnapshotPath('static/upload/logo.png')).toBe('SITE_STATE');
     expect(classifySnapshotPath('data/pbootcms.db')).toBe('SITE_STATE');
