@@ -138,7 +138,7 @@ describe('website provisioning foundation', () => {
   });
 
   it('reclaims a stale materializing attachment with a timestamp CAS', async () => {
-    const update = vi.fn(async () => true);
+    const update = vi.fn(async () => 4);
     const attach = vi.fn(async () => ({ referenceId: 'ref_template' }));
     const staleUpdatedAt = new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS - 1_000);
 
@@ -151,6 +151,7 @@ describe('website provisioning foundation', () => {
           artifactSha256: 'a'.repeat(64),
           status: 'materializing',
           referenceId: null,
+          attemptCount: 3,
           updatedAt: staleUpdatedAt,
         }),
         updateTemplateAttachment: update,
@@ -165,6 +166,9 @@ describe('website provisioning foundation', () => {
         expectedStatus: 'materializing',
         staleBefore: expect.any(Date),
       }),
+    );
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'ready', expectedAttemptCount: 4 }),
     );
     expect(attach).toHaveBeenCalledOnce();
   });
@@ -182,6 +186,7 @@ describe('website provisioning foundation', () => {
             artifactSha256: 'a'.repeat(64),
             status: 'materializing',
             referenceId: null,
+            attemptCount: 3,
             updatedAt: new Date(),
           }),
           updateTemplateAttachment: vi.fn(),
@@ -206,6 +211,7 @@ describe('website provisioning foundation', () => {
             artifactSha256: 'a'.repeat(64),
             status: 'materializing',
             referenceId: null,
+            attemptCount: 3,
             updatedAt: new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS - 1_000),
           }),
           updateTemplateAttachment: vi.fn(async () => false),
@@ -215,6 +221,45 @@ describe('website provisioning foundation', () => {
       }),
     ).rejects.toThrow('模板正在应用');
     expect(attach).not.toHaveBeenCalled();
+  });
+
+  it('does not let a reclaimed worker update website state after its fencing token is lost', async () => {
+    const update = vi
+      .fn()
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    const updateWebsiteStatus = vi.fn();
+
+    await expect(
+      retryTemplateAttachment('website-1', {
+        workspaceId: 'workspace-1',
+        store: {
+          findTemplateAttachment: async () => ({
+            templateId: 'template-1',
+            artifactStorageKey: 'template-1.zip',
+            artifactSha256: 'a'.repeat(64),
+            status: 'materializing',
+            referenceId: null,
+            attemptCount: 3,
+            updatedAt: new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS - 1_000),
+          }),
+          updateTemplateAttachment: update,
+          updateWebsiteStatus,
+        },
+        attachTemplate: async () => ({ referenceId: 'ref-template' }),
+      }),
+    ).rejects.toThrow('模板应用已被其他任务接管');
+
+    expect(update).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ status: 'materializing', incrementAttempt: true }),
+    );
+    expect(update).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ status: 'ready', expectedAttemptCount: 4 }),
+    );
+    expect(updateWebsiteStatus).not.toHaveBeenCalled();
   });
 
   it('retains records and marks a definite runtime failure', async () => {
