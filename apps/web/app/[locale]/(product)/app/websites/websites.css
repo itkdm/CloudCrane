@@ -418,11 +418,6 @@
   transition: none;
   transform: none;
 }
-.template-card:hover {
-  border-color: var(--cc-border);
-  box-shadow: var(--cc-shadow-sm);
-  transform: none;
-}
 .template-card-cover {
   display: grid;
   height: 124px;
