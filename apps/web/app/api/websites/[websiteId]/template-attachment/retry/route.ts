@@ -9,6 +9,7 @@ import {
 import { auth } from '../../../../../../lib/server/auth.js';
 import { attachTemplateReference } from '../../../../../../lib/server/template-attachment.js';
 import {
+  createProductionRuntime,
   createProductionWebsiteStore,
   retryTemplateAttachment,
 } from '../../../../../../lib/server/website-provisioning.js';
@@ -34,6 +35,8 @@ export async function POST(request: Request, context: { params: Promise<{ websit
         workspaceId,
         attachTemplate: ({ websiteId: id, workspaceId: currentWorkspaceId, template }) =>
           attachTemplateReference({ websiteId: id, workspaceId: currentWorkspaceId, template }),
+        applyTemplateSnapshot: (referenceId) =>
+          createProductionRuntime(websiteId, workspaceId).applyTemplateSnapshot!(referenceId),
       });
       return NextResponse.json(result);
     } finally {

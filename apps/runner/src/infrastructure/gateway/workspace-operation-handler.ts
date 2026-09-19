@@ -41,6 +41,8 @@ export class WorkspaceOperationHandler {
         return (await this.daemon(operation.workspaceId, deadlineAt)).cancel(
           operation.payload.executionId,
         );
+      case 'snapshot.stage':
+        return this.runtime.stageSnapshot(operation.workspaceId, operation.payload);
     }
   }
 

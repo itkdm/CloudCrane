@@ -13,18 +13,21 @@ COPY . .
 
 RUN git init /tmp/pbootcms-base \
   && git -C /tmp/pbootcms-base remote add origin https://github.com/pbootcmspro/PbootCMS.git \
-  && git -C /tmp/pbootcms-base fetch --depth=1 origin 29ff72ee5afc9c6553b949f04d3fc99443879f40 \
+  && git -C /tmp/pbootcms-base fetch --depth=1 origin 8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea \
   && git -C /tmp/pbootcms-base checkout --detach FETCH_HEAD \
   && rm -rf /tmp/pbootcms-base/.git \
   && mkdir -p /opt/cloudcrane \
   && cp -a /tmp/pbootcms-base /opt/cloudcrane/pbootcms-base \
-  && printf 'pbootcms=3.2.24\nsourceCommit=%s\n' '29ff72ee5afc9c6553b949f04d3fc99443879f40' > /opt/cloudcrane/pbootcms-base/.cloudcrane-base
+  && printf 'pbootcms=3.2.26\nsourceCommit=%s\n' '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea' > /opt/cloudcrane/pbootcms-base/.cloudcrane-base
 
 COPY docker/workspace-pboot/cloudcrane-init-pboot /usr/local/bin/cloudcrane-init-pboot
 COPY docker/workspace-pboot/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-license
 COPY docker/workspace-pboot/cloudcrane-normalize-k714 /usr/local/bin/cloudcrane-normalize-k714
+COPY docker/workspace-pboot/cloudcrane-migrate-pboot-sqlite /usr/local/bin/cloudcrane-migrate-pboot-sqlite
+COPY docker/workspace-pboot/cloudcrane-apply-pboot-snapshot /usr/local/bin/cloudcrane-apply-pboot-snapshot
+COPY docker/workspace-pboot/pboot-migrations /opt/cloudcrane/pboot-migrations
 COPY docker/workspace-pboot/skills/pboot-template-migration /opt/cloudcrane/skills/pboot-template-migration
-RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-normalize-k714
+RUN chmod 0755 /usr/local/bin/cloudcrane-init-pboot /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-normalize-k714 /usr/local/bin/cloudcrane-migrate-pboot-sqlite /usr/local/bin/cloudcrane-apply-pboot-snapshot
 
 RUN npm install --global pnpm@10.11.0 \
   && pnpm install --frozen-lockfile --filter @cloudcrane/workspace-daemon...

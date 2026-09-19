@@ -4,6 +4,8 @@ export type RunnerConfig = {
   runnerId: string;
   workspaceRoot: string;
   referenceRoot?: string;
+  templateArtifactRoot?: string;
+  managedPbootBaseRoot?: string;
   workspaceImage: string;
   daemonPort: number;
   cpuLimit: number;
@@ -18,10 +20,16 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
   z.string().uuid().parse(runnerId);
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
     throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
+  if (env.NODE_ENV === 'production' && !env.TEMPLATE_ARTIFACT_ROOT)
+    throw new Error('TEMPLATE_ARTIFACT_ROOT is required in production');
+  if (env.NODE_ENV === 'production' && !env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT)
+    throw new Error('WORKSPACE_MANAGED_PBOOT_BASE_ROOT is required in production');
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
     referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
+    templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
+    managedPbootBaseRoot: env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT,
     workspaceImage: env.WORKSPACE_IMAGE ?? 'website-workspace-pboot:v1',
     daemonPort: 7070,
     cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),

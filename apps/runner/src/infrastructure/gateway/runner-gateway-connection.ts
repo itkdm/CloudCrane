@@ -26,6 +26,7 @@ const capabilities = [
   'fs.mkdir',
   'process.exec',
   'process.cancel',
+  'snapshot.stage',
 ];
 
 export class RunnerGatewayConnection {

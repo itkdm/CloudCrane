@@ -61,6 +61,7 @@ NODE_ENV=production
 WORKSPACE_REFERENCE_ROOT=<Agent 与 Runner 共用的绝对路径>
 AGENT_SERVICE_INTERNAL_TOKEN=<随机服务间 Token>
 TEMPLATE_ARTIFACT_ROOT=<私有 Artifact 目录>
+WORKSPACE_MANAGED_PBOOT_BASE_ROOT=<Runner 可读取的官方 Managed Pboot 基线目录>
 ```
 
 并执行 `nginx -t` 后 reload；公网访问 `/agent/v1/internal/` 应返回 404。

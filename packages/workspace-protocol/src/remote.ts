@@ -65,6 +65,10 @@ export const clientOperationSchema = z.discriminatedUnion('operation', [
     operation: z.literal('process.cancel'),
     payload: operationPayloadSchemas['process.cancel'],
   }),
+  clientOperationCommonSchema.extend({
+    operation: z.literal('snapshot.stage'),
+    payload: operationPayloadSchemas['snapshot.stage'],
+  }),
 ] as const);
 
 export const gatewayOperationSchema = runnerOperationSchema;

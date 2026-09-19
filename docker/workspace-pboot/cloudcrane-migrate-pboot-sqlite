@@ -1,0 +1,76 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+const TARGET_VERSION = '3.2.26';
+const MIN_SUPPORTED_SOURCE_VERSION = '3.2.24';
+const MIGRATION_ASSET = '/opt/cloudcrane/pboot-migrations/sqlite-3.2.26-update.sql';
+
+function versionParts(string $version): array
+{
+    if (!preg_match('/^(\d+)\.(\d+)\.(\d+)$/', $version, $matches)) {
+        throw new RuntimeException("invalid Pboot version: {$version}");
+    }
+    return [(int)$matches[1], (int)$matches[2], (int)$matches[3]];
+}
+
+function compareVersions(string $left, string $right): int
+{
+    $a = versionParts($left);
+    $b = versionParts($right);
+    for ($index = 0; $index < 3; $index++) {
+        if ($a[$index] !== $b[$index]) return $a[$index] <=> $b[$index];
+    }
+    return 0;
+}
+
+function fail(string $message): never
+{
+    fwrite(STDERR, "ERROR {$message}\n");
+    exit(1);
+}
+
+if ($argc !== 4) fail('usage: cloudcrane-migrate-pboot-sqlite SOURCE_DB TARGET_DB SOURCE_VERSION');
+$sourcePath = realpath($argv[1]);
+$targetPath = $argv[2];
+$sourceVersion = $argv[3];
+if ($sourcePath === false || !is_file($sourcePath) || $sourcePath === $targetPath) fail('invalid source database');
+if (compareVersions($sourceVersion, TARGET_VERSION) > 0) fail('database downgrade is not supported');
+if (compareVersions($sourceVersion, MIN_SUPPORTED_SOURCE_VERSION) < 0) fail('official SQLite migration chain is unavailable for this source version');
+if (compareVersions($sourceVersion, TARGET_VERSION) === 0) {
+    if (!copy($sourcePath, $targetPath)) fail('cannot copy same-version database');
+    echo "MIGRATED {$sourceVersion} -> " . TARGET_VERSION . "\n";
+    exit(0);
+}
+if (!is_file(MIGRATION_ASSET)) fail('official migration asset is missing');
+
+$targetDirectory = dirname($targetPath);
+if (!is_dir($targetDirectory) && !mkdir($targetDirectory, 0775, true)) fail('cannot create target directory');
+$stagingPath = $targetPath . '.staging-' . bin2hex(random_bytes(8));
+if (!copy($sourcePath, $stagingPath)) fail('cannot stage source database');
+$db = null;
+try {
+    $db = new PDO('sqlite:' . $stagingPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') {
+        throw new RuntimeException('source database integrity check failed');
+    }
+    $db->beginTransaction();
+    $sql = (string)file_get_contents(MIGRATION_ASSET);
+    if ($sql === '') throw new RuntimeException('official migration asset is empty');
+    $db->exec($sql);
+    $db->commit();
+    if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') {
+        throw new RuntimeException('migrated database integrity check failed');
+    }
+    $db = null;
+    if (file_exists($targetPath) && !unlink($targetPath)) {
+        throw new RuntimeException('cannot replace target database');
+    }
+    if (!rename($stagingPath, $targetPath)) throw new RuntimeException('cannot promote migrated database');
+    echo "MIGRATED {$sourceVersion} -> " . TARGET_VERSION . "\n";
+} catch (Throwable $error) {
+    if ($db?->inTransaction()) $db->rollBack();
+    $db = null;
+    @unlink($stagingPath);
+    fail($error->getMessage());
+}

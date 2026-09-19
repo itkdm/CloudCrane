@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
-import { createPlatformDb, website, websiteTemplateAttachment, workspace } from '@cloudcrane/db';
+import {
+  createPlatformDb,
+  template,
+  website,
+  websiteTemplateAttachment,
+  workspace,
+} from '@cloudcrane/db';
 import { createLogger } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
 
@@ -61,6 +67,7 @@ type WebsiteStore = {
     templateId: string;
     artifactStorageKey: string;
     artifactSha256: string;
+    artifactType?: string;
     status: string;
     referenceId: string | null;
     attemptCount: number;
@@ -77,12 +84,14 @@ type RuntimeClient = {
   reconcileBootstrap(): Promise<boolean>;
   configureAuthorization(sn: string): Promise<{ status: string }>;
   verifyAuthorization(canonicalHost: string): Promise<boolean>;
+  applyTemplateSnapshot?(referenceId: string): Promise<{ status: string }>;
 };
 
 type TemplateAttachment = {
   id: string;
   artifactStorageKey: string;
   artifactSha256: string;
+  artifactType?: string;
 };
 
 async function finalizeTemplateAttachment(
@@ -274,6 +283,11 @@ export async function createWebsite(
         workspaceId,
         template: dependencies.template,
       });
+      if (dependencies.template.artifactType === 'cloudcrane-pboot-site-snapshot') {
+        if (!runtime.applyTemplateSnapshot)
+          throw new Error('Pboot snapshot restore is not configured');
+        await runtime.applyTemplateSnapshot(reference.referenceId);
+      }
     } catch (error) {
       const failed = await finalizeTemplateAttachment(dependencies.store, {
         websiteId,
@@ -324,6 +338,7 @@ export async function retryTemplateAttachment(
       workspaceId: string;
       template: TemplateAttachment;
     }) => Promise<{ referenceId: string }>;
+    applyTemplateSnapshot?: (referenceId: string) => Promise<{ status: string }>;
   },
 ): Promise<{ referenceId: string }> {
   const attachment = await dependencies.store.findTemplateAttachment?.(websiteId);
@@ -353,6 +368,11 @@ export async function retryTemplateAttachment(
       workspaceId: dependencies.workspaceId,
       template: { id: attachment.templateId, ...attachment },
     });
+    if (
+      attachment.artifactType === 'cloudcrane-pboot-site-snapshot' &&
+      dependencies.applyTemplateSnapshot
+    )
+      await dependencies.applyTemplateSnapshot(result.referenceId);
   } catch (error) {
     const failed = await finalizeTemplateAttachment(dependencies.store, {
       websiteId,
@@ -562,12 +582,17 @@ export function createProductionWebsiteStore(ownerId?: string) {
           templateId: websiteTemplateAttachment.templateId,
           artifactStorageKey: websiteTemplateAttachment.artifactStorageKey,
           artifactSha256: websiteTemplateAttachment.artifactSha256,
+          artifactType: template.artifactType,
           status: websiteTemplateAttachment.status,
           referenceId: websiteTemplateAttachment.referenceId,
           attemptCount: websiteTemplateAttachment.attemptCount,
           updatedAt: websiteTemplateAttachment.updatedAt,
         })
         .from(websiteTemplateAttachment)
+        .innerJoin(
+          template,
+          eq(websiteTemplateAttachment.templateId as never, template.id as never),
+        )
         .where(eq(websiteTemplateAttachment.websiteId as never, websiteId))
         .limit(1);
       return rows[0] ?? null;
@@ -633,7 +658,7 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
         30_000,
       );
       return (
-        marker.content.includes('"sourceCommit": "29ff72ee5afc9c6553b949f04d3fc99443879f40"') &&
+        marker.content.includes('"sourceCommit": "8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea"') &&
         verification.exitCode === 0
       );
     },
@@ -664,6 +689,12 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
         30_000,
       );
       return result.exitCode === 0;
+    },
+    applyTemplateSnapshot: async (referenceId: string) => {
+      const result = await exec('cloudcrane-apply-pboot-snapshot', [referenceId], 120_000);
+      if (result.exitCode !== 0)
+        throw new Error(result.stderr.trim() || 'Pboot snapshot restore failed');
+      return { status: result.stdout.trim() };
     },
   };
 }

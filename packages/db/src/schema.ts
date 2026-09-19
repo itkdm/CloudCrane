@@ -44,6 +44,14 @@ export const template = pgTable(
     artifactStorageKey: text('artifact_storage_key').notNull().unique(),
     artifactSha256: varchar('artifact_sha256', { length: 64 }).notNull(),
     artifactSize: integer('artifact_size').notNull(),
+    artifactType: varchar('artifact_type', { length: 64 })
+      .notNull()
+      .default('legacy-theme-reference'),
+    snapshotSchemaVersion: integer('snapshot_schema_version'),
+    sourcePbootVersion: varchar('source_pboot_version', { length: 32 }),
+    sourceCoreCommit: varchar('source_core_commit', { length: 64 }),
+    dbEngine: varchar('db_engine', { length: 32 }),
+    dbSchemaVersion: varchar('db_schema_version', { length: 32 }),
     status: varchar('status', { length: 32 }).notNull(),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
@@ -55,6 +63,14 @@ export const template = pgTable(
     check('template_status_check', sql`${table.status} in ('draft', 'published', 'hidden')`),
     check('template_artifact_sha256_check', sql`${table.artifactSha256} ~ '^[0-9a-f]{64}$'`),
     check('template_artifact_size_check', sql`${table.artifactSize} > 0`),
+    check(
+      'template_artifact_type_check',
+      sql`${table.artifactType} in ('legacy-theme-reference', 'cloudcrane-pboot-site-snapshot')`,
+    ),
+    check(
+      'template_snapshot_metadata_check',
+      sql`(${table.artifactType} = 'legacy-theme-reference') OR (${table.snapshotSchemaVersion} is not null and ${table.sourcePbootVersion} is not null and ${table.sourceCoreCommit} is not null and ${table.dbEngine} is not null and ${table.dbSchemaVersion} is not null)`,
+    ),
   ],
 );
 

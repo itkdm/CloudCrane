@@ -72,6 +72,18 @@ export class WorkspaceClient {
     cancel: (payload: { executionId: string }, options?: RequestOptions) =>
       this.call('process.cancel', payload, options),
   };
+  readonly snapshot = {
+    stage: (
+      payload: {
+        artifactStorageKey: string;
+        sourceWebsiteId: string;
+        sourcePbootVersion: string;
+        sourceCoreCommit: string;
+        dbSchemaVersion: string;
+      },
+      options?: RequestOptions,
+    ) => this.call('snapshot.stage', payload, options),
+  };
 
   private readonly fetcher: FetchLike;
   constructor(

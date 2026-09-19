@@ -55,6 +55,8 @@ PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://site-{websiteId}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com
 PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
+WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/opt/cloudcrane/pbootcms-base
+TEMPLATE_ARTIFACT_ROOT=/opt/cloudcrane/.cloudcrane-data/templates
 ```
 
 ## 正式邮件
@@ -89,7 +91,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 ```bash
 cd /opt/cloudcrane
 git fetch origin main
-git reset --ff-only origin/main
+git merge --ff-only origin/main
 set -a
 . ./.env.server.local
 . ./.env.private.local

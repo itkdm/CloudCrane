@@ -16,6 +16,19 @@ import {
 } from '../daemon.js';
 
 export const runtimeWorkspacePayloadSchema = z.object({});
+export const snapshotStageRequestSchema = z.object({
+  artifactStorageKey: z.string().regex(/^template-[0-9a-f-]+\.zip$/i),
+  sourceWebsiteId: z.string().uuid(),
+  sourcePbootVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  sourceCoreCommit: z.string().regex(/^[0-9a-f]{7,64}$/i),
+  dbSchemaVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+});
+export const snapshotStageResponseSchema = z.object({
+  artifactStorageKey: z.string().regex(/^template-[0-9a-f-]+\.zip$/i),
+  artifactSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  artifactSize: z.number().int().positive(),
+  manifest: z.record(z.string(), z.unknown()),
+});
 export const operationPayloadSchemas = {
   'runtime.create': runtimeWorkspacePayloadSchema,
   'runtime.start': runtimeWorkspacePayloadSchema,
@@ -30,6 +43,7 @@ export const operationPayloadSchemas = {
   'fs.mkdir': fsMkdirRequestSchema,
   'process.exec': processExecRequestSchema,
   'process.cancel': processCancelRequestSchema,
+  'snapshot.stage': snapshotStageRequestSchema,
 } as const;
 
 export const workspaceOperationVariants = [
@@ -46,6 +60,7 @@ export const workspaceOperationVariants = [
   z.object({ operation: z.literal('fs.mkdir'), payload: fsMkdirRequestSchema }),
   z.object({ operation: z.literal('process.exec'), payload: processExecRequestSchema }),
   z.object({ operation: z.literal('process.cancel'), payload: processCancelRequestSchema }),
+  z.object({ operation: z.literal('snapshot.stage'), payload: snapshotStageRequestSchema }),
 ] as const;
 
 export const workspaceOperationSchema = z.discriminatedUnion(
@@ -79,6 +94,7 @@ export const operationResultSchemas = {
   'fs.mkdir': fsMkdirResponseSchema,
   'process.exec': processExecResponseSchema,
   'process.cancel': processCancelResponseSchema,
+  'snapshot.stage': snapshotStageResponseSchema,
 } as const satisfies Record<WorkspaceOperationName, z.ZodTypeAny>;
 
 export type OperationResult<K extends WorkspaceOperationName> = z.infer<
@@ -100,6 +116,7 @@ const mutationOperations = new Set<WorkspaceOperationName>([
   'fs.mkdir',
   'process.exec',
   'process.cancel',
+  'snapshot.stage',
 ]);
 
 export function isMutationOperation(operation: WorkspaceOperationName): boolean {
@@ -117,4 +134,5 @@ export const operationResultSchema = z.union([
   fsMkdirResponseSchema,
   processExecResponseSchema,
   processCancelResponseSchema,
+  snapshotStageResponseSchema,
 ]);

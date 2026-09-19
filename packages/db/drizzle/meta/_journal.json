@@ -43,6 +43,13 @@
       "when": 1790000000000,
       "tag": "0005_template_gallery_v1",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789817928774,
+      "tag": "0006_aberrant_outlaw_kid",
+      "breakpoints": true
     }
   ]
 }

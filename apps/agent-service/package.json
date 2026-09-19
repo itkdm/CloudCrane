@@ -16,6 +16,7 @@
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-access": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",
+    "@cloudcrane/pboot-snapshot": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/website-agent": "workspace:*",
     "@cloudcrane/workspace-client": "workspace:*",

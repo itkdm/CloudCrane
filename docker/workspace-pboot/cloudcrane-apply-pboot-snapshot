@@ -1,0 +1,188 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+const WORKSPACE = '/workspace';
+const TARGET_VERSION = '3.2.26';
+
+function fail(string $message): never
+{
+    fwrite(STDERR, "ERROR {$message}\n");
+    exit(1);
+}
+
+function normalizePath(string $value): string
+{
+    if ($value === '' || str_starts_with($value, '/') || str_contains($value, '\\') || preg_match('/^[A-Za-z]:/', $value)) {
+        fail("unsafe snapshot path: {$value}");
+    }
+    $normalized = str_replace('\\', '/', $value);
+    $parts = [];
+    foreach (explode('/', $normalized) as $part) {
+        if ($part === '' || $part === '.') continue;
+        if ($part === '..') {
+            if ($parts === []) fail("unsafe snapshot path: {$value}");
+            array_pop($parts);
+            continue;
+        }
+        $parts[] = $part;
+    }
+    $canonical = implode('/', $parts);
+    if ($normalized !== $value || $canonical !== $normalized || $canonical === '' || str_starts_with($canonical, '../') || str_contains($canonical, '/../')) {
+        fail("unsafe snapshot path: {$value}");
+    }
+    return $canonical;
+}
+
+function isManagedOrEphemeral(string $relative): bool
+{
+    return $relative === 'index.php'
+        || $relative === 'admin.php'
+        || $relative === 'api.php'
+        || $relative === '.gitignore'
+        || str_starts_with($relative, 'apps/')
+        || str_starts_with($relative, 'core/')
+        || str_starts_with($relative, 'config/')
+        || str_starts_with($relative, 'rewrite/')
+        || str_starts_with($relative, '.git/')
+        || str_starts_with($relative, '.cloudcrane/')
+        || str_starts_with($relative, 'runtime/')
+        || str_starts_with($relative, 'session/')
+        || str_starts_with($relative, 'cache/')
+        || str_starts_with($relative, 'log/')
+        || str_starts_with($relative, 'data/backup/')
+        || str_starts_with($relative, 'data/upgrade/');
+}
+
+function siteStateFiles(string $root): array
+{
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY,
+    );
+    foreach ($iterator as $file) {
+        if (!$file->isFile() || $file->isLink()) continue;
+        $relative = normalizePath(ltrim(str_replace('\\', '/', substr($file->getPathname(), strlen($root))), '/'));
+        if (!isManagedOrEphemeral($relative)) $files[] = $relative;
+    }
+    sort($files);
+    return $files;
+}
+
+function ensureDirectory(string $directory): void
+{
+    if (is_dir($directory)) return;
+    if (!mkdir($directory, 0775, true) && !is_dir($directory)) fail("cannot create directory: {$directory}");
+}
+
+function copyFileToStage(string $source, string $target): void
+{
+    if (!is_file($source) || is_link($source)) fail("snapshot payload file is missing or unsafe: {$source}");
+    ensureDirectory(dirname($target));
+    if (!copy($source, $target)) fail("cannot stage snapshot file: {$source}");
+}
+
+function moveWithParents(string $source, string $target): void
+{
+    ensureDirectory(dirname($target));
+    if (!rename($source, $target)) fail("cannot promote snapshot file: {$source}");
+}
+
+if ($argc !== 2) fail('usage: cloudcrane-apply-pboot-snapshot REFERENCE_ID');
+$referenceId = $argv[1];
+if (!preg_match('/^ref_[0-9a-f-]+$/i', $referenceId)) fail('invalid reference id');
+$referenceRoot = WORKSPACE . '/.cloudcrane/references/' . $referenceId;
+$manifestPath = $referenceRoot . '/manifest.json';
+$payloadRoot = $referenceRoot . '/payload';
+if (!is_file($manifestPath) || !is_dir($payloadRoot)) fail('snapshot manifest or payload is missing');
+$manifest = json_decode((string)file_get_contents($manifestPath), true);
+if (!is_array($manifest) || ($manifest['artifactType'] ?? null) !== 'cloudcrane-pboot-site-snapshot') fail('unsupported snapshot artifact');
+if (($manifest['snapshotSchemaVersion'] ?? null) !== 1 || ($manifest['dbEngine'] ?? null) !== 'sqlite') fail('unsupported snapshot schema');
+$sourceVersion = $manifest['sourcePbootVersion'] ?? null;
+if (!is_string($sourceVersion) || !preg_match('/^\d+\.\d+\.\d+$/', $sourceVersion)) fail('invalid source Pboot version');
+$entries = $manifest['files']['entries'] ?? null;
+if (!is_array($entries) || count($entries) !== ($manifest['files']['count'] ?? -1)) fail('invalid snapshot file manifest');
+$seen = [];
+foreach ($entries as $entry) {
+    if (!is_array($entry) || !is_string($entry['path'] ?? null) || !is_int($entry['size'] ?? null) || !is_string($entry['sha256'] ?? null)) fail('invalid snapshot file entry');
+    $relative = normalizePath($entry['path']);
+    if (isset($seen[$relative]) || isManagedOrEphemeral($relative)) fail("snapshot contains non-site-state path: {$relative}");
+    $source = $payloadRoot . '/' . $relative;
+    if (!is_file($source) || is_link($source)) fail("snapshot payload file is missing or unsafe: {$relative}");
+    $size = filesize($source);
+    $hash = hash_file('sha256', $source);
+    if ($size !== $entry['size'] || !hash_equals($entry['sha256'], (string)$hash)) fail("snapshot payload integrity check failed: {$relative}");
+    $seen[$relative] = true;
+}
+$database = 'data/pbootcms.db';
+if (!isset($seen[$database])) fail('snapshot must contain data/pbootcms.db');
+
+$cloudcraneRoot = WORKSPACE . '/.cloudcrane';
+$operationId = bin2hex(random_bytes(12));
+$stageRoot = $cloudcraneRoot . '/.snapshot-stage-' . $operationId;
+$backupRoot = $cloudcraneRoot . '/.snapshot-backup-' . $operationId;
+$promoted = [];
+$backedUp = [];
+try {
+    ensureDirectory($stageRoot);
+    foreach (array_keys($seen) as $relative) {
+        copyFileToStage($payloadRoot . '/' . $relative, $stageRoot . '/' . $relative);
+    }
+    $stagedDb = $stageRoot . '/' . $database;
+    $migratedDb = $stagedDb . '.migrated';
+    $command = 'cloudcrane-migrate-pboot-sqlite ' . escapeshellarg($stagedDb) . ' ' . escapeshellarg($migratedDb) . ' ' . escapeshellarg($sourceVersion);
+    exec($command, $output, $exitCode);
+    if ($exitCode !== 0 || !is_file($migratedDb)) fail('Pboot database migration failed');
+    unlink($stagedDb);
+    rename($migratedDb, $stagedDb);
+    $db = new PDO('sqlite:' . $stagedDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('migrated database integrity check failed');
+    $db = null;
+
+    foreach (siteStateFiles(WORKSPACE) as $relative) {
+        $source = WORKSPACE . '/' . $relative;
+        $backup = $backupRoot . '/' . $relative;
+        ensureDirectory(dirname($backup));
+        moveWithParents($source, $backup);
+        $backedUp[] = $relative;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($stageRoot, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY,
+    );
+    foreach ($iterator as $file) {
+        if (!$file->isFile() || $file->isLink()) fail('staged snapshot contains an unsafe file');
+        $relative = normalizePath(ltrim(str_replace('\\', '/', substr($file->getPathname(), strlen($stageRoot))), '/'));
+        moveWithParents($file->getPathname(), WORKSPACE . '/' . $relative);
+        $promoted[] = $relative;
+    }
+    $db = new PDO('sqlite:' . WORKSPACE . '/' . $database, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('promoted database integrity check failed');
+    $db = null;
+    exec('git -C ' . escapeshellarg(WORKSPACE) . ' add -A', $gitOutput, $gitExitCode);
+    if ($gitExitCode !== 0) fail('cannot stage restored site state');
+    exec('git -C ' . escapeshellarg(WORKSPACE) . ' commit -m ' . escapeshellarg('chore: restore Pboot site snapshot'), $gitOutput, $gitExitCode);
+    if ($gitExitCode !== 0 && $gitExitCode !== 1) fail('cannot commit restored site state');
+    exec('git -C ' . escapeshellarg(WORKSPACE) . ' ls-files | grep -q "^\\.cloudcrane/references/"', $gitOutput, $gitExitCode);
+    if ($gitExitCode === 0) fail('snapshot reference entered Website Git index');
+    if (is_dir($backupRoot)) {
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($backupRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($iterator as $file) {
+            if ($file->isDir()) @rmdir($file->getPathname()); else @unlink($file->getPathname());
+        }
+        @rmdir($backupRoot);
+    }
+    @rmdir($stageRoot);
+    echo "APPLIED {$referenceId} -> " . TARGET_VERSION . "\n";
+} catch (Throwable $error) {
+    foreach (array_reverse($promoted) as $relative) @unlink(WORKSPACE . '/' . $relative);
+    foreach (array_reverse($backedUp) as $relative) {
+        $backup = $backupRoot . '/' . $relative;
+        if (is_file($backup)) moveWithParents($backup, WORKSPACE . '/' . $relative);
+    }
+    $iterator = is_dir($stageRoot) ? new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stageRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) : null;
+    if ($iterator) foreach ($iterator as $file) $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
+    @rmdir($stageRoot);
+    fail($error->getMessage());
+}

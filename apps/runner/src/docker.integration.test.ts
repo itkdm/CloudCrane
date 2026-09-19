@@ -64,7 +64,7 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         await expect(client.stat({ path })).resolves.toMatchObject({ path, type: 'directory' });
       expect((await client.stat({ path: '/workspace/.git' })).type).toBe('directory');
       const marker = await client.read({ path: '/workspace/.cloudcrane/bootstrap.json' });
-      expect(marker.content).toContain('29ff72ee5afc9c6553b949f04d3fc99443879f40');
+      expect(marker.content).toContain('8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea');
       expect(
         (
           await client.exec({

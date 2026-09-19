@@ -9,6 +9,21 @@ export type WorkspaceRuntime = {
   previewPort?: number;
 };
 
+export type SnapshotStageInput = {
+  artifactStorageKey: string;
+  sourceWebsiteId: string;
+  sourcePbootVersion: string;
+  sourceCoreCommit: string;
+  dbSchemaVersion: string;
+};
+
+export type SnapshotStageResult = {
+  artifactStorageKey: string;
+  artifactSha256: string;
+  artifactSize: number;
+  manifest: Record<string, unknown>;
+};
+
 export interface WorkspaceProvider {
   create(workspaceId: string): Promise<WorkspaceRuntime>;
   start(workspaceId: string): Promise<WorkspaceRuntime>;
@@ -16,4 +31,5 @@ export interface WorkspaceProvider {
   getStatus(workspaceId: string): Promise<WorkspaceRuntime>;
   getEndpoint(workspaceId: string): Promise<string>;
   destroyRuntime(workspaceId: string): Promise<void>;
+  stageSnapshot(workspaceId: string, input: SnapshotStageInput): Promise<SnapshotStageResult>;
 }

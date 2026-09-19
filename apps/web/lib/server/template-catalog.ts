@@ -21,6 +21,12 @@ export type TemplateSnapshot = PublicTemplate & {
   artifactStorageKey: string;
   artifactSha256: string;
   artifactSize: number;
+  artifactType: string;
+  snapshotSchemaVersion: number | null;
+  sourcePbootVersion: string | null;
+  sourceCoreCommit: string | null;
+  dbEngine: string | null;
+  dbSchemaVersion: string | null;
 };
 
 export type StoredTemplate = TemplateSnapshot & { status: string };
@@ -80,6 +86,12 @@ export function createTemplateCatalog() {
           artifactStorageKey: template.artifactStorageKey,
           artifactSha256: template.artifactSha256,
           artifactSize: template.artifactSize,
+          artifactType: template.artifactType,
+          snapshotSchemaVersion: template.snapshotSchemaVersion,
+          sourcePbootVersion: template.sourcePbootVersion,
+          sourceCoreCommit: template.sourceCoreCommit,
+          dbEngine: template.dbEngine,
+          dbSchemaVersion: template.dbSchemaVersion,
         })
         .from(template)
         .where(and(eq(template.id as never, id), eq(template.status as never, TEMPLATE_PUBLISHED)))
@@ -99,6 +111,12 @@ export function createTemplateCatalog() {
           artifactStorageKey: template.artifactStorageKey,
           artifactSha256: template.artifactSha256,
           artifactSize: template.artifactSize,
+          artifactType: template.artifactType,
+          snapshotSchemaVersion: template.snapshotSchemaVersion,
+          sourcePbootVersion: template.sourcePbootVersion,
+          sourceCoreCommit: template.sourceCoreCommit,
+          dbEngine: template.dbEngine,
+          dbSchemaVersion: template.dbSchemaVersion,
           status: template.status,
         })
         .from(template)

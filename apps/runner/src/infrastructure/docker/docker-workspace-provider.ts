@@ -1,11 +1,17 @@
-import { lstat, mkdir } from 'node:fs/promises';
+import { chmod, lstat, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import Docker from 'dockerode';
 import { z } from 'zod';
+import { buildSnapshotArchive } from '@cloudcrane/pboot-snapshot';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import type { RunnerConfig } from '../../config.js';
-import type { WorkspaceProvider, WorkspaceRuntime } from '../../ports/workspace-provider.js';
+import type {
+  SnapshotStageInput,
+  SnapshotStageResult,
+  WorkspaceProvider,
+  WorkspaceRuntime,
+} from '../../ports/workspace-provider.js';
 
 export class DockerWorkspaceProvider implements WorkspaceProvider {
   constructor(
@@ -108,6 +114,38 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         .remove()
         .catch(() => undefined);
     }
+  }
+
+  async stageSnapshot(
+    workspaceId: string,
+    input: SnapshotStageInput,
+  ): Promise<SnapshotStageResult> {
+    const artifactRoot = this.config.templateArtifactRoot;
+    const managedBaseRoot = this.config.managedPbootBaseRoot;
+    if (!artifactRoot || !managedBaseRoot)
+      throw new Error('snapshot staging paths are not configured');
+    const workspaceRoot = this.persistentPath(workspaceId);
+    const resolvedRoot = path.resolve(artifactRoot);
+    const outputPath = path.resolve(resolvedRoot, input.artifactStorageKey);
+    if (!outputPath.startsWith(`${resolvedRoot}${path.sep}`))
+      throw new Error('snapshot artifact path is outside the artifact root');
+    await mkdir(resolvedRoot, { recursive: true });
+    const result = await buildSnapshotArchive({
+      workspaceRoot,
+      managedBaseRoot,
+      sourceWebsiteId: input.sourceWebsiteId,
+      sourcePbootVersion: input.sourcePbootVersion,
+      sourceCoreCommit: input.sourceCoreCommit,
+      dbSchemaVersion: input.dbSchemaVersion,
+      outputPath,
+    });
+    await chmod(outputPath, 0o440);
+    return {
+      artifactStorageKey: input.artifactStorageKey,
+      artifactSha256: result.sha256,
+      artifactSize: result.size,
+      manifest: result.manifest,
+    };
   }
 
   private async container(workspaceId: string): Promise<Docker.Container> {

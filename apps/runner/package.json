@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
+    "@cloudcrane/pboot-snapshot": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/workspace-protocol": "workspace:*",
     "dockerode": "5.0.1",

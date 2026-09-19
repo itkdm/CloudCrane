@@ -89,6 +89,10 @@ export const runnerOperationSchema = z.discriminatedUnion('operation', [
     type: z.literal('workspace.operation'),
     ...workspaceOperationVariants[12].shape,
   }),
+  operationCommonSchema.extend({
+    type: z.literal('workspace.operation'),
+    ...workspaceOperationVariants[13].shape,
+  }),
 ] as const);
 
 export const runnerAcceptedSchema = z.object({
