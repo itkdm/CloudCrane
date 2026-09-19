@@ -522,6 +522,9 @@
   border-radius: var(--cc-radius-lg);
   color: var(--cc-text-secondary);
 }
+.templates-feedback[aria-busy='true'] {
+  border: 0;
+}
 .templates-feedback svg {
   color: var(--cc-brand);
   animation: workspace-start-spin 1.2s linear infinite;
