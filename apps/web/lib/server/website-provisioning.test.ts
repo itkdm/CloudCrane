@@ -4,8 +4,10 @@ import {
   WEBSITE_PROVISIONING_FAILED,
   WEBSITE_AUTHORIZATION_REQUIRED,
   WEBSITE_TEMPLATE_ATTACH_FAILED,
+  TEMPLATE_ATTACHMENT_STALE_AFTER_MS,
   createWebsite,
   listWebsites,
+  retryTemplateAttachment,
   validateWebsiteName,
 } from './website-provisioning.js';
 
@@ -133,6 +135,86 @@ describe('website provisioning foundation', () => {
       WEBSITE_TEMPLATE_ATTACH_FAILED,
     );
     expect(attachment).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed' }));
+  });
+
+  it('reclaims a stale materializing attachment with a timestamp CAS', async () => {
+    const update = vi.fn(async () => true);
+    const attach = vi.fn(async () => ({ referenceId: 'ref_template' }));
+    const staleUpdatedAt = new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS - 1_000);
+
+    await retryTemplateAttachment('website-1', {
+      workspaceId: 'workspace-1',
+      store: {
+        findTemplateAttachment: async () => ({
+          templateId: 'template-1',
+          artifactStorageKey: 'template-1.zip',
+          artifactSha256: 'a'.repeat(64),
+          status: 'materializing',
+          referenceId: null,
+          updatedAt: staleUpdatedAt,
+        }),
+        updateTemplateAttachment: update,
+        updateWebsiteStatus: vi.fn(async () => undefined),
+      },
+      attachTemplate: attach,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'materializing',
+        expectedStatus: 'materializing',
+        staleBefore: expect.any(Date),
+      }),
+    );
+    expect(attach).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a fresh materializing attachment without touching the Agent', async () => {
+    const attach = vi.fn();
+
+    await expect(
+      retryTemplateAttachment('website-1', {
+        workspaceId: 'workspace-1',
+        store: {
+          findTemplateAttachment: async () => ({
+            templateId: 'template-1',
+            artifactStorageKey: 'template-1.zip',
+            artifactSha256: 'a'.repeat(64),
+            status: 'materializing',
+            referenceId: null,
+            updatedAt: new Date(),
+          }),
+          updateTemplateAttachment: vi.fn(),
+          updateWebsiteStatus: vi.fn(),
+        },
+        attachTemplate: attach,
+      }),
+    ).rejects.toThrow('模板正在应用');
+    expect(attach).not.toHaveBeenCalled();
+  });
+
+  it('does not attach when a stale claim loses its CAS race', async () => {
+    const attach = vi.fn();
+
+    await expect(
+      retryTemplateAttachment('website-1', {
+        workspaceId: 'workspace-1',
+        store: {
+          findTemplateAttachment: async () => ({
+            templateId: 'template-1',
+            artifactStorageKey: 'template-1.zip',
+            artifactSha256: 'a'.repeat(64),
+            status: 'materializing',
+            referenceId: null,
+            updatedAt: new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS - 1_000),
+          }),
+          updateTemplateAttachment: vi.fn(async () => false),
+          updateWebsiteStatus: vi.fn(),
+        },
+        attachTemplate: attach,
+      }),
+    ).rejects.toThrow('模板正在应用');
+    expect(attach).not.toHaveBeenCalled();
   });
 
   it('retains records and marks a definite runtime failure', async () => {

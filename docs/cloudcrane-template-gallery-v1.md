@@ -50,6 +50,7 @@ POST /api/websites/:websiteId/template-attachment/retry
 
 - Reference 解压使用按 `workspaceId`、`referenceId` 和随机 attempt 隔离的 staging 目录；最终目录仍保持稳定，重复使用同一快照保持幂等。
 - Attachment 状态迁移使用前置状态条件和数据库原子自增：`pending → materializing → ready/failed`，并发重试不会覆盖已完成状态，成功或重新开始时会清理旧错误。
+- `materializing` 使用 10 分钟 stale threshold；进程崩溃或写回失败后，下一次重试会通过 `status + updatedAt` 条件原子 reclaim，正常进行中的任务不会被抢占。
 - Internal Template API 只允许服务间 Token；生产环境不再提供默认 Token。公网 Nginx 还必须拒绝 `/agent/v1/internal/`，Web 通过回环地址调用该接口。
 - 发布失败时会删除已经写入但尚未完成数据库登记的 Artifact，避免积累孤儿 ZIP。发布器同时拒绝隐藏敏感目录、凭据文件和可执行/证书类扩展名。
 

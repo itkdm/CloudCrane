@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { createPlatformDb, website, websiteTemplateAttachment, workspace } from '@cloudcrane/db';
 import { createLogger } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
@@ -13,6 +13,7 @@ export const WEBSITE_INITIALIZING = 'initializing';
 export const WEBSITE_INITIALIZATION_FAILED = 'initialization_failed';
 export const WEBSITE_AUTHORIZATION_REQUIRED = 'authorization_required';
 export const WEBSITE_TEMPLATE_ATTACH_FAILED = 'template_attach_failed';
+export const TEMPLATE_ATTACHMENT_STALE_AFTER_MS = 10 * 60 * 1000;
 
 export type PublicWebsite = {
   id: string;
@@ -43,6 +44,7 @@ type WebsiteStore = {
     errorMessage?: string;
     incrementAttempt?: boolean;
     expectedStatus?: string | string[];
+    staleBefore?: Date;
   }): Promise<boolean | void>;
   findTemplateAttachment?(websiteId: string): Promise<{
     templateId: string;
@@ -50,6 +52,7 @@ type WebsiteStore = {
     artifactSha256: string;
     status: string;
     referenceId: string | null;
+    updatedAt: Date;
   } | null>;
   listWebsites(): Promise<PublicWebsite[]>;
   findWorkspaceId?(websiteId: string): Promise<string | null>;
@@ -260,13 +263,15 @@ export async function retryTemplateAttachment(
   if (!attachment) throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板关联不存在');
   if (attachment.status === 'ready' && attachment.referenceId)
     return { referenceId: attachment.referenceId };
-  if (attachment.status === 'materializing')
+  const staleBefore = new Date(Date.now() - TEMPLATE_ATTACHMENT_STALE_AFTER_MS);
+  if (attachment.status === 'materializing' && attachment.updatedAt > staleBefore)
     throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
   const claimed = await dependencies.store.updateTemplateAttachment?.({
     websiteId,
     status: 'materializing',
     incrementAttempt: true,
-    expectedStatus: 'failed',
+    expectedStatus: attachment.status === 'materializing' ? 'materializing' : 'failed',
+    ...(attachment.status === 'materializing' ? { staleBefore } : {}),
   });
   if (claimed === false)
     throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板正在应用，请稍后重试');
@@ -376,6 +381,8 @@ export function createProductionWebsiteStore(ownerId?: string) {
             : eq(websiteTemplateAttachment.status as never, input.expectedStatus),
         );
       }
+      if (input.staleBefore)
+        conditions.push(lt(websiteTemplateAttachment.updatedAt as never, input.staleBefore));
       const result = await db
         .update(websiteTemplateAttachment)
         .set({
@@ -407,6 +414,7 @@ export function createProductionWebsiteStore(ownerId?: string) {
           artifactSha256: websiteTemplateAttachment.artifactSha256,
           status: websiteTemplateAttachment.status,
           referenceId: websiteTemplateAttachment.referenceId,
+          updatedAt: websiteTemplateAttachment.updatedAt,
         })
         .from(websiteTemplateAttachment)
         .where(eq(websiteTemplateAttachment.websiteId as never, websiteId))
