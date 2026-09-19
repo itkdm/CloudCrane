@@ -12,7 +12,7 @@ import {
 } from '@/lib/agent-client';
 import { UnifiedSidebar } from './components/unified-sidebar';
 import { AgentWorkbenchContent } from './components/agent-workbench-content';
-import { TemplatesView } from './components/templates-view';
+import { TemplatesView, type TemplateSummary } from './components/templates-view';
 import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-create-dialog';
 import { WebsiteSettingsDialog } from './components/website-settings-dialog';
 import { WorkspaceStart } from './components/workspace-start';
@@ -91,6 +91,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
+  const [selectedTemplateForCreate, setSelectedTemplateForCreate] =
+    useState<TemplateSummary | null>(null);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const previewOpenRef = useRef(false);
@@ -454,7 +456,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onViewChange={handleViewChange}
         onSessionSelect={handleSessionSelect}
         onNewSession={handleNewSession}
-        onCreateWebsite={() => setCreateWebsiteOpen(true)}
+        onCreateWebsite={() => {
+          setSelectedTemplateForCreate(null);
+          setCreateWebsiteOpen(true);
+        }}
         onSettingsOpen={handleAuthorizeWebsite}
         onSessionRename={handleRenameSession}
         onSessionPin={handlePinSession}
@@ -463,7 +468,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       />
       <div className="unified-content">
         {view === 'templates' ? (
-          <TemplatesView />
+          <TemplatesView
+            onUseTemplate={(template) => {
+              setSelectedTemplateForCreate(template);
+              setCreateWebsiteOpen(true);
+            }}
+          />
         ) : websiteLoadState === 'loading' ? (
           <main className="workspace-loading-state" aria-busy="true" aria-live="polite">
             <div className="workspace-loading-card">
@@ -517,7 +527,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
                 <button
                   className="primary-button"
                   type="button"
-                  onClick={() => setCreateWebsiteOpen(true)}
+                  onClick={() => {
+                    setSelectedTemplateForCreate(null);
+                    setCreateWebsiteOpen(true);
+                  }}
                 >
                   {t('create')}
                 </button>
@@ -552,8 +565,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       <WebsiteCreateDialog
         key={`website-create-${createWebsiteOpen ? 'open' : 'closed'}`}
         open={createWebsiteOpen}
-        onClose={() => setCreateWebsiteOpen(false)}
+        onClose={() => {
+          setCreateWebsiteOpen(false);
+          setSelectedTemplateForCreate(null);
+        }}
         onCreated={handleWebsiteCreated}
+        template={selectedTemplateForCreate}
       />
       <WebsiteSettingsDialog
         key={`website-settings-${settingsWebsiteId ?? 'closed'}`}
@@ -562,6 +579,16 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           setSettingsWebsiteId(null);
         }}
         onAuthorized={handleAuthorizationComplete}
+        onTemplateRetried={() => {
+          if (!settingsWebsiteId) return;
+          setWebsites((current) =>
+            current.map((website) =>
+              website.id === settingsWebsiteId
+                ? { ...website, status: 'authorization_required' }
+                : website,
+            ),
+          );
+        }}
       />
     </div>
   );

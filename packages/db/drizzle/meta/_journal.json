@@ -36,6 +36,13 @@
       "when": 1789754220798,
       "tag": "0004_futuristic_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0005_template_gallery_v1",
+      "breakpoints": true
     }
   ]
 }

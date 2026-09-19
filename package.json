@@ -12,6 +12,7 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "template:publish": "pnpm --filter @cloudcrane/agent-service exec tsx src/publish-template.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

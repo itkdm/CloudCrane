@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
-import { createPlatformDb, website, workspace } from '@cloudcrane/db';
+import { createPlatformDb, website, websiteTemplateAttachment, workspace } from '@cloudcrane/db';
 import { createLogger } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
 
@@ -12,6 +12,7 @@ export const WEBSITE_PROVISIONING_FAILED = 'provisioning_failed';
 export const WEBSITE_INITIALIZING = 'initializing';
 export const WEBSITE_INITIALIZATION_FAILED = 'initialization_failed';
 export const WEBSITE_AUTHORIZATION_REQUIRED = 'authorization_required';
+export const WEBSITE_TEMPLATE_ATTACH_FAILED = 'template_attach_failed';
 
 export type PublicWebsite = {
   id: string;
@@ -27,8 +28,28 @@ type WebsiteStore = {
     workspaceId: string;
     name: string;
     ownerId: string;
+    template?: {
+      id: string;
+      artifactStorageKey: string;
+      artifactSha256: string;
+    };
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
+  updateTemplateAttachment?(input: {
+    websiteId: string;
+    status: string;
+    referenceId?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    incrementAttempt?: boolean;
+  }): Promise<void>;
+  findTemplateAttachment?(websiteId: string): Promise<{
+    templateId: string;
+    artifactStorageKey: string;
+    artifactSha256: string;
+    status: string;
+    referenceId: string | null;
+  } | null>;
   listWebsites(): Promise<PublicWebsite[]>;
   findWorkspaceId?(websiteId: string): Promise<string | null>;
 };
@@ -40,6 +61,12 @@ type RuntimeClient = {
   reconcileBootstrap(): Promise<boolean>;
   configureAuthorization(sn: string): Promise<{ status: string }>;
   verifyAuthorization(canonicalHost: string): Promise<boolean>;
+};
+
+type TemplateAttachment = {
+  id: string;
+  artifactStorageKey: string;
+  artifactSha256: string;
 };
 
 export class WebsiteProvisioningError extends Error {
@@ -84,6 +111,12 @@ export async function createWebsite(
     store: WebsiteStore;
     runtime: (context: { websiteId: string; workspaceId: string }) => RuntimeClient;
     ownerId: string;
+    template?: TemplateAttachment;
+    attachTemplate?: (input: {
+      websiteId: string;
+      workspaceId: string;
+      template: TemplateAttachment;
+    }) => Promise<{ referenceId: string }>;
   },
 ): Promise<{ website: PublicWebsite; provisioned: boolean }> {
   const name = validateWebsiteName(value);
@@ -95,9 +128,17 @@ export async function createWebsite(
     workspaceId,
     name,
     ownerId: dependencies.ownerId,
+    ...(dependencies.template ? { template: dependencies.template } : {}),
   });
   const failed = async (status: string, error?: unknown) => {
     await dependencies.store.updateWebsiteStatus(websiteId, status);
+    if (dependencies.template)
+      await dependencies.store.updateTemplateAttachment?.({
+        websiteId,
+        status: 'failed',
+        errorCode: error instanceof Error ? error.name : 'PROVISIONING_FAILED',
+        errorMessage: error instanceof Error ? error.message : 'website provisioning failed',
+      });
     logger.warn(
       {
         websiteId,
@@ -153,11 +194,96 @@ export async function createWebsite(
   } catch (error) {
     return failed(WEBSITE_INITIALIZATION_FAILED, error);
   }
+  if (dependencies.template && !dependencies.attachTemplate)
+    return failed(
+      WEBSITE_TEMPLATE_ATTACH_FAILED,
+      new Error('template attachment is not configured'),
+    );
+  if (dependencies.template && dependencies.attachTemplate) {
+    await dependencies.store.updateTemplateAttachment?.({
+      websiteId,
+      status: 'materializing',
+      incrementAttempt: true,
+    });
+    try {
+      const reference = await dependencies.attachTemplate({
+        websiteId,
+        workspaceId,
+        template: dependencies.template,
+      });
+      await dependencies.store.updateTemplateAttachment?.({
+        websiteId,
+        status: 'ready',
+        referenceId: reference.referenceId,
+      });
+    } catch (error) {
+      await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
+      await dependencies.store.updateTemplateAttachment?.({
+        websiteId,
+        status: 'failed',
+        errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
+        errorMessage: error instanceof Error ? error.message : 'template attachment failed',
+      });
+      return {
+        website: { ...created, status: WEBSITE_TEMPLATE_ATTACH_FAILED },
+        provisioned: false,
+      };
+    }
+  }
   await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
   return {
     website: { ...created, status: WEBSITE_AUTHORIZATION_REQUIRED },
     provisioned: true,
   };
+}
+
+export async function retryTemplateAttachment(
+  websiteId: string,
+  dependencies: {
+    store: Pick<
+      WebsiteStore,
+      'findTemplateAttachment' | 'updateTemplateAttachment' | 'updateWebsiteStatus'
+    >;
+    workspaceId: string;
+    attachTemplate: (input: {
+      websiteId: string;
+      workspaceId: string;
+      template: TemplateAttachment;
+    }) => Promise<{ referenceId: string }>;
+  },
+): Promise<{ referenceId: string }> {
+  const attachment = await dependencies.store.findTemplateAttachment?.(websiteId);
+  if (!attachment) throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板关联不存在');
+  if (attachment.status === 'ready' && attachment.referenceId)
+    return { referenceId: attachment.referenceId };
+  await dependencies.store.updateTemplateAttachment?.({
+    websiteId,
+    status: 'materializing',
+    incrementAttempt: true,
+  });
+  try {
+    const result = await dependencies.attachTemplate({
+      websiteId,
+      workspaceId: dependencies.workspaceId,
+      template: { id: attachment.templateId, ...attachment },
+    });
+    await dependencies.store.updateTemplateAttachment?.({
+      websiteId,
+      status: 'ready',
+      referenceId: result.referenceId,
+    });
+    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+    return result;
+  } catch (error) {
+    await dependencies.store.updateTemplateAttachment?.({
+      websiteId,
+      status: 'failed',
+      errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
+      errorMessage: error instanceof Error ? error.message : 'template attachment failed',
+    });
+    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_TEMPLATE_ATTACH_FAILED);
+    throw error;
+  }
 }
 
 export function createProductionWebsiteStore(ownerId?: string) {
@@ -192,6 +318,15 @@ export function createProductionWebsiteStore(ownerId?: string) {
           provider: WORKSPACE_PROVIDER,
           status: 'missing',
         });
+        if (input.template) {
+          await tx.insert(websiteTemplateAttachment).values({
+            websiteId: input.websiteId,
+            templateId: input.template.id,
+            artifactStorageKey: input.template.artifactStorageKey,
+            artifactSha256: input.template.artifactSha256,
+            status: 'pending',
+          });
+        }
         created = row;
       });
       if (!created) throw new Error('website record was not created');
@@ -218,6 +353,42 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .from(website)
         .where(ownerId ? eq(website.ownerId as never, ownerId) : undefined)
         .orderBy(desc(website.createdAt as never));
+    },
+    async updateTemplateAttachment(input) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const current = await db
+        .select({ attemptCount: websiteTemplateAttachment.attemptCount })
+        .from(websiteTemplateAttachment)
+        .where(eq(websiteTemplateAttachment.websiteId as never, input.websiteId))
+        .limit(1);
+      await db
+        .update(websiteTemplateAttachment)
+        .set({
+          status: input.status,
+          ...(input.incrementAttempt ? { attemptCount: (current[0]?.attemptCount ?? 0) + 1 } : {}),
+          ...(input.referenceId ? { referenceId: input.referenceId, completedAt: new Date() } : {}),
+          ...(input.errorCode ? { lastErrorCode: input.errorCode } : {}),
+          ...(input.errorMessage ? { lastErrorMessage: input.errorMessage } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(websiteTemplateAttachment.websiteId as never, input.websiteId));
+    },
+    async findTemplateAttachment(websiteId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const rows = await db
+        .select({
+          templateId: websiteTemplateAttachment.templateId,
+          artifactStorageKey: websiteTemplateAttachment.artifactStorageKey,
+          artifactSha256: websiteTemplateAttachment.artifactSha256,
+          status: websiteTemplateAttachment.status,
+          referenceId: websiteTemplateAttachment.referenceId,
+        })
+        .from(websiteTemplateAttachment)
+        .where(eq(websiteTemplateAttachment.websiteId as never, websiteId))
+        .limit(1);
+      return rows[0] ?? null;
     },
     async findWorkspaceId(websiteId: string) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

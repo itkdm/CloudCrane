@@ -16,6 +16,8 @@ import {
   requireSession,
 } from '@cloudcrane/auth';
 import { auth } from '../../../lib/server/auth.js';
+import { attachTemplateReference } from '../../../lib/server/template-attachment.js';
+import { createTemplateCatalog, TEMPLATE_PUBLISHED } from '../../../lib/server/template-catalog.js';
 
 export const runtime = 'nodejs';
 
@@ -76,6 +78,15 @@ export async function POST(request: Request) {
   }
   const value =
     payload && typeof payload === 'object' ? (payload as { name?: unknown }).name : undefined;
+  const templateId =
+    payload && typeof payload === 'object'
+      ? (payload as { templateId?: unknown }).templateId
+      : undefined;
+  if (templateId !== undefined && (typeof templateId !== 'string' || !isUuid(templateId)))
+    return NextResponse.json(
+      { error: { code: 'INVALID_TEMPLATE', message: '模板标识无效' } },
+      { status: 400 },
+    );
   let name: string;
   try {
     name = validateWebsiteName(value);
@@ -90,12 +101,44 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const catalog = templateId ? createTemplateCatalog() : undefined;
+  let selectedTemplate;
+  try {
+    if (catalog && templateId) {
+      const stored = await catalog.findById(templateId);
+      if (!stored)
+        return NextResponse.json(
+          { error: { code: 'TEMPLATE_NOT_FOUND', message: '模板不存在' } },
+          { status: 404 },
+        );
+      if (stored.status !== TEMPLATE_PUBLISHED)
+        return NextResponse.json(
+          { error: { code: 'TEMPLATE_NOT_PUBLISHED', message: '模板暂不可用' } },
+          { status: 409 },
+        );
+      if (stored.cmsType !== 'pbootcms')
+        return NextResponse.json(
+          { error: { code: 'TEMPLATE_INCOMPATIBLE', message: '模板类型不兼容' } },
+          { status: 409 },
+        );
+      selectedTemplate = stored;
+    }
+  } finally {
+    if (catalog) await catalog.platform.pool.end();
+  }
   const { platform, store } = createProductionWebsiteStore(session.user.id);
   try {
     const result = await createWebsite(name, {
       store,
       ownerId: session.user.id,
       runtime: ({ websiteId, workspaceId }) => createProductionRuntime(websiteId, workspaceId),
+      ...(selectedTemplate
+        ? {
+            template: selectedTemplate,
+            attachTemplate: async ({ websiteId, workspaceId, template }) =>
+              attachTemplateReference({ websiteId, workspaceId, template }),
+          }
+        : {}),
     });
     return NextResponse.json(
       { ...publicWebsiteView(result.website), previewUrl: previewUrlForWebsite(result.website.id) },
@@ -116,4 +159,8 @@ export async function POST(request: Request) {
   } finally {
     await platform.pool.end();
   }
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

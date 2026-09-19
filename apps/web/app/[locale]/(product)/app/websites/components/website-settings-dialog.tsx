@@ -10,10 +10,12 @@ export function WebsiteSettingsDialog({
   website,
   onClose,
   onAuthorized,
+  onTemplateRetried,
 }: {
   website: CreatedWebsite | null;
   onClose: () => void;
   onAuthorized: () => void;
+  onTemplateRetried: () => void;
 }) {
   const t = useTranslations('websites');
   const statusT = useTranslations('status');
@@ -24,6 +26,7 @@ export function WebsiteSettingsDialog({
   const [authorizing, setAuthorizing] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [retryingTemplate, setRetryingTemplate] = useState(false);
 
   if (!website) return null;
   const currentWebsite = website;
@@ -57,6 +60,23 @@ export function WebsiteSettingsDialog({
       window.setTimeout(() => setCopied(false), 1600);
     } else {
       setError(t('copyError'));
+    }
+  }
+
+  async function retryTemplate() {
+    setRetryingTemplate(true);
+    setError('');
+    try {
+      const response = await fetch(`/api/websites/${currentWebsite.id}/template-attachment/retry`, {
+        method: 'POST',
+      });
+      const payload = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(payload.error?.message || t('templateRetryError'));
+      onTemplateRetried();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('templateRetryError'));
+    } finally {
+      setRetryingTemplate(false);
     }
   }
 
@@ -154,6 +174,24 @@ export function WebsiteSettingsDialog({
                 {authorizing ? t('verifying') : t('saveVerify')}
               </button>
             </form>
+          ) : null}
+          {currentWebsite.status === 'template_attach_failed' ? (
+            <div className="website-settings-authorization">
+              <p>{t('templateAttachFailed')}</p>
+              {error ? (
+                <p className="website-modal-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => void retryTemplate()}
+                disabled={retryingTemplate}
+              >
+                {retryingTemplate ? t('templateRetrying') : t('templateRetry')}
+              </button>
+            </div>
           ) : null}
         </section>
       </section>

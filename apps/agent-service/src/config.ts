@@ -15,6 +15,8 @@ const configSchema = z.object({
   previewSigningSecret: z.string().min(16).default('cloudcrane-preview-dev-secret'),
   previewTokenTtlSeconds: z.coerce.number().int().positive().max(3600).default(600),
   referenceRoot: z.string().min(1).default('.cloudcrane-data/references'),
+  templateArtifactRoot: z.string().min(1).default('.cloudcrane-data/templates'),
+  internalServiceToken: z.string().min(16).default('cloudcrane-internal-dev-token'),
   referenceUploadMaxBytes: z.coerce
     .number()
     .int()
@@ -22,12 +24,19 @@ const configSchema = z.object({
     .default(DEFAULT_REFERENCE_UPLOAD_MAX_BYTES),
 });
 
-export type AgentServiceConfig = z.infer<typeof configSchema> & {
+export type AgentServiceConfig = Omit<
+  z.infer<typeof configSchema>,
+  'agentDataRoot' | 'templateArtifactRoot' | 'internalServiceToken'
+> & {
   agentDataRoot: string;
+  templateArtifactRoot?: string;
+  internalServiceToken?: string;
   modelConfigured: boolean;
 };
 
 export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
+  if (env.NODE_ENV === 'production' && !env.AGENT_SERVICE_INTERNAL_TOKEN)
+    throw new Error('AGENT_SERVICE_INTERNAL_TOKEN is required in production');
   const parsed = configSchema.parse({
     port: env.AGENT_SERVICE_PORT,
     webOrigin: env.WEB_ORIGIN ?? env.NEXT_PUBLIC_WEB_ORIGIN,
@@ -41,12 +50,15 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     previewSigningSecret: env.PREVIEW_SIGNING_SECRET,
     previewTokenTtlSeconds: env.PREVIEW_TOKEN_TTL_SECONDS,
     referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
+    templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
+    internalServiceToken: env.AGENT_SERVICE_INTERNAL_TOKEN,
     referenceUploadMaxBytes: env.REFERENCE_UPLOAD_MAX_BYTES,
   });
   return {
     ...parsed,
     agentDataRoot: path.resolve(parsed.agentDataRoot),
     referenceRoot: path.resolve(parsed.referenceRoot),
+    templateArtifactRoot: path.resolve(parsed.templateArtifactRoot),
     modelConfigured: Boolean(parsed.modelProvider && parsed.modelId),
   };
 }

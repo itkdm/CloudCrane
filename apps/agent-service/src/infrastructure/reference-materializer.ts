@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -18,6 +20,8 @@ export type MaterializedReference = {
   size: number;
 };
 
+export type ReferenceMaterializationSource = 'user_upload' | 'template_snapshot';
+
 export async function materializeReference(input: {
   archivePath: string;
   referenceRoot: string;
@@ -26,6 +30,9 @@ export async function materializeReference(input: {
   sha256: string;
   size: number;
   archiveMaxBytes: number;
+  source?: ReferenceMaterializationSource;
+  templateId?: string;
+  referenceId?: string;
 }): Promise<MaterializedReference> {
   if (!input.originalFilename.toLowerCase().endsWith('.zip'))
     throw new ReferenceMaterializationError('ZIP file required', 400);
@@ -39,9 +46,49 @@ export async function materializeReference(input: {
     throw new ReferenceMaterializationError('Uploaded file is not a valid ZIP archive', 422);
 
   const workspaceRoot = path.join(input.referenceRoot, input.workspaceId);
-  const referenceId = `ref_${randomUUID()}`;
+  const referenceId = input.referenceId ?? `ref_${randomUUID()}`;
+  if (!/^ref_[0-9a-f-]+$/i.test(referenceId))
+    throw new ReferenceMaterializationError('Invalid reference id', 422);
   const stagingRoot = path.join(input.referenceRoot, '.staging', referenceId);
   const finalRoot = path.join(workspaceRoot, referenceId);
+  const existingMetadata = await readFile(
+    path.join(finalRoot, '.cloudcrane-reference.json'),
+    'utf8',
+  ).catch(() => null);
+  if (existingMetadata) {
+    try {
+      const metadata = JSON.parse(existingMetadata) as {
+        referenceId?: string;
+        sha256?: string;
+        templateId?: string;
+        source?: string;
+      };
+      if (
+        metadata.referenceId === referenceId &&
+        metadata.sha256 === input.sha256 &&
+        metadata.source === (input.source ?? 'user_upload') &&
+        (!input.templateId || metadata.templateId === input.templateId)
+      )
+        return {
+          referenceId,
+          name: input.originalFilename,
+          logicalPath: `/workspace/.cloudcrane/references/${referenceId}`,
+          sha256: input.sha256,
+          size: input.size,
+        };
+    } catch {
+      // Treat malformed metadata as an unsafe existing materialization below.
+    }
+    throw new ReferenceMaterializationError(
+      'Reference already exists with different contents',
+      409,
+    );
+  }
+  if (await stat(finalRoot).catch(() => null))
+    throw new ReferenceMaterializationError(
+      'Reference already exists with different contents',
+      409,
+    );
   await mkdir(stagingRoot, { recursive: true });
   try {
     const directory = await unzipper.Open.file(input.archivePath);
@@ -50,12 +97,16 @@ export async function materializeReference(input: {
     if (files.length > REFERENCE_FILE_COUNT_MAX)
       throw new ReferenceMaterializationError('ZIP contains too many files', 422);
     const wrapper = singleWrapper(files.map((entry) => entry.path));
+    const normalizedPaths = new Set<string>();
     let expanded = 0;
     let actualExpanded = 0;
     for (const entry of files) {
       const relative = normalizeEntryPath(entry.path, wrapper);
       if (!relative || (entry.type as string) === 'SymbolicLink')
         throw new ReferenceMaterializationError('ZIP contains an unsafe entry', 422);
+      if (normalizedPaths.has(relative))
+        throw new ReferenceMaterializationError('ZIP contains duplicate entries', 422);
+      normalizedPaths.add(relative);
       const uncompressed = Number(entry.uncompressedSize ?? 0);
       if (!Number.isSafeInteger(uncompressed) || uncompressed > REFERENCE_EXTRACTED_FILE_MAX_BYTES)
         throw new ReferenceMaterializationError('ZIP contains an oversized file', 422);
@@ -87,7 +138,8 @@ export async function materializeReference(input: {
         {
           referenceId,
           kind: 'site_reference',
-          source: 'user_upload',
+          source: input.source ?? 'user_upload',
+          ...(input.templateId ? { templateId: input.templateId } : {}),
           originalFilename: input.originalFilename,
           sha256: input.sha256,
           size: input.size,
@@ -110,6 +162,48 @@ export async function materializeReference(input: {
     await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export async function materializeTemplateReference(input: {
+  artifactRoot: string;
+  artifactStorageKey: string;
+  artifactSha256: string;
+  templateId: string;
+  referenceRoot: string;
+  workspaceId: string;
+  maxBytes: number;
+}): Promise<MaterializedReference> {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]*\.zip$/.test(input.artifactStorageKey))
+    throw new ReferenceMaterializationError('Invalid template artifact key', 422);
+  const artifactRoot = path.resolve(input.artifactRoot);
+  const archivePath = path.resolve(artifactRoot, input.artifactStorageKey);
+  if (!archivePath.startsWith(`${artifactRoot}${path.sep}`))
+    throw new ReferenceMaterializationError('Invalid template artifact path', 422);
+  const info = await lstat(archivePath).catch(() => null);
+  if (!info?.isFile()) throw new ReferenceMaterializationError('Template artifact not found', 503);
+  if (info.size > input.maxBytes)
+    throw new ReferenceMaterializationError('Template artifact is too large', 413);
+  const actualSha256 = await hashFile(archivePath);
+  if (actualSha256 !== input.artifactSha256)
+    throw new ReferenceMaterializationError('Template artifact hash mismatch', 503);
+  return materializeReference({
+    archivePath,
+    referenceRoot: input.referenceRoot,
+    workspaceId: input.workspaceId,
+    originalFilename: path.basename(archivePath),
+    sha256: actualSha256,
+    size: info.size,
+    archiveMaxBytes: input.maxBytes,
+    source: 'template_snapshot',
+    templateId: input.templateId,
+    referenceId: `ref_${input.templateId}`,
+  });
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 export async function removeReference(input: {

@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,6 +25,7 @@ import { AgentSocketTransport } from './transport/agent-socket.js';
 import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 import {
   materializeReference,
+  materializeTemplateReference,
   removeReference,
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
@@ -57,6 +58,18 @@ export function buildAgentServiceApp(
   app.addHook('onRequest', async (request, reply) => {
     if (request.method === 'OPTIONS') return;
     if (request.url === '/health') return;
+    if (request.url.startsWith('/v1/internal/')) {
+      if (
+        !hasInternalToken(
+          request.headers['x-cloudcrane-internal-token'],
+          options.config.internalServiceToken ?? 'cloudcrane-internal-dev-token',
+        )
+      )
+        return reply
+          .code(401)
+          .send({ error: { code: 'UNAUTHORIZED', message: 'internal authorization required' } });
+      return;
+    }
     const origin = request.headers.origin;
     if (origin && origin !== options.config.webOrigin)
       return reply
@@ -93,6 +106,40 @@ export function buildAgentServiceApp(
   });
   app.options('/*', async (_request, reply) => reply.code(204).send());
   app.get('/health', async () => ({ service: 'agent-service', status: 'ok' }));
+  app.post<{
+    Params: { websiteId: string };
+    Body: {
+      workspaceId: string;
+      templateId: string;
+      artifactStorageKey: string;
+      artifactSha256: string;
+    };
+  }>('/v1/internal/websites/:websiteId/template-attachment', async (request, reply) => {
+    const { websiteId } = request.params;
+    if (
+      !isUuid(websiteId) ||
+      !isUuid(request.body?.workspaceId) ||
+      !isUuid(request.body?.templateId)
+    )
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'invalid template attachment parameters',
+        400,
+      );
+    const binding = await options.registry.resolveBinding(websiteId);
+    if (binding.workspaceId !== request.body.workspaceId)
+      throw new AgentServiceError('WEBSITE_FORBIDDEN', 'website and workspace do not match', 403);
+    const result = await materializeTemplateReference({
+      artifactRoot: options.config.templateArtifactRoot ?? '.cloudcrane-data/templates',
+      artifactStorageKey: request.body.artifactStorageKey,
+      artifactSha256: request.body.artifactSha256,
+      templateId: request.body.templateId,
+      referenceRoot: options.config.referenceRoot,
+      workspaceId: binding.workspaceId,
+      maxBytes: options.config.referenceUploadMaxBytes,
+    });
+    return reply.code(201).send(result);
+  });
   app.post<{ Params: { websiteId: string; sessionId: string; interactionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId/interactions/:interactionId/reference-upload',
     async (request, reply) => {
@@ -314,4 +361,12 @@ function toSessionView(session: {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function hasInternalToken(value: string | string[] | undefined, expected: string): boolean {
+  const actual = Array.isArray(value) ? value[0] : value;
+  if (!actual) return false;
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
 }

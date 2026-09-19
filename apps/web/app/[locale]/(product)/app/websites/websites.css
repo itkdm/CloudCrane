@@ -369,6 +369,201 @@
   gap: 12px;
 }
 
+.templates-view {
+  width: min(1120px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 56px 0 80px;
+}
+.templates-header {
+  margin-bottom: 28px;
+}
+.templates-eyebrow {
+  margin: 0 0 8px;
+  color: var(--cc-brand);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.templates-header h1 {
+  margin: 0 0 8px;
+  color: var(--cc-text);
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.03em;
+}
+.templates-header p:last-child {
+  max-width: 640px;
+  margin: 0;
+  color: var(--cc-text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+.templates-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.templates-filter {
+  min-height: 34px;
+  border: 1px solid var(--cc-border);
+  border-radius: 999px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--cc-text-secondary);
+  cursor: pointer;
+}
+.templates-filter:hover,
+.templates-filter.active {
+  border-color: var(--cc-brand);
+  color: var(--cc-brand);
+}
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.template-card {
+  overflow: hidden;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-surface-1);
+  box-shadow: var(--cc-shadow-sm);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.template-card:hover {
+  border-color: var(--cc-border-hover);
+  box-shadow: var(--cc-shadow-md);
+  transform: translateY(-2px);
+}
+.template-card-cover {
+  display: grid;
+  height: 156px;
+  place-items: center;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cc-brand) 16%, var(--cc-surface-2)),
+    var(--cc-surface-2)
+  );
+  color: var(--cc-brand);
+}
+.template-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.template-card-cover svg {
+  width: 38px;
+  height: 38px;
+}
+.template-card-body {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  padding: 18px;
+}
+.template-card-category {
+  color: var(--cc-brand);
+  font-size: 12px;
+  font-weight: 650;
+}
+.template-card h2 {
+  margin: 5px 0 8px;
+  color: var(--cc-text);
+  font-size: 18px;
+}
+.template-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--cc-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.template-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+.template-card-actions a,
+.template-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  gap: 6px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  padding: 0 11px;
+  background: transparent;
+  color: var(--cc-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.template-card-actions svg {
+  width: 14px;
+  height: 14px;
+}
+.template-card-actions a:hover,
+.template-card-actions button:hover {
+  border-color: var(--cc-brand);
+  color: var(--cc-brand);
+}
+.template-card-actions button {
+  border-color: var(--cc-brand);
+  background: var(--cc-brand);
+  color: var(--cc-surface-0);
+}
+.template-card-actions button:hover {
+  background: var(--cc-brand-hover);
+  color: var(--cc-surface-0);
+}
+.templates-feedback {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed var(--cc-border);
+  border-radius: var(--cc-radius-lg);
+  color: var(--cc-text-secondary);
+}
+.templates-feedback svg {
+  color: var(--cc-brand);
+  animation: workspace-start-spin 1.2s linear infinite;
+}
+.templates-feedback-error {
+  color: var(--cc-danger);
+}
+.website-template-context {
+  margin: -18px 0 22px;
+  color: var(--cc-text-secondary);
+  font-size: 14px;
+}
+@media (max-width: 900px) {
+  .template-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .templates-view {
+    width: min(100% - 32px, 560px);
+    padding-top: 32px;
+  }
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .workspace-start {
   display: flex;
   width: min(720px, calc(100% - 48px));

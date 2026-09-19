@@ -3,6 +3,7 @@ import { WorkspaceClientError } from '@cloudcrane/workspace-client';
 import {
   WEBSITE_PROVISIONING_FAILED,
   WEBSITE_AUTHORIZATION_REQUIRED,
+  WEBSITE_TEMPLATE_ATTACH_FAILED,
   createWebsite,
   listWebsites,
   validateWebsiteName,
@@ -69,6 +70,69 @@ describe('website provisioning foundation', () => {
     });
     expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
     expect(update).toHaveBeenCalledWith(expect.any(String), WEBSITE_AUTHORIZATION_REQUIRED);
+  });
+
+  it('materializes a selected template before authorization', async () => {
+    const attach = vi.fn(async () => ({ referenceId: 'ref_template' }));
+    const attachment = vi.fn(async () => undefined);
+    const result = await createWebsite('站点', {
+      ownerId: 'user-1',
+      template: {
+        id: '00000000-0000-4000-8000-000000000009',
+        artifactStorageKey: 'template-a.zip',
+        artifactSha256: 'a'.repeat(64),
+      },
+      store: store({ updateTemplateAttachment: attachment }),
+      attachTemplate: attach,
+      runtime: () => ({
+        create: vi.fn(async () => ({ status: 'running' })),
+        status: vi.fn(),
+        bootstrap: vi.fn(async () => ({ status: 'INITIALIZED' })),
+        reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
+      }),
+    });
+    expect(attach).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template: expect.objectContaining({ artifactStorageKey: 'template-a.zip' }),
+      }),
+    );
+    expect(attachment).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'ready', referenceId: 'ref_template' }),
+    );
+    expect(result.website.status).toBe(WEBSITE_AUTHORIZATION_REQUIRED);
+  });
+
+  it('retains the website when template materialization fails', async () => {
+    const updateStatus = vi.fn(async () => undefined);
+    const attachment = vi.fn(async () => undefined);
+    const result = await createWebsite('站点', {
+      ownerId: 'user-1',
+      template: {
+        id: '00000000-0000-4000-8000-000000000009',
+        artifactStorageKey: 'template-a.zip',
+        artifactSha256: 'a'.repeat(64),
+      },
+      store: store({ updateWebsiteStatus: updateStatus, updateTemplateAttachment: attachment }),
+      attachTemplate: vi.fn(async () => {
+        throw new Error('hash mismatch');
+      }),
+      runtime: () => ({
+        create: vi.fn(async () => ({ status: 'running' })),
+        status: vi.fn(),
+        bootstrap: vi.fn(async () => ({ status: 'INITIALIZED' })),
+        reconcileBootstrap: vi.fn(),
+        configureAuthorization: vi.fn(),
+        verifyAuthorization: vi.fn(),
+      }),
+    });
+    expect(result.website.status).toBe(WEBSITE_TEMPLATE_ATTACH_FAILED);
+    expect(updateStatus).toHaveBeenLastCalledWith(
+      expect.any(String),
+      WEBSITE_TEMPLATE_ATTACH_FAILED,
+    );
+    expect(attachment).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'failed' }));
   });
 
   it('retains records and marks a definite runtime failure', async () => {

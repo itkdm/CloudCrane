@@ -15,14 +15,16 @@ export function WebsiteCreateDialog({
   open,
   onClose,
   onCreated,
+  template,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (website: CreatedWebsite) => void;
+  template?: { id: string; name: string } | null;
 }) {
   const t = useTranslations('websites');
   const common = useTranslations('common');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(template?.name ?? '');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,10 +38,10 @@ export function WebsiteCreateDialog({
       const response = await fetch('/api/websites', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, ...(template ? { templateId: template.id } : {}) }),
       });
       const payload = (await response.json()) as CreatedWebsite | { error?: { message?: string } };
-      if (!response.ok || !('id' in payload)) {
+      if (!('id' in payload)) {
         throw new Error(('error' in payload && payload.error?.message) || t('createError'));
       }
       setName('');
@@ -69,6 +71,7 @@ export function WebsiteCreateDialog({
           ×
         </button>
         <h2 id="website-create-title">{t('create')}</h2>
+        {template ? <p className="website-template-context">{template.name}</p> : null}
         <form onSubmit={submit}>
           <label htmlFor="website-name">{t('name')}</label>
           <input

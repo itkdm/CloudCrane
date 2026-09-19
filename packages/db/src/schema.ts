@@ -3,6 +3,7 @@ import {
   index,
   integer,
   boolean,
+  check,
   jsonb,
   pgTable,
   text,
@@ -25,6 +26,36 @@ export const website = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
   },
   (table) => [index('website_owner_id_idx').on(table.ownerId)],
+);
+
+export const template = pgTable(
+  'template',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sourceWebsiteId: uuid('source_website_id').references(() => website.id, {
+      onDelete: 'set null',
+    }),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: text('description').notNull(),
+    category: varchar('category', { length: 64 }).notNull(),
+    coverUrl: text('cover_url'),
+    demoUrl: text('demo_url'),
+    cmsType: varchar('cms_type', { length: 64 }).notNull(),
+    artifactStorageKey: text('artifact_storage_key').notNull().unique(),
+    artifactSha256: varchar('artifact_sha256', { length: 64 }).notNull(),
+    artifactSize: integer('artifact_size').notNull(),
+    status: varchar('status', { length: 32 }).notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('template_status_sort_order_idx').on(table.status, table.sortOrder),
+    check('template_status_check', sql`${table.status} in ('draft', 'published', 'hidden')`),
+    check('template_artifact_sha256_check', sql`${table.artifactSha256} ~ '^[0-9a-f]{64}$'`),
+    check('template_artifact_size_check', sql`${table.artifactSize} > 0`),
+  ],
 );
 
 // Better Auth core schema. Keep these names aligned with the adapter defaults.
@@ -112,6 +143,38 @@ export const workspace = pgTable(
   (table) => [index('workspace_website_id_idx').on(table.websiteId)],
 );
 
+export const websiteTemplateAttachment = pgTable(
+  'website_template_attachment',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    websiteId: uuid('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' })
+      .unique(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => template.id, { onDelete: 'restrict' }),
+    artifactStorageKey: text('artifact_storage_key').notNull(),
+    artifactSha256: varchar('artifact_sha256', { length: 64 }).notNull(),
+    referenceId: varchar('reference_id', { length: 128 }),
+    status: varchar('status', { length: 32 }).notNull(),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastErrorCode: varchar('last_error_code', { length: 64 }),
+    lastErrorMessage: text('last_error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('website_template_attachment_template_id_idx').on(table.templateId),
+    index('website_template_attachment_status_idx').on(table.status),
+    check(
+      'website_template_attachment_status_check',
+      sql`${table.status} in ('pending', 'materializing', 'ready', 'failed')`,
+    ),
+  ],
+);
+
 export const websiteSession = pgTable(
   'website_session',
   {
@@ -161,6 +224,8 @@ export const agentRun = pgTable(
 );
 
 export type Website = typeof website.$inferSelect;
+export type Template = typeof template.$inferSelect;
+export type WebsiteTemplateAttachment = typeof websiteTemplateAttachment.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type Workspace = typeof workspace.$inferSelect;
 export type WebsiteSession = typeof websiteSession.$inferSelect;

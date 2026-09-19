@@ -45,6 +45,19 @@ export class WebsiteRuntimeRegistry {
     return binding;
   }
 
+  /**
+   * Internal lifecycle operations need the Website/Workspace relationship before
+   * the Website reaches the Agent-ready state. They must not instantiate an Agent
+   * runtime or reuse the user-facing readiness validation above.
+   */
+  async resolveBinding(websiteId: string): Promise<WebsiteRuntimeBinding> {
+    const binding = await this.options.bindingStore.findWebsiteWorkspace(websiteId);
+    if (!binding) throw new AgentServiceError('WEBSITE_NOT_FOUND', 'website was not found', 404);
+    if (binding.workspaceStatus === 'missing')
+      throw new AgentServiceError('WORKSPACE_NOT_FOUND', 'website workspace was not found', 404);
+    return binding;
+  }
+
   get size(): number {
     return this.runtimes.size;
   }
