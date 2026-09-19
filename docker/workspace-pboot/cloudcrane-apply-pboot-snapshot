@@ -90,6 +90,59 @@ function moveWithParents(string $source, string $target): void
     if (!rename($source, $target)) fail("cannot promote snapshot file: {$source}");
 }
 
+function removeTree(string $root): void
+{
+    if (!is_dir($root)) return;
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($iterator as $file) {
+        if ($file->isDir()) @rmdir($file->getPathname()); else @unlink($file->getPathname());
+    }
+    @rmdir($root);
+}
+
+function writeRecoveryMarker(string $path, string $phase, string $backupRoot, string $stageRoot): void
+{
+    $payload = json_encode(
+        ['phase' => $phase, 'backupRoot' => $backupRoot, 'stageRoot' => $stageRoot],
+        JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+    );
+    $temporary = $path . '.tmp';
+    if (file_put_contents($temporary, $payload . "\n", LOCK_EX) === false || !rename($temporary, $path)) {
+        fail('cannot write snapshot recovery marker');
+    }
+}
+
+function recoverInterruptedSnapshot(string $markerPath): void
+{
+    if (!is_file($markerPath)) return;
+    $marker = json_decode((string)file_get_contents($markerPath), true);
+    if (!is_array($marker) || !in_array($marker['phase'] ?? null, ['backing_up', 'promoting'], true)) {
+        fail('invalid snapshot recovery marker');
+    }
+    $backupRoot = $marker['backupRoot'] ?? null;
+    $stageRoot = $marker['stageRoot'] ?? null;
+    if (!is_string($backupRoot) || !is_string($stageRoot) || !str_starts_with($backupRoot, WORKSPACE . '/.cloudcrane/') || !str_starts_with($stageRoot, WORKSPACE . '/.cloudcrane/')) {
+        fail('unsafe snapshot recovery marker');
+    }
+    if (($marker['phase'] ?? null) === 'promoting') {
+        foreach (siteStateFiles(WORKSPACE) as $relative) @unlink(WORKSPACE . '/' . $relative);
+    }
+    if (is_dir($backupRoot)) {
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($backupRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::LEAVES_ONLY);
+        foreach ($iterator as $file) {
+            if (!$file->isFile() || $file->isLink()) fail('unsafe snapshot recovery backup');
+            $relative = normalizePath(ltrim(str_replace('\\', '/', substr($file->getPathname(), strlen($backupRoot))), '/'));
+            moveWithParents($file->getPathname(), WORKSPACE . '/' . $relative);
+        }
+    }
+    removeTree($backupRoot);
+    removeTree($stageRoot);
+    @unlink($markerPath);
+}
+
 if ($argc !== 2) fail('usage: cloudcrane-apply-pboot-snapshot REFERENCE_ID');
 $referenceId = $argv[1];
 if (!preg_match('/^ref_[0-9a-f-]+$/i', $referenceId)) fail('invalid reference id');
@@ -129,6 +182,8 @@ $database = 'data/pbootcms.db';
 if (!isset($seen[$database])) fail('snapshot must contain data/pbootcms.db');
 
 $cloudcraneRoot = WORKSPACE . '/.cloudcrane';
+$recoveryMarker = $cloudcraneRoot . '/.snapshot-recovery.json';
+recoverInterruptedSnapshot($recoveryMarker);
 $operationId = bin2hex(random_bytes(12));
 $stageRoot = $cloudcraneRoot . '/.snapshot-stage-' . $operationId;
 $backupRoot = $cloudcraneRoot . '/.snapshot-backup-' . $operationId;
@@ -150,6 +205,7 @@ try {
     if ((string)$db->query('PRAGMA integrity_check')->fetchColumn() !== 'ok') fail('migrated database integrity check failed');
     $db = null;
 
+    writeRecoveryMarker($recoveryMarker, 'backing_up', $backupRoot, $stageRoot);
     foreach (siteStateFiles(WORKSPACE) as $relative) {
         $source = WORKSPACE . '/' . $relative;
         $backup = $backupRoot . '/' . $relative;
@@ -157,6 +213,7 @@ try {
         moveWithParents($source, $backup);
         $backedUp[] = $relative;
     }
+    writeRecoveryMarker($recoveryMarker, 'promoting', $backupRoot, $stageRoot);
     $iterator = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($stageRoot, FilesystemIterator::SKIP_DOTS),
         RecursiveIteratorIterator::LEAVES_ONLY,
@@ -179,14 +236,9 @@ try {
     if ($gitExitCode !== 0 && $gitExitCode !== 1) fail('cannot commit restored site state');
     exec('git -C ' . escapeshellarg(WORKSPACE) . ' ls-files | grep -q "^\\.cloudcrane/references/"', $gitOutput, $gitExitCode);
     if ($gitExitCode === 0) fail('snapshot reference entered Website Git index');
-    if (is_dir($backupRoot)) {
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($backupRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
-        foreach ($iterator as $file) {
-            if ($file->isDir()) @rmdir($file->getPathname()); else @unlink($file->getPathname());
-        }
-        @rmdir($backupRoot);
-    }
-    @rmdir($stageRoot);
+    removeTree($backupRoot);
+    removeTree($stageRoot);
+    @unlink($recoveryMarker);
     echo "APPLIED {$referenceId} -> " . TARGET_VERSION . "\n";
 } catch (Throwable $error) {
     foreach (array_reverse($promoted) as $relative) @unlink(WORKSPACE . '/' . $relative);
@@ -194,8 +246,8 @@ try {
         $backup = $backupRoot . '/' . $relative;
         if (is_file($backup)) moveWithParents($backup, WORKSPACE . '/' . $relative);
     }
-    $iterator = is_dir($stageRoot) ? new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stageRoot, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) : null;
-    if ($iterator) foreach ($iterator as $file) $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
-    @rmdir($stageRoot);
+    removeTree($stageRoot);
+    removeTree($backupRoot);
+    @unlink($recoveryMarker);
     fail($error->getMessage());
 }
