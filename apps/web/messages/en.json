@@ -306,6 +306,7 @@
     "referenceUploadTitle": "Upload PbootCMS reference",
     "referenceUploadDescription": "Choose a ZIP file to import as read-only workspace reference material.",
     "referenceUploadChoose": "Upload ZIP",
+    "referenceUploadSelectFile": "Choose a ZIP file",
     "referenceUploadUploading": "Uploading…",
     "referenceUploadFailed": "Upload failed. Try again.",
     "referenceUploadTooLarge": "The file must be smaller than {size} MB",

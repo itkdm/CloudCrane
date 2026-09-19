@@ -1933,17 +1933,84 @@
 
 .reference-upload-execution {
   display: grid;
-  gap: 8px;
-  margin: 8px 0 4px 22px;
-  padding: 14px 16px;
+  gap: 6px;
+  margin: 6px 0 4px 22px;
+  padding: 11px 13px;
   border: 1px solid var(--cc-conversation-border);
-  border-radius: 10px;
-  background: var(--cc-conversation-surface);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--cc-conversation-surface) 72%, transparent);
+  font-size: 13px;
+}
+
+.reference-upload-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.reference-upload-heading strong {
+  color: var(--cc-conversation-text);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.reference-upload-heading span {
+  color: var(--cc-brand-hover);
+  font-size: 12px;
 }
 
 .reference-upload-execution p {
   margin: 0;
   color: var(--cc-conversation-secondary);
+  line-height: 1.45;
+}
+
+.reference-upload-filename {
+  overflow: hidden;
+  color: var(--cc-conversation-text) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-upload-file {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px dashed var(--cc-conversation-border);
+  border-radius: 7px;
+  color: var(--cc-conversation-secondary);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.reference-upload-file:hover {
+  border-color: var(--cc-brand-hover);
+  background: var(--cc-conversation-surface-subtle);
+  color: var(--cc-conversation-text);
+}
+
+.reference-upload-file:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--cc-brand) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.reference-upload-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-upload-file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .reference-upload-actions {
@@ -1953,14 +2020,46 @@
 }
 
 .reference-upload-actions button {
-  padding: 6px 12px;
+  min-height: 30px;
+  padding: 5px 11px;
   border: 1px solid var(--cc-conversation-border);
   border-radius: 7px;
   background: transparent;
   color: var(--cc-conversation-text);
   cursor: pointer;
+  font: inherit;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 100ms ease;
+}
+
+.reference-upload-actions button:hover:not(:disabled) {
+  border-color: var(--cc-brand-hover);
+  color: var(--cc-brand-hover);
+}
+
+.reference-upload-actions button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .reference-upload-actions button:last-child {
   background: var(--cc-conversation-surface-subtle);
+}
+
+.reference-upload-actions button:last-child:hover:not(:disabled) {
+  background: var(--cc-brand);
+  color: white;
+}
+
+.reference-upload-actions button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cc-brand) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.reference-upload-actions button:disabled,
+.reference-upload-file:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
 }

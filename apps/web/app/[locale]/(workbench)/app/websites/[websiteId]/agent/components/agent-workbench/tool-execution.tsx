@@ -198,33 +198,34 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
   };
   return (
     <article className="reference-upload-execution" aria-live="polite">
-      <strong>{t('referenceUploadTitle')}</strong>
-      {completed ? (
-        <p>
-          {t('referenceUploadReady')}
-          {interaction.name ? ` · ${interaction.name}` : ''}
-        </p>
-      ) : null}
+      <div className="reference-upload-heading">
+        <strong>{t('referenceUploadTitle')}</strong>
+        {completed ? <span>{t('referenceUploadReady')}</span> : null}
+      </div>
+      {completed ? <p className="reference-upload-filename">{interaction.name ?? ''}</p> : null}
       {cancelled ? <p>{t('referenceUploadCancelled')}</p> : null}
       {!completed && !cancelled ? (
         <>
           <p>{t('referenceUploadDescription')}</p>
-          <input
-            type="file"
-            accept={interaction.accept.join(',')}
-            disabled={uploading}
-            onChange={(event) => {
-              const next = event.target.files?.[0];
-              setFile(next);
-              setUploadError(
-                next && interaction.maxBytes !== undefined && next.size > interaction.maxBytes
-                  ? t('referenceUploadTooLarge', {
-                      size: Math.round(interaction.maxBytes / 1024 / 1024),
-                    })
-                  : undefined,
-              );
-            }}
-          />
+          <label className="reference-upload-file">
+            <span>{file?.name ?? t('referenceUploadSelectFile')}</span>
+            <input
+              type="file"
+              accept={interaction.accept.join(',')}
+              disabled={uploading}
+              onChange={(event) => {
+                const next = event.target.files?.[0];
+                setFile(next);
+                setUploadError(
+                  next && interaction.maxBytes !== undefined && next.size > interaction.maxBytes
+                    ? t('referenceUploadTooLarge', {
+                        size: Math.round(interaction.maxBytes / 1024 / 1024),
+                      })
+                    : undefined,
+                );
+              }}
+            />
+          </label>
           <div className="reference-upload-actions">
             <button
               type="button"
