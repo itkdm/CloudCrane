@@ -230,7 +230,11 @@ export function WebsiteSettingsDialog({
 
         <div className={`website-settings-delete${confirmingDelete ? ' is-confirming' : ''}`}>
           {!confirmingDelete ? (
-            <div className="website-settings-actions">
+            <div
+              className={`website-settings-actions${
+                currentWebsite.status === 'authorization_required' ? ' has-authorization' : ''
+              }`}
+            >
               {currentWebsite.status === 'authorization_required' ? (
                 <button
                   className="primary-button"
