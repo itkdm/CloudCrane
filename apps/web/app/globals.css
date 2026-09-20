@@ -543,14 +543,19 @@ button:disabled {
   transition: opacity 180ms ease;
 }
 .unified-sidebar.collapsed .cc-brand {
-  width: 28px;
+  width: 120px;
   height: 28px;
-  justify-content: center;
+  justify-content: flex-start;
   flex-shrink: 0;
   cursor: pointer;
 }
+.unified-sidebar .cc-brand-content > span {
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
 .unified-sidebar.collapsed .cc-brand-content > span {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
 }
 .sidebar-toggle {
   display: inline-flex;
@@ -1099,10 +1104,16 @@ button:disabled {
 }
 .unified-sidebar.collapsed .unified-sidebar-footer {
   flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .unified-sidebar.collapsed .unified-sidebar-account {
   justify-content: center;
+  order: 2;
+}
+.unified-sidebar.collapsed .unified-sidebar-settings-anchor {
+  order: 1;
 }
 .unified-sidebar.collapsed .unified-sidebar-account-name {
   display: none;
