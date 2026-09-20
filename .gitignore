@@ -13,6 +13,7 @@ dist/
 .artifacts/
 .agents/
 .cloudcrane-data/
+docs/*-test-account.local.md
 
 # IDE temporary files
 .idea/

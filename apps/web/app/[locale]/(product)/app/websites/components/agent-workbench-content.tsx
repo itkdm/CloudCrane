@@ -764,6 +764,7 @@ export function AgentWorkbenchContent({
           disabled={!currentSessionId}
           manualMaintenanceItems={conversation.manualMaintenanceItems}
           manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
+          contextUsage={conversation.contextUsage}
           onCompact={compactContext}
           onDraftChange={setDraft}
           onSubmit={submit}
