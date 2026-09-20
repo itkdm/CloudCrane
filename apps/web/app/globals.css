@@ -567,6 +567,11 @@ button:disabled {
   width: 32px;
   height: 32px;
 }
+.sidebar-toggle-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
 .sidebar-toggle:hover {
   border-color: color-mix(in srgb, var(--cc-sidebar-icon) 12%, transparent);
   background: var(--cc-surface-2);

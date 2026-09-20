@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import {
   Copy,
   GitBranch,
   LogOut,
   MoreHorizontal,
   PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Pin,
   Settings,
@@ -209,7 +209,15 @@ export function UnifiedSidebar({
           aria-label={collapsed ? t('expand') : t('collapse')}
         >
           {collapsed ? (
-            <PanelLeftOpen size={17} strokeWidth={1.8} aria-hidden="true" />
+            <Image
+              className="sidebar-toggle-logo"
+              src="/cloudcrane-logo.png?v=f9d843e"
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={28}
+              unoptimized
+            />
           ) : (
             <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
           )}
