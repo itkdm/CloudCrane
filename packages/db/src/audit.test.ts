@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { insertAuditEvent, sanitizeAuditSummary } from './audit.js';
+import { finishAuditEvent, insertAuditEvent, sanitizeAuditSummary } from './audit.js';
 
 describe('audit summary safety', () => {
   it('keeps only short scalar, non-sensitive metadata', () => {
@@ -41,5 +41,76 @@ describe('audit summary safety', () => {
         errorCode: 'WEBSITE_FORBIDDEN',
       }),
     ).resolves.toBe('audit-1');
+  });
+
+  it('retries a transient finalization failure once', async () => {
+    const returning = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce([{ id: 'audit-1' }]);
+    const db = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning })),
+        })),
+      })),
+    } as never;
+
+    await expect(
+      finishAuditEvent(db, 'audit-1', { status: 'SUCCESS', durationMs: 10 }),
+    ).resolves.toBeUndefined();
+    expect(returning).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats an already-finalized event with the same status as success', async () => {
+    const db = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) })),
+        })),
+      })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([{ status: 'SUCCESS' }]) })),
+        })),
+      })),
+    } as never;
+
+    await expect(finishAuditEvent(db, 'audit-1', { status: 'SUCCESS' })).resolves.toBeUndefined();
+  });
+
+  it('rejects when an event is already finalized with a different status', async () => {
+    const db = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning: vi.fn().mockResolvedValue([]) })),
+        })),
+      })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn().mockResolvedValue([{ status: 'FAILED' }]) })),
+        })),
+      })),
+    } as never;
+
+    await expect(finishAuditEvent(db, 'audit-1', { status: 'SUCCESS' })).rejects.toThrow(
+      'audit event is missing or already finalized',
+    );
+  });
+
+  it('fails after both finalization attempts fail', async () => {
+    const returning = vi.fn().mockRejectedValue(new Error('database unavailable'));
+    const db = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning })),
+        })),
+      })),
+    } as never;
+
+    await expect(finishAuditEvent(db, 'audit-1', { status: 'UNKNOWN' })).rejects.toThrow(
+      'database unavailable',
+    );
+    expect(returning).toHaveBeenCalledTimes(2);
   });
 });

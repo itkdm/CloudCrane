@@ -72,6 +72,7 @@ jobs:
       WORKSPACE_GATEWAY_CLIENT_TOKEN: integration-client-token
       RUNNER_AUTH_TOKEN: integration-runner-token
       WORKSPACE_ROOT: /tmp/cloudcrane-workspaces
+      WORKSPACE_REFERENCE_ROOT: /tmp/cloudcrane-references
       WORKSPACE_IMAGE: website-workspace-pboot:v1
     steps:
       - uses: actions/checkout@v4
