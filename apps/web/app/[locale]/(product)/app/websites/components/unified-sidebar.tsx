@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Image from 'next/image';
 import {
   Copy,
   GitBranch,
@@ -200,7 +199,24 @@ export function UnifiedSidebar({
   return (
     <aside className={`unified-sidebar ${collapsed ? 'collapsed' : ''}`}>
       <div className="unified-sidebar-header">
-        <Link className="cc-brand" href="/">
+        <Link
+          className="cc-brand"
+          href="/"
+          role={collapsed ? 'button' : undefined}
+          aria-label={collapsed ? t('expand') : undefined}
+          onKeyDown={(event) => {
+            if (collapsed && event.key === ' ') {
+              event.preventDefault();
+              onCollapsedChange(false);
+            }
+          }}
+          onClick={(event) => {
+            if (collapsed) {
+              event.preventDefault();
+              onCollapsedChange(false);
+            }
+          }}
+        >
           <Brand />
         </Link>
         <button
@@ -208,19 +224,7 @@ export function UnifiedSidebar({
           onClick={() => onCollapsedChange(!collapsed)}
           aria-label={collapsed ? t('expand') : t('collapse')}
         >
-          {collapsed ? (
-            <Image
-              className="sidebar-toggle-logo"
-              src="/cloudcrane-logo.png?v=f9d843e"
-              alt=""
-              aria-hidden="true"
-              width={28}
-              height={28}
-              unoptimized
-            />
-          ) : (
-            <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
-          )}
+          <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </div>
 
