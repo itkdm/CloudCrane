@@ -47,7 +47,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale === 'zh' ? 'zh-CN' : 'en'} suppressHydrationWarning>
       <head>
-        <link rel="icon" href="/favicon.ico?v=f9d843e" type="image/x-icon" />
+        <link rel="icon" href="/favicon.ico?v=97d8215" type="image/x-icon" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
