@@ -347,16 +347,12 @@
   overflow-wrap: anywhere;
 }
 
-.user-message-loader {
-  flex: 0 0 auto;
-  margin-top: 3px;
-  color: var(--cc-brand);
-}
-
 .user-message-failed {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
   color: var(--cc-danger);
-  font-size: 11px;
   white-space: nowrap;
 }
 

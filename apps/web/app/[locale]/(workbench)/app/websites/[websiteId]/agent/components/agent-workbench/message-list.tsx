@@ -167,7 +167,18 @@ function ConversationTurnView({
           {turn.status === 'aborted' ? t('aborted') : t('failed')}：{turn.error}
         </p>
       ) : null}
-      {turn.finalAnswer ? <AssistantMessage message={turn.finalAnswer} /> : null}
+      {turn.finalAnswer ? (
+        <AssistantMessage message={turn.finalAnswer} />
+      ) : turn.status === 'running' ? (
+        <AssistantMessage
+          message={{
+            id: `${turn.userMessage.id}-pending-assistant`,
+            role: 'assistant',
+            text: '',
+            status: 'streaming',
+          }}
+        />
+      ) : null}
     </article>
   );
 }
