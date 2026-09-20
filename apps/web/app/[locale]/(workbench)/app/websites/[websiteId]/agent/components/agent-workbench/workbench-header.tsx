@@ -18,7 +18,7 @@ export function WorkbenchHeader({ connection }: WorkbenchHeaderProps) {
   return (
     <header className="workbench-header" aria-label={t('ariaLabel')}>
       <div className="workbench-brand">
-        <Image src="/cloudcrane-logo.png" alt="" aria-hidden="true" width={20} height={20} />
+        <Image src="/cloudcrane-logo.png?v=f9d843e" alt="" aria-hidden="true" width={20} height={20} />
         <span className="brand-name">筑云鹤</span>
       </div>
       {!isConnected ? (

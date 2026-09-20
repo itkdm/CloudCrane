@@ -7,7 +7,7 @@ export function Brand() {
     <span className="cc-brand-content">
       <Image
         className="cc-brand-logo"
-        src="/cloudcrane-logo.png"
+        src="/cloudcrane-logo.png?v=f9d843e"
         alt=""
         aria-hidden="true"
         width={20}
