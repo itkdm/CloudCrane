@@ -576,12 +576,15 @@
 .workspace-start-composer {
   display: flex;
   width: 100%;
-  min-height: 164px;
+  max-width: 760px;
+  min-height: 184px;
+  margin-right: auto;
+  margin-left: auto;
   flex-direction: column;
   justify-content: space-between;
   padding: 18px;
   border: 1px solid var(--cc-border);
-  border-radius: 28px;
+  border-radius: 18px;
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-sm);
   transition:

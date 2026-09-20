@@ -579,15 +579,16 @@
 .composer-wrap {
   min-height: 0;
   flex: 0 0 auto;
-  padding: 6px 24px 8px;
+  padding: 10px 24px 12px;
   border-top: 1px solid var(--cc-border);
   background: var(--cc-surface-0);
 }
 
 .composer-box {
   border: 1px solid var(--cc-border);
-  border-radius: 28px;
-  padding: 5px 7px 4px 10px;
+  min-height: 88px;
+  border-radius: 18px;
+  padding: 12px 14px 10px;
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-sm);
 }
@@ -599,7 +600,7 @@
 
 .composer-box textarea {
   width: 100%;
-  min-height: 28px;
+  min-height: 38px;
   max-height: 176px;
   display: block;
   resize: none;
@@ -1564,7 +1565,7 @@
 }
 
 .composer-box {
-  width: min(100%, 900px);
+  width: min(100%, 760px);
   margin: 0 auto;
 }
 
