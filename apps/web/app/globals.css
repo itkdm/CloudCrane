@@ -607,6 +607,9 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 12px;
+  box-sizing: border-box;
+  height: 36px;
+  min-height: 36px;
   padding: 10px 12px;
   border-radius: var(--cc-radius-md);
   border: 0;
@@ -619,6 +622,12 @@ button:disabled {
   cursor: pointer;
   width: 100%;
   text-align: left;
+}
+.unified-sidebar-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .unified-sidebar-link:hover {
   background: color-mix(in srgb, var(--cc-sidebar-icon) 8%, transparent);
