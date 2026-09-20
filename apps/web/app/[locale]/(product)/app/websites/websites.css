@@ -1000,12 +1000,22 @@
 .website-settings-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 12px;
   width: 100%;
 }
 .website-settings-actions.has-authorization {
   justify-content: space-between;
+}
+.website-settings-actions .danger-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--cc-danger);
+}
+.website-settings-actions .danger-button:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--cc-danger) 10%, transparent);
+  color: var(--cc-danger);
 }
 .website-settings-delete.is-confirming {
   display: block;
