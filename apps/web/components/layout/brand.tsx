@@ -12,6 +12,7 @@ export function Brand() {
         aria-hidden="true"
         width={20}
         height={20}
+        unoptimized
       />
       <span>{t('brand')}</span>
     </span>

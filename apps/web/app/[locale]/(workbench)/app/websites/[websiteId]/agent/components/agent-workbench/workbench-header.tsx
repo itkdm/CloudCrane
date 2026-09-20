@@ -24,6 +24,7 @@ export function WorkbenchHeader({ connection }: WorkbenchHeaderProps) {
           aria-hidden="true"
           width={20}
           height={20}
+          unoptimized
         />
         <span className="brand-name">筑云鹤</span>
       </div>

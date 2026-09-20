@@ -39,6 +39,7 @@ export function SessionSidebar({
             aria-hidden="true"
             width={20}
             height={20}
+            unoptimized
           />
           {!collapsed ? <span>筑云鹤</span> : null}
         </div>
