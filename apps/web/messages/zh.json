@@ -159,7 +159,6 @@
     "authorizationError": "授权验证失败",
     "copyError": "复制失败，请手动选择并复制预览地址。",
     "officialAuthorization": "PbootCMS 官方免费授权页",
-    "dangerZone": "危险操作",
     "deleteWebsite": "删除网站",
     "deleteWebsiteDescription": "确定要删除“{name}”吗？",
     "deleteWebsiteWarning": "网站代码、预览环境、全部对话和占用的空间都会被永久删除；正在执行的 Agent 任务也会被终止，且无法撤销。",

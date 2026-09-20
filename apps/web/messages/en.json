@@ -159,7 +159,6 @@
     "authorizationError": "Authorization verification failed",
     "copyError": "Could not copy. Select and copy the preview address manually.",
     "officialAuthorization": "official PbootCMS free authorization page",
-    "dangerZone": "Danger zone",
     "deleteWebsite": "Delete website",
     "deleteWebsiteDescription": "Delete “{name}”?",
     "deleteWebsiteWarning": "The website code, preview environment, conversations, and storage will be permanently deleted. Active Agent tasks will be terminated. This cannot be undone.",

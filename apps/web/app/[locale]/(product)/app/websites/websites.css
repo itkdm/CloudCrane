@@ -986,13 +986,10 @@
 .website-settings-authorization > .primary-button {
   margin-top: 2px;
 }
-.website-settings-danger {
+.website-settings-delete {
   margin-top: 24px;
-  padding-top: 18px;
-  border-top: 1px solid color-mix(in srgb, var(--cc-danger) 28%, var(--cc-border));
-}
-.website-settings-danger h3 {
-  color: var(--cc-danger);
+  display: flex;
+  justify-content: flex-end;
 }
 .website-delete-confirmation p {
   margin: 0 0 10px;

@@ -225,8 +225,7 @@ export function WebsiteSettingsDialog({
           ) : null}
         </section>
 
-        <section className="website-settings-danger" aria-labelledby="website-delete-title">
-          <h3 id="website-delete-title">{t('dangerZone')}</h3>
+        <div className="website-settings-delete">
           {!confirmingDelete ? (
             <button
               className="secondary-button danger-button"
@@ -278,7 +277,7 @@ export function WebsiteSettingsDialog({
               </div>
             </div>
           )}
-        </section>
+        </div>
       </section>
     </div>
   );
