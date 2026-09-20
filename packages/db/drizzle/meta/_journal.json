@@ -64,6 +64,13 @@
       "when": 1789840444578,
       "tag": "0008_audit_event",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0009_audit_event_repair",
+      "breakpoints": true
     }
   ]
 }
