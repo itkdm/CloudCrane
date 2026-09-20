@@ -4,6 +4,7 @@ import { buildAgentServiceApp } from './app.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
+const previewSlug = 'preview12345';
 
 describe('preview access endpoint', () => {
   it('returns the same expiry used in the signed token', async () => {
@@ -28,6 +29,7 @@ describe('preview access endpoint', () => {
         bindingStore: {
           findWebsiteWorkspace: async () => ({
             websiteId,
+            previewSlug,
             workspaceId: '00000000-0000-4000-8000-000000000002',
             websiteStatus: 'ready',
             workspaceStatus: 'running',
@@ -43,6 +45,7 @@ describe('preview access endpoint', () => {
     const response = await app.inject({ method: 'GET', url: `/v1/websites/${websiteId}/preview` });
     expect(response.statusCode).toBe(200);
     const body = response.json() as { url: string; expiresAt: number };
+    expect(new URL(body.url).hostname).toBe(`${previewSlug}.preview.example`);
     expect(body.url).toContain('?token=');
     expect(body.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
     expect(body.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 20);

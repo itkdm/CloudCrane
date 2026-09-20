@@ -28,6 +28,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
     if (!row.workspaceId || !row.workspaceStatus) {
       return {
         websiteId: row.websiteId,
+        previewSlug: row.previewSlug,
         workspaceId: '00000000-0000-4000-8000-000000000000',
         websiteStatus: row.websiteStatus,
         workspaceStatus: 'missing',
@@ -39,6 +40,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
     if (!workspaceId || !workspaceStatus) return null;
     return {
       websiteId: row.websiteId,
+      previewSlug: row.previewSlug,
       websiteStatus: row.websiteStatus,
       workspaceId,
       workspaceStatus,
