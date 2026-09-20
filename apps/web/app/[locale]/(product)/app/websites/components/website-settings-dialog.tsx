@@ -127,105 +127,107 @@ export function WebsiteSettingsDialog({
         >
           ×
         </button>
-        <h2 id="website-settings-title">{wt('settings')}</h2>
+        <div className="website-settings-content">
+          <h2 id="website-settings-title">{wt('settings')}</h2>
 
-        <section className="website-settings-section" aria-labelledby="website-basic-title">
-          <h3 id="website-basic-title">{t('basicInfo')}</h3>
-          <dl className="website-settings-details">
-            <div>
-              <dt>{t('name')}</dt>
-              <dd>{currentWebsite.name}</dd>
-            </div>
-            <div>
-              <dt>{t('createdAtLabel')}</dt>
-              <dd>
-                {format.dateTime(new Date(currentWebsite.createdAt), {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('statusLabel')}</dt>
-              <dd>
-                <span className={`website-status website-status-${currentWebsite.status}`}>
-                  {statusT(statusKey)}
-                </span>
-              </dd>
-            </div>
-          </dl>
-        </section>
+          <section className="website-settings-section" aria-labelledby="website-basic-title">
+            <h3 id="website-basic-title">{t('basicInfo')}</h3>
+            <dl className="website-settings-details">
+              <div>
+                <dt>{t('name')}</dt>
+                <dd>{currentWebsite.name}</dd>
+              </div>
+              <div>
+                <dt>{t('createdAtLabel')}</dt>
+                <dd>
+                  {format.dateTime(new Date(currentWebsite.createdAt), {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  })}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('statusLabel')}</dt>
+                <dd>
+                  <span className={`website-status website-status-${currentWebsite.status}`}>
+                    {statusT(statusKey)}
+                  </span>
+                </dd>
+              </div>
+            </dl>
+          </section>
 
-        <section className="website-settings-section" aria-labelledby="website-pboot-title">
-          <h3 id="website-pboot-title">PbootCMS</h3>
-          <div className="website-settings-row">
-            <span>{t('authorizationStatus')}</span>
-            <strong>
-              {currentWebsite.status === 'ready' ? t('authorized') : statusT(statusKey)}
-            </strong>
-          </div>
-          <div className="website-settings-row website-settings-preview">
-            <span>{t('previewAddress')}</span>
-            <code>{currentWebsite.previewUrl}</code>
-            {currentWebsite.previewUrl ? (
-              <button className="secondary-button" type="button" onClick={copyPreviewUrl}>
-                {copied ? common('copied') : t('copyAddress')}
-              </button>
+          <section className="website-settings-section" aria-labelledby="website-pboot-title">
+            <h3 id="website-pboot-title">PbootCMS</h3>
+            <div className="website-settings-row">
+              <span>{t('authorizationStatus')}</span>
+              <strong>
+                {currentWebsite.status === 'ready' ? t('authorized') : statusT(statusKey)}
+              </strong>
+            </div>
+            <div className="website-settings-row website-settings-preview">
+              <span>{t('previewAddress')}</span>
+              <code>{currentWebsite.previewUrl}</code>
+              {currentWebsite.previewUrl ? (
+                <button className="secondary-button" type="button" onClick={copyPreviewUrl}>
+                  {copied ? common('copied') : t('copyAddress')}
+                </button>
+              ) : null}
+            </div>
+
+            {currentWebsite.status === 'authorization_required' ? (
+              <form className="website-settings-authorization" onSubmit={submit}>
+                <p>{t('authorizationDescription')}</p>
+                <p>
+                  {t('authorizationStepOne')}{' '}
+                  <a href={PBOOT_AUTHORIZATION_URL} target="_blank" rel="noopener noreferrer">
+                    {t('officialAuthorization')}
+                  </a>
+                  。
+                </p>
+                <label htmlFor="pboot-authorization-code">{t('authorizationCode')}</label>
+                <textarea
+                  id="pboot-authorization-code"
+                  value={authorizationCode}
+                  onChange={(event) => setAuthorizationCode(event.target.value)}
+                  placeholder={t('authorizationPlaceholder')}
+                  maxLength={2048}
+                  disabled={authorizing}
+                  required
+                />
+                {error ? (
+                  <p className="website-modal-error" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <button className="primary-button" type="submit" disabled={authorizing}>
+                  {authorizing ? t('verifying') : t('saveVerify')}
+                </button>
+              </form>
             ) : null}
-          </div>
+            {currentWebsite.status === 'template_attach_failed' ? (
+              <div className="website-settings-authorization">
+                <p>{t('templateAttachFailed')}</p>
+                {error ? (
+                  <p className="website-modal-error" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void retryTemplate()}
+                  disabled={retryingTemplate}
+                >
+                  {retryingTemplate ? t('templateRetrying') : t('templateRetry')}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        </div>
 
-          {currentWebsite.status === 'authorization_required' ? (
-            <form className="website-settings-authorization" onSubmit={submit}>
-              <p>{t('authorizationDescription')}</p>
-              <p>
-                {t('authorizationStepOne')}{' '}
-                <a href={PBOOT_AUTHORIZATION_URL} target="_blank" rel="noopener noreferrer">
-                  {t('officialAuthorization')}
-                </a>
-                。
-              </p>
-              <label htmlFor="pboot-authorization-code">{t('authorizationCode')}</label>
-              <textarea
-                id="pboot-authorization-code"
-                value={authorizationCode}
-                onChange={(event) => setAuthorizationCode(event.target.value)}
-                placeholder={t('authorizationPlaceholder')}
-                maxLength={2048}
-                disabled={authorizing}
-                required
-              />
-              {error ? (
-                <p className="website-modal-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <button className="primary-button" type="submit" disabled={authorizing}>
-                {authorizing ? t('verifying') : t('saveVerify')}
-              </button>
-            </form>
-          ) : null}
-          {currentWebsite.status === 'template_attach_failed' ? (
-            <div className="website-settings-authorization">
-              <p>{t('templateAttachFailed')}</p>
-              {error ? (
-                <p className="website-modal-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => void retryTemplate()}
-                disabled={retryingTemplate}
-              >
-                {retryingTemplate ? t('templateRetrying') : t('templateRetry')}
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <div className="website-settings-delete">
+        <div className={`website-settings-delete${confirmingDelete ? ' is-confirming' : ''}`}>
           {!confirmingDelete ? (
             <button
               className="secondary-button danger-button"
