@@ -37,6 +37,7 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 ## 工具与真实验收
 
 - UI、Chat、Preview、Workspace 生命周期、Agent Prompt、刷新/重连等用户流程，必须通过 DEVTOOLS MCP 连接真实服务验证。优先使用 `list_pages`、`navigate_page`、最新 `take_snapshot`、`list_network_requests` 和 `list_console_messages`；每次点击或填写前重新获取 snapshot，使用最新 uid。
+- 涉及 Web UI 的验收必须额外使用 DEVTOOLS MCP 截取截图，并检查截图中的实际视觉布局、裁切、滚动位置、间距、对齐和响应式表现；仅凭 DOM 快照、Network 或 Console 结果不得宣称 UI 验收完成。最终报告应说明截图验证结论，必要时附上截图证据路径。
 - DEVTOOLS MCP 不可用时必须原样报告：`E2E blocked: DEVTOOLS MCP unavailable`。不能用 curl、Playwright 或普通浏览器替代并声称完成 CloudCrane UI E2E；curl/SSH 只用于辅助的服务器健康与只读状态检查。
 - 真实验收要检查可见 DOM、用户反馈、Console、Network、刷新/重开后的持久化状态和关键错误路径。遇到授权失败、服务不可用或 Agent 未完成，不得人工绕过、自动开新窗口、自动刷新掩盖问题。
 - 日志和最终报告不得包含密码、Cookie、Token、授权码、完整 Prompt、Session JSONL、文件内容或未过滤外部 stdout；报告使用状态、计数、哈希或脱敏路径。
