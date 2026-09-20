@@ -17,7 +17,6 @@ import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
   command,
-  listAgentSessions,
   uploadReference,
   parseAgentEvent,
   parseAgentMessage,
@@ -42,7 +41,6 @@ import {
   shouldClearErrorOnRunSettled,
   shouldClearErrorOnRecovery,
   type PreviewState,
-  type Session,
   type WorkbenchError,
 } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/types';
 import '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/agent-workbench.css';
@@ -64,6 +62,7 @@ type SessionChange =
 export function AgentWorkbenchContent({
   websiteId,
   sessionId,
+  sessionMetadata,
   onSessionChange,
   onSettingsOpen,
   initialPrompt,
@@ -72,6 +71,7 @@ export function AgentWorkbenchContent({
 }: {
   websiteId: string;
   sessionId?: string;
+  sessionMetadata: Array<{ id: string; title?: string | null }>;
   onSessionChange?: (change: SessionChange) => void;
   onSettingsOpen?: () => void;
   initialPrompt?: { id: string; websiteId: string; text: string };
@@ -84,7 +84,6 @@ export function AgentWorkbenchContent({
     initialConversationState,
   );
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
-  const [sessions, setSessions] = useState<Session[]>([]);
   const [runId, setRunId] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<WorkbenchError | undefined>();
@@ -400,24 +399,6 @@ export function AgentWorkbenchContent({
     };
   }, [preview.status, previewOpen, updatePreviewCapabilities]);
 
-  // Load only the explicitly selected session list. Session creation belongs to UnifiedApp.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const result = await listAgentSessions(websiteId);
-        if (cancelled) return;
-        setSessions(result.sessions);
-      } catch (cause) {
-        if (!cancelled) setError(toWorkbenchError('session', cause, t('operationIncomplete')));
-      }
-    })();
-    return () => {
-      cancelled = true;
-      socket.current?.close();
-    };
-  }, [websiteId, t]);
-
   // Listen to external sessionId changes
   useEffect(() => {
     if (sessionId !== currentSessionId) {
@@ -454,7 +435,7 @@ export function AgentWorkbenchContent({
         true,
       );
       if (socket.current?.readyState === WebSocket.OPEN) {
-        const currentSession = sessions.find((session) => session.id === sessionId);
+        const currentSession = sessionMetadata.find((session) => session.id === sessionId);
         if (!currentSession?.title?.trim())
           pendingSessionTitlesRef.current.set(requestId, {
             sessionId,
@@ -483,7 +464,7 @@ export function AgentWorkbenchContent({
       setDraft('');
       return true;
     },
-    [conversation, currentSessionId, queueConversation, sessions, t, websiteId],
+    [conversation, currentSessionId, queueConversation, sessionMetadata, t, websiteId],
   );
 
   useEffect(() => {
@@ -609,14 +590,6 @@ export function AgentWorkbenchContent({
           setError((current) => (current?.source === 'session' ? undefined : current));
           const nextSession = projected.event.payload.session;
           setSessionSnapshotVersion((current) => current + 1);
-          setSessions((current) => {
-            const existing = current.some((session) => session.id === nextSession.id);
-            return existing
-              ? current.map((session) =>
-                  session.id === nextSession.id ? { ...session, ...nextSession } : session,
-                )
-              : [nextSession, ...current];
-          });
           onSessionChange?.({
             id: nextSession.id,
             title: nextSession.title,
@@ -669,13 +642,6 @@ export function AgentWorkbenchContent({
           const pendingTitle = pendingSessionTitlesRef.current.get(projected.envelope.requestId);
           if (pendingTitle) {
             pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
-            setSessions((current) =>
-              current.map((session) =>
-                session.id === pendingTitle.sessionId
-                  ? { ...session, title: pendingTitle.title }
-                  : session,
-              ),
-            );
             onSessionChange?.({
               id: pendingTitle.sessionId,
               title: pendingTitle.title,

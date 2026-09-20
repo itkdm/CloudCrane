@@ -94,6 +94,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const loadRequestRef = useRef(0);
+  const deletedSessionIdsRef = useRef(new Set<string>());
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] =
     useState<TemplateSummary | null>(null);
@@ -125,12 +127,19 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }, []);
 
   const loadWebsites = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
+    deletedSessionIdsRef.current.clear();
     setWebsiteLoadState('loading');
     setWebsiteLoadError('');
     try {
       const websitesRes = await fetch('/api/websites');
       if (!websitesRes.ok) throw new Error(t('loadError'));
       const websitesData = (await websitesRes.json()) as Website[];
+      if (requestId !== loadRequestRef.current) return;
+      setWebsites(websitesData);
+      setSessions([]);
+      setWebsiteLoadState('success');
+
       const sessionResults = await Promise.allSettled(
         websitesData.map(async (website) => {
           const result = await listAgentSessions(website.id);
@@ -144,12 +153,30 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           }));
         }),
       );
-      setWebsites(websitesData);
-      setSessions(
-        sessionResults.flatMap((result) => (result.status === 'fulfilled' ? result.value : [])),
+      if (requestId !== loadRequestRef.current) return;
+      const loadedSessions = sessionResults.flatMap((result) =>
+        result.status === 'fulfilled' ? result.value : [],
       );
-      setWebsiteLoadState('success');
+      setSessions((current) => {
+        const deletedSessionIds = deletedSessionIdsRef.current;
+        const visibleLoadedSessions = loadedSessions.filter(
+          (session) => !deletedSessionIds.has(session.id),
+        );
+        const currentById = new Map(current.map((session) => [session.id, session]));
+        const loadedIds = new Set(visibleLoadedSessions.map((session) => session.id));
+        const merged = visibleLoadedSessions.map((session) => ({
+          ...session,
+          ...currentById.get(session.id),
+        }));
+        return [
+          ...merged,
+          ...current.filter(
+            (session) => !loadedIds.has(session.id) && !deletedSessionIds.has(session.id),
+          ),
+        ];
+      });
     } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
       setWebsites([]);
       setSessions([]);
       setWebsiteLoadError(error instanceof Error ? error.message : t('loadError'));
@@ -243,6 +270,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const handleDeleteSession = useCallback(
     async (websiteId: string, sessionId: string) => {
       await deleteAgentSession(websiteId, sessionId);
+      deletedSessionIdsRef.current.add(sessionId);
       setSessions((current) => current.filter((item) => item.id !== sessionId));
       if (selectedSession !== sessionId) return;
       const next = sessions
@@ -501,6 +529,9 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           <AgentWorkbenchContent
             websiteId={selectedWebsite}
             sessionId={selectedSession}
+            sessionMetadata={sessions
+              .filter((session) => session.websiteId === selectedWebsite)
+              .map(({ id, title }) => ({ id, title }))}
             onSessionChange={handleSessionChange}
             onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
             initialPrompt={
