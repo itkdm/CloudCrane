@@ -66,6 +66,8 @@ describe('WebsiteAgentRuntime', () => {
       name: 'Demo',
       description: 'Verified demo',
       category: '企业官网',
+      agentRunId: '00000000-0000-4000-8000-000000000003',
+      runCorrelationId: '00000000-0000-4000-8000-000000000004',
     });
     expect(JSON.stringify(result.content)).toContain('Template published successfully.');
     await expect(

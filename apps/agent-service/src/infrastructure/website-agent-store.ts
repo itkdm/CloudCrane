@@ -1,6 +1,12 @@
 import { and, eq, or, sql } from 'drizzle-orm';
-import type { PlatformDb } from '@cloudcrane/db';
-import { agentRun, websiteSession } from '@cloudcrane/db';
+import {
+  agentRun,
+  auditEvent,
+  finishAuditEvent,
+  insertAuditEvent,
+  type PlatformDb,
+} from '@cloudcrane/db';
+import { websiteSession } from '@cloudcrane/db';
 import type {
   AgentRunIndex,
   AgentRunStatus,
@@ -10,6 +16,7 @@ import type {
   WebsiteSessionIndex,
   WebsiteSessionStatus,
 } from '@cloudcrane/website-agent';
+import { getLogContext } from '@cloudcrane/shared';
 
 const toIso = (value: Date | null): string | null => (value ? value.toISOString() : null);
 
@@ -137,6 +144,27 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
       .returning();
     const row = rows[0];
     if (!row) throw new Error('agent run was not created');
+    try {
+      const observabilityContext = getLogContext();
+      await insertAuditEvent(this.platform.db, {
+        actorType: 'agent',
+        websiteId: row.websiteId,
+        websiteSessionId: row.sessionId,
+        agentRunId: row.id,
+        traceId: observabilityContext.traceId,
+        spanId: observabilityContext.spanId,
+        runCorrelationId: row.traceId,
+        requestId: observabilityContext.requestId,
+        operation: 'agent.run',
+        resourceType: 'agent_run',
+        resourceRef: row.id,
+        status: 'PENDING',
+        requestSummary: { hasModel: Boolean(row.model) },
+      });
+    } catch (error) {
+      await this.platform.db.delete(agentRun).where(eq(agentRun.id, row.id));
+      throw new Error('agent run audit is unavailable', { cause: error });
+    }
     return mapRun(row);
   }
 
@@ -151,9 +179,49 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
       update.endedAt = patch.endedAt ? new Date(patch.endedAt) : null;
     if (Object.keys(update).length === 0) return;
     await this.platform.db.update(agentRun).set(update).where(eq(agentRun.id, runId));
+    if (patch.status && ['COMPLETED', 'FAILED', 'ABORTED', 'INTERRUPTED'].includes(patch.status)) {
+      const [pendingAudit] = await this.platform.db
+        .select({ id: auditEvent.id, occurredAt: auditEvent.occurredAt })
+        .from(auditEvent)
+        .where(
+          and(
+            eq(auditEvent.agentRunId, runId),
+            eq(auditEvent.operation, 'agent.run'),
+            or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
+          ),
+        )
+        .limit(1);
+      if (pendingAudit) {
+        const terminalStatus =
+          patch.status === 'COMPLETED'
+            ? 'SUCCESS'
+            : patch.status === 'ABORTED'
+              ? 'CANCELLED'
+              : patch.status === 'INTERRUPTED'
+                ? 'UNKNOWN'
+                : 'FAILED';
+        await finishAuditEvent(this.platform.db, pendingAudit.id, {
+          status: terminalStatus,
+          durationMs: patch.endedAt
+            ? Math.max(0, new Date(patch.endedAt).getTime() - pendingAudit.occurredAt.getTime())
+            : undefined,
+          errorCode: patch.status === 'FAILED' ? 'AGENT_RUN_FAILED' : undefined,
+          resultSummary: { status: patch.status },
+        });
+      }
+    }
   }
 
   async recoverStaleRuns(websiteId: string): Promise<void> {
+    const staleRuns = await this.platform.db
+      .select({ id: agentRun.id, startedAt: agentRun.startedAt })
+      .from(agentRun)
+      .where(
+        and(
+          eq(agentRun.websiteId, websiteId),
+          or(eq(agentRun.status, 'PENDING'), eq(agentRun.status, 'RUNNING')),
+        ),
+      );
     await this.platform.db
       .update(agentRun)
       .set({ status: 'INTERRUPTED', endedAt: new Date() })
@@ -163,5 +231,25 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
           or(eq(agentRun.status, 'PENDING'), eq(agentRun.status, 'RUNNING')),
         ),
       );
+    for (const run of staleRuns) {
+      const [pendingAudit] = await this.platform.db
+        .select({ id: auditEvent.id, occurredAt: auditEvent.occurredAt })
+        .from(auditEvent)
+        .where(
+          and(
+            eq(auditEvent.agentRunId, run.id),
+            eq(auditEvent.operation, 'agent.run'),
+            or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
+          ),
+        )
+        .limit(1);
+      if (pendingAudit)
+        await finishAuditEvent(this.platform.db, pendingAudit.id, {
+          status: 'UNKNOWN',
+          durationMs: run.startedAt ? Math.max(0, Date.now() - run.startedAt.getTime()) : undefined,
+          errorCode: 'AGENT_RUN_INTERRUPTED',
+          resultSummary: { status: 'INTERRUPTED' },
+        });
+    }
   }
 }

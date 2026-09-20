@@ -47,6 +47,11 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           'WORKSPACE_DAEMON_HOST=0.0.0.0',
         ],
         ExposedPorts: { '7070/tcp': {}, '8080/tcp': {} },
+        Labels: {
+          'cloudcrane.service': 'workspace',
+          'cloudcrane.environment':
+            process.env.CLOUDCRANE_ENV ?? process.env.NODE_ENV ?? 'development',
+        },
         HostConfig: {
           Binds: [
             `${persistentPath}:/workspace`,
@@ -65,6 +70,10 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           Memory: this.config.memoryLimitBytes,
           PidsLimit: this.config.pidsLimit,
           AutoRemove: false,
+          LogConfig: {
+            Type: 'json-file',
+            Config: { 'max-size': '10m', 'max-file': '5' },
+          },
         },
       });
       await container.start();
@@ -309,6 +318,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         Binds: [`${persistentPath}:/workspace`],
         NetworkMode: 'none',
         AutoRemove: false,
+        LogConfig: { Type: 'json-file', Config: { 'max-size': '2m', 'max-file': '2' } },
       },
     });
     try {
@@ -336,6 +346,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         Binds: [`${persistentPath}:/workspace`],
         NetworkMode: 'none',
         AutoRemove: false,
+        LogConfig: { Type: 'json-file', Config: { 'max-size': '2m', 'max-file': '2' } },
       },
     });
     try {

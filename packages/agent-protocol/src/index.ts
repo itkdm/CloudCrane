@@ -20,6 +20,7 @@ export const agentEnvelopeSchema = z.object({
   // connection.ready is emitted before the client selects a Website.
   websiteId: z.string().uuid().optional(),
   sessionId: z.string().uuid().optional(),
+  traceparent: z.string().max(255).optional(),
   runId: z.string().uuid().optional(),
   traceId: z.string().uuid().optional(),
   timestamp: z.coerce.date(),
@@ -31,6 +32,7 @@ const commandBase = z.object({
   requestId: z.string().min(1),
   websiteId: z.string().uuid(),
   sessionId: z.string().uuid().optional(),
+  traceparent: z.string().max(255).optional(),
   timestamp: z.coerce.date(),
 });
 

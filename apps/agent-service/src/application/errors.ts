@@ -12,6 +12,7 @@ export type AgentServiceErrorCode =
   | 'CONTEXT_COMPACTION_NOT_NEEDED'
   | 'INTERACTION_NOT_FOUND'
   | 'MODEL_NOT_CONFIGURED'
+  | 'AUDIT_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
 export class AgentServiceError extends Error {

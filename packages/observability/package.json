@@ -1,0 +1,25 @@
+{
+  "name": "@cloudcrane/observability",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint --config ../../eslint.config.mjs .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --exclude dist/** --exclude .next/**"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.218.0",
+    "@opentelemetry/sdk-node": "0.218.0",
+    "pino": "10.3.1"
+  }
+}

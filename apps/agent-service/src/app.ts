@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -15,8 +16,22 @@ import {
   requireSession,
   type CloudCraneAuth,
 } from '@cloudcrane/auth';
-import type { PlatformDb } from '@cloudcrane/db';
-import { createLogger, type ServiceLogger } from '@cloudcrane/shared';
+import {
+  finishAuditEvent,
+  insertAuditEvent,
+  type AuditActorType,
+  type PlatformDb,
+} from '@cloudcrane/db';
+import {
+  createLogger,
+  enterLogContext,
+  getActiveTraceContext,
+  getLogContext,
+  parseTraceparent,
+  serializeError,
+  sanitizeRequestPath,
+  type ServiceLogger,
+} from '@cloudcrane/shared';
 import { signPreviewToken } from '@cloudcrane/preview-access';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
@@ -41,11 +56,14 @@ export type AgentServiceAppOptions = {
   logger?: ServiceLogger;
 };
 
+const auditLogger = createLogger('agent-service.audit');
+
 export function buildAgentServiceApp(
   options: AgentServiceAppOptions,
 ): FastifyInstance & { agentSocket: AgentSocketTransport } {
   const app = Fastify({ bodyLimit: 256 * 1024 });
   const logger = options.logger ?? createLogger('agent-service.http');
+  const requestStarts = new WeakMap<object, number>();
   void app.register(multipart, {
     limits: { files: 1, fileSize: options.config.referenceUploadMaxBytes },
   });
@@ -60,6 +78,13 @@ export function buildAgentServiceApp(
   });
   (app as unknown as FastifyInstance & { agentSocket: AgentSocketTransport }).agentSocket = sockets;
   app.addHook('onRequest', async (request, reply) => {
+    requestStarts.set(request, performance.now());
+    enterLogContext({
+      requestId: request.id,
+      ...parseTraceparent(
+        typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
+      ),
+    });
     if (request.method === 'OPTIONS') return;
     if (request.url === '/health') return;
     if (request.url.startsWith('/v1/internal/')) {
@@ -82,6 +107,11 @@ export function buildAgentServiceApp(
     if (!options.auth || !options.db) return;
     try {
       const session = await requireSession(options.auth, headersFromNode(request.headers));
+      enterLogContext({
+        ...getLogContext(),
+        userId: session.user.id,
+        actorType: getUserRole(session) === 'admin' ? 'admin' : 'user',
+      });
       const websiteId = (request.params as { websiteId?: string } | undefined)?.websiteId;
       if (websiteId)
         await assertWebsiteAccessForUser(
@@ -97,6 +127,20 @@ export function buildAgentServiceApp(
           .send({ error: { code: error.code, message: error.message } });
       throw error;
     }
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    logger.info(
+      {
+        event: 'http.request.finished',
+        operation: `${request.method} ${request.url.split('?')[0]}`,
+        durationMs: Math.round(
+          performance.now() - (requestStarts.get(request) ?? performance.now()),
+        ),
+        statusCode: reply.statusCode,
+        outcome: reply.statusCode >= 500 ? 'failed' : 'succeeded',
+      },
+      'agent service request completed',
+    );
   });
   app.addHook('onSend', async (request, reply) => {
     const origin = request.headers.origin;
@@ -247,7 +291,21 @@ export function buildAgentServiceApp(
     '/v1/websites/:websiteId/sessions',
     async (request) => {
       const runtime = await getRuntime(options.registry, request.params.websiteId);
-      return { session: toSessionView(await runtime.createSession()) };
+      const auditId = await startSessionAudit(
+        options.db,
+        'agent.session.create',
+        request.params.websiteId,
+      );
+      try {
+        const created = await runtime.createSession();
+        await finishSessionAudit(options.db, auditId, 'SUCCESS', {
+          websiteSessionId: created.id,
+        });
+        return { session: toSessionView(created) };
+      } catch (error) {
+        await finishSessionAudit(options.db, auditId, 'FAILED', { error });
+        throw error;
+      }
     },
   );
   app.patch<{
@@ -267,25 +325,68 @@ export function buildAgentServiceApp(
         'exactly one of title or pinned is required',
         400,
       );
-    let session;
-    if (body.title !== undefined)
-      session = await runtime.renameSession(request.params.sessionId, body.title);
-    if (body.pinned !== undefined)
-      session = await runtime.setSessionPinned(request.params.sessionId, body.pinned);
-    return { session: toSessionView(session!) };
+    const operation = body.title !== undefined ? 'agent.session.rename' : 'agent.session.pin';
+    const auditId = await startSessionAudit(
+      options.db,
+      operation,
+      request.params.websiteId,
+      request.params.sessionId,
+    );
+    try {
+      const session =
+        body.title !== undefined
+          ? await runtime.renameSession(request.params.sessionId, body.title)
+          : await runtime.setSessionPinned(request.params.sessionId, body.pinned as boolean);
+      await finishSessionAudit(options.db, auditId, 'SUCCESS', {
+        websiteSessionId: session.id,
+      });
+      return { session: toSessionView(session) };
+    } catch (error) {
+      await finishSessionAudit(options.db, auditId, 'FAILED', { error });
+      throw error;
+    }
   });
   app.post<{ Params: { websiteId: string; sessionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId/clone',
     async (request) => {
       const runtime = await getRuntime(options.registry, request.params.websiteId);
-      return { session: toSessionView(await runtime.cloneSession(request.params.sessionId)) };
+      const auditId = await startSessionAudit(
+        options.db,
+        'agent.session.clone',
+        request.params.websiteId,
+        request.params.sessionId,
+      );
+      try {
+        const cloned = await runtime.cloneSession(request.params.sessionId);
+        await finishSessionAudit(options.db, auditId, 'SUCCESS', {
+          websiteSessionId: cloned.id,
+        });
+        return { session: toSessionView(cloned) };
+      } catch (error) {
+        await finishSessionAudit(options.db, auditId, 'FAILED', { error });
+        throw error;
+      }
     },
   );
   app.delete<{ Params: { websiteId: string; sessionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId',
     async (request, reply) => {
       const runtime = await getRuntime(options.registry, request.params.websiteId);
-      await runtime.deleteSession(request.params.sessionId);
+      const auditId = await startSessionAudit(
+        options.db,
+        'agent.session.delete',
+        request.params.websiteId,
+        request.params.sessionId,
+      );
+      try {
+        await runtime.deleteSession(request.params.sessionId);
+        await finishSessionAudit(options.db, auditId, 'SUCCESS', {
+          deletedSessionId: request.params.sessionId,
+        });
+      } catch (error) {
+        await finishSessionAudit(options.db, auditId, 'FAILED', { error });
+        throw error;
+      }
       return reply.code(204).send();
     },
   );
@@ -316,10 +417,10 @@ export function buildAgentServiceApp(
     };
     logger.error(
       {
-        err: error,
+        ...serializeError(error),
         requestId: request.id,
         method: request.method,
-        url: request.url,
+        url: sanitizeRequestPath(request.url),
         websiteId: params.websiteId,
         sessionId: params.sessionId,
         interactionId: params.interactionId,
@@ -394,4 +495,79 @@ function hasInternalToken(value: string | string[] | undefined, expected?: strin
   const actualBytes = Buffer.from(actual);
   const expectedBytes = Buffer.from(expected);
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes);
+}
+
+type SessionAudit = { id: string; startedAt: number };
+
+async function startSessionAudit(
+  db: PlatformDb['db'] | undefined,
+  operation: string,
+  websiteId: string,
+  sessionId?: string,
+): Promise<SessionAudit | undefined> {
+  if (!db) return undefined;
+  const context = getLogContext();
+  const traceContext = getActiveTraceContext();
+  const actorType: AuditActorType = context.actorType === 'admin' ? 'admin' : 'user';
+  try {
+    const id = await insertAuditEvent(db, {
+      actorType,
+      actorUserId: context.userId,
+      websiteId,
+      websiteSessionId: sessionId,
+      traceId: traceContext.traceId ?? context.traceId,
+      spanId: traceContext.spanId ?? context.spanId,
+      runCorrelationId: context.runCorrelationId,
+      requestId: context.requestId,
+      operation,
+      resourceType: 'website_session',
+      resourceRef: sessionId,
+      status: 'PENDING',
+      requestSummary: sessionId ? { sessionId } : undefined,
+    });
+    return { id, startedAt: Date.now() };
+  } catch (error) {
+    auditLogger.error(
+      { event: 'audit.write.failed', operation, websiteId, ...serializeError(error) },
+      'session mutation audit could not be created',
+    );
+    throw new AgentServiceError('AUDIT_UNAVAILABLE', 'session mutation audit is unavailable', 503);
+  }
+}
+
+async function finishSessionAudit(
+  db: PlatformDb['db'] | undefined,
+  audit: SessionAudit | undefined,
+  status: 'SUCCESS' | 'FAILED',
+  result: { websiteSessionId?: string; deletedSessionId?: string; error?: unknown },
+): Promise<void> {
+  if (!db || !audit) return;
+  const errorDetails = result.error === undefined ? undefined : serializeError(result.error);
+  try {
+    await finishAuditEvent(db, audit.id, {
+      status,
+      durationMs: Date.now() - audit.startedAt,
+      errorCode: errorDetails?.errorCode,
+      errorType: errorDetails?.errorType,
+      resultSummary: {
+        ...(result.websiteSessionId ? { websiteSessionId: result.websiteSessionId } : {}),
+        ...(result.deletedSessionId ? { deletedSessionId: result.deletedSessionId } : {}),
+      },
+    });
+  } catch (error) {
+    auditLogger.error(
+      {
+        event: 'audit.write.failed',
+        auditEventId: audit.id,
+        outcome: 'unknown',
+        ...serializeError(error),
+      },
+      'session mutation audit could not be finalized',
+    );
+    throw new AgentServiceError(
+      'AUDIT_UNAVAILABLE',
+      'session mutation result is uncertain because its audit could not be finalized',
+      503,
+    );
+  }
 }

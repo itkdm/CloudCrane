@@ -2,6 +2,16 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { verifyPreviewToken } from '@cloudcrane/preview-access';
+import {
+  createLogger,
+  enterLogContext,
+  parseTraceparent,
+  runWithTraceContext,
+  serializeError,
+  type ServiceLogger,
+  withSpan,
+} from '@cloudcrane/shared';
+import { performance } from 'node:perf_hooks';
 import type { PreviewGatewayConfig } from './config.js';
 import { previewBridgeScript } from './bridge-asset.js';
 import type { PreviewBinding, PreviewBindingStore } from './store.js';
@@ -29,38 +39,86 @@ const allowedWorkspaceStatuses = new Set([
 export function buildPreviewGatewayApp(
   config: PreviewGatewayConfig,
   store: PreviewBindingStore,
+  logger: ServiceLogger = createLogger('preview-gateway.http'),
 ): FastifyInstance {
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024 });
-  app.get('/health', async () => ({ service: 'preview-gateway', status: 'ok' }));
-  app.get('/__cloudcrane/preview-bridge.js', async (request, reply) => {
-    const auth = await authenticate(request, config, store);
-    if ('redirect' in auth) {
-      reply.header('set-cookie', auth.cookie);
-      return reply.redirect(auth.redirect, 302);
-    }
-    if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
-    const script = await previewBridgeScript();
-    reply
-      .type('application/javascript; charset=utf-8')
-      .header('cache-control', 'no-store, no-cache, must-revalidate')
-      .header('x-robots-tag', 'noindex, nofollow');
-    return script;
+  const requestStarts = new WeakMap<object, number>();
+  app.addHook('onRequest', async (request) => {
+    requestStarts.set(request, performance.now());
+    const websiteId = /^site-([0-9a-f-]{36})\./i.exec(request.headers.host ?? '')?.[1];
+    enterLogContext({
+      requestId: request.headers['x-request-id']?.toString() ?? request.id,
+      websiteId,
+      ...parseTraceparent(
+        typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
+      ),
+    });
   });
+  app.addHook('onResponse', async (request, reply) => {
+    logger.info(
+      {
+        event: 'http.request.finished',
+        operation: `${request.method} ${request.url.split('?')[0]}`,
+        statusCode: reply.statusCode,
+        durationMs: Math.round(
+          performance.now() - (requestStarts.get(request) ?? performance.now()),
+        ),
+        outcome: reply.statusCode >= 500 ? 'failed' : 'succeeded',
+      },
+      'preview gateway request completed',
+    );
+  });
+  app.get('/health', async () => ({ service: 'preview-gateway', status: 'ok' }));
+  app.get('/__cloudcrane/preview-bridge.js', async (request, reply) =>
+    withPreviewSpan(request, 'preview.bridge', () =>
+      (async () => {
+        const auth = await authenticate(request, config, store);
+        if ('redirect' in auth) {
+          reply.header('set-cookie', auth.cookie);
+          return reply.redirect(auth.redirect, 302);
+        }
+        if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
+        const script = await previewBridgeScript();
+        reply
+          .type('application/javascript; charset=utf-8')
+          .header('cache-control', 'no-store, no-cache, must-revalidate')
+          .header('x-robots-tag', 'noindex, nofollow');
+        return script;
+      })(),
+    ),
+  );
   app.route({
     method: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     url: '/*',
-    handler: async (request, reply) => {
-      const auth = await authenticate(request, config, store);
-      if ('redirect' in auth) {
-        reply.header('set-cookie', auth.cookie);
-        return reply.redirect(auth.redirect, 302);
-      }
-      if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
-      reply.hijack();
-      return proxyRequest(request, reply, auth.publicHost, auth.previewPort, config);
-    },
+    handler: async (request, reply) =>
+      withPreviewSpan(request, 'preview.proxy', () =>
+        (async () => {
+          const auth = await authenticate(request, config, store);
+          if ('redirect' in auth) {
+            reply.header('set-cookie', auth.cookie);
+            return reply.redirect(auth.redirect, 302);
+          }
+          if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
+          reply.hijack();
+          return proxyRequest(request, reply, auth.publicHost, auth.previewPort, config, logger);
+        })(),
+      ),
   });
   return app;
+}
+
+function withPreviewSpan<T>(
+  request: FastifyRequest,
+  operation: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  return runWithTraceContext(
+    {
+      traceparent:
+        typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
+    },
+    () => withSpan(operation, { 'cloudcrane.operation': operation }, callback),
+  );
 }
 
 async function authenticate(
@@ -166,6 +224,7 @@ function proxyRequest(
   publicHost: string,
   port: number,
   config: PreviewGatewayConfig,
+  logger: ServiceLogger,
 ): Promise<void> {
   return new Promise((resolve) => {
     const upstream = http.request(
@@ -178,7 +237,11 @@ function proxyRequest(
       },
       (response) => void handleUpstreamResponse(response, reply, publicHost, config, resolve),
     );
-    upstream.on('error', () => {
+    upstream.on('error', (error) => {
+      logger.warn(
+        { event: 'preview.request.failed', outcome: 'failed', ...serializeError(error) },
+        'preview upstream request failed',
+      );
       reply.raw.writeHead(502, { 'content-type': 'text/plain', 'x-robots-tag': 'noindex' });
       reply.raw.end('Preview upstream is unavailable');
       resolve();

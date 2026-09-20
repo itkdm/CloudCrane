@@ -12,7 +12,16 @@ import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
 import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
 import { projectWebsiteAgentEvent } from './agent-event-projector.js';
-import { createLogger } from '@cloudcrane/shared';
+import {
+  createLogger,
+  createRequestId,
+  parseTraceparent,
+  runWithLogContext,
+  runWithTraceContext,
+  serializeError,
+  withSpan,
+  type LogContext,
+} from '@cloudcrane/shared';
 import {
   assertWebsiteAccessForUser,
   AuthorizationError,
@@ -58,8 +67,13 @@ export class AgentSocketTransport {
   ) {
     if (!this.options.auth || !this.options.db) {
       this.server.handleUpgrade(request, socket, head, (ws) => {
-        const connection = new AgentSocketConnection(ws, this.options, undefined, undefined, () =>
-          this.connections.delete(connection),
+        const connection = new AgentSocketConnection(
+          ws,
+          this.options,
+          undefined,
+          undefined,
+          socketContext(request),
+          () => this.connections.delete(connection),
         );
         this.connections.add(connection);
       });
@@ -78,6 +92,7 @@ export class AgentSocketTransport {
         this.options,
         session.user.id,
         sessionHeaders,
+        { ...socketContext(request), userId: session.user.id },
         () => this.connections.delete(connection),
       );
       this.connections.add(connection);
@@ -112,13 +127,14 @@ class AgentSocketConnection {
     private readonly options: AgentSocketOptions,
     private readonly userId: string | undefined,
     private readonly sessionHeaders: Headers | undefined,
+    private readonly logContext: LogContext,
     private readonly onClose: () => void,
   ) {
     socket.on('message', (raw) => void this.handleMessage(raw.toString()));
     socket.on('close', (code, reason) => this.dispose(code, reason.toString()));
     socket.on('error', (error) => {
       logger.warn(
-        { connectionId: this.connectionId, error: error.message.slice(0, 256) },
+        { connectionId: this.connectionId, ...serializeError(error) },
         'agent websocket error',
       );
       this.dispose(undefined, error.message);
@@ -152,56 +168,76 @@ class AgentSocketConnection {
       return;
     }
     const command = parsed.data;
-    logger.info(
+    return runWithLogContext(
       {
+        ...this.logContext,
         connectionId: this.connectionId,
-        commandType: command.type,
         requestId: command.requestId,
         websiteId: command.websiteId,
         sessionId: command.sessionId,
+        operation: command.type,
       },
-      'agent command received',
-    );
-    try {
-      const currentSession = await this.getCurrentSession();
-      if (this.options.auth && this.options.db && this.sessionHeaders && !currentSession) return;
-      if (this.options.db && currentSession)
-        await assertWebsiteAccessForUser(
-          this.options.db,
-          currentSession.user.id,
-          getUserRole(currentSession),
-          command.websiteId,
+      async () => {
+        logger.info(
+          {
+            event: 'agent.command.received',
+            connectionId: this.connectionId,
+            commandType: command.type,
+          },
+          'agent command received',
         );
-      await this.dispatch(command);
-      logger.info(
-        {
-          connectionId: this.connectionId,
-          commandType: command.type,
-          requestId: command.requestId,
-          websiteId: command.websiteId,
-          sessionId: command.sessionId,
-        },
-        'agent command dispatched',
-      );
-    } catch (error) {
-      const serviceError =
-        error instanceof AuthorizationError &&
-        (error.code === 'WEBSITE_FORBIDDEN' || error.code === 'WEBSITE_NOT_FOUND')
-          ? new AgentServiceError(error.code, error.message, error.status)
-          : asAgentServiceError(error);
-      logger.warn(
-        {
-          connectionId: this.connectionId,
-          commandType: command.type,
-          requestId: command.requestId,
-          websiteId: command.websiteId,
-          sessionId: command.sessionId,
-          errorCode: serviceError.code,
-        },
-        'agent command dispatch failed',
-      );
-      this.sendError(command.requestId, serviceError, command);
-    }
+        try {
+          const currentSession = await this.getCurrentSession();
+          if (this.options.auth && this.options.db && this.sessionHeaders && !currentSession)
+            return;
+          if (this.options.db && currentSession)
+            await assertWebsiteAccessForUser(
+              this.options.db,
+              currentSession.user.id,
+              getUserRole(currentSession),
+              command.websiteId,
+            );
+          await runWithTraceContext({ traceparent: command.traceparent }, () =>
+            withSpan(
+              'agent.command',
+              {
+                'cloudcrane.command_type': command.type,
+                'cloudcrane.request_id': command.requestId,
+                'cloudcrane.website_id': command.websiteId,
+                'cloudcrane.session_id': command.sessionId,
+              },
+              () => this.dispatch(command),
+            ),
+          );
+          logger.info(
+            {
+              event: 'agent.command.completed',
+              connectionId: this.connectionId,
+              commandType: command.type,
+              outcome: 'succeeded',
+            },
+            'agent command dispatched',
+          );
+        } catch (error) {
+          const serviceError =
+            error instanceof AuthorizationError &&
+            (error.code === 'WEBSITE_FORBIDDEN' || error.code === 'WEBSITE_NOT_FOUND')
+              ? new AgentServiceError(error.code, error.message, error.status)
+              : asAgentServiceError(error);
+          logger.warn(
+            {
+              event: 'agent.command.failed',
+              connectionId: this.connectionId,
+              commandType: command.type,
+              errorCode: serviceError.code,
+              outcome: 'failed',
+            },
+            'agent command dispatch failed',
+          );
+          this.sendError(command.requestId, serviceError, command);
+        }
+      },
+    );
   }
 
   private async getCurrentSession() {
@@ -424,6 +460,20 @@ class AgentSocketConnection {
       );
     this.onClose();
   }
+}
+
+function socketContext(request: import('node:http').IncomingMessage): LogContext {
+  const requestIdHeader = request.headers['x-request-id'];
+  return {
+    requestId:
+      typeof requestIdHeader === 'string' && requestIdHeader.length > 0
+        ? requestIdHeader
+        : createRequestId(),
+    ...parseTraceparent(
+      typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
+    ),
+    operation: 'agent.websocket.upgrade',
+  };
 }
 
 function toSessionView(session: {

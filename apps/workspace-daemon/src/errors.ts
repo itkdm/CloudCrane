@@ -28,3 +28,19 @@ export function toWorkspaceError(error: unknown): WorkspaceDaemonError {
   }
   return new WorkspaceDaemonError('INTERNAL_ERROR', 'Workspace daemon operation failed');
 }
+
+const PUBLIC_DETAIL_KEYS = new Set(['executionId', 'durationMs', 'expectedSha256', 'actualSha256']);
+
+export function publicWorkspaceErrorDetails(
+  details: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!details) return undefined;
+  const safe = Object.fromEntries(
+    Object.entries(details).filter(
+      ([key, value]) =>
+        PUBLIC_DETAIL_KEYS.has(key) &&
+        (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))),
+    ),
+  );
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}

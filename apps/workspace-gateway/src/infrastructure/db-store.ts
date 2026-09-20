@@ -1,5 +1,10 @@
 import { and, desc, eq, or } from 'drizzle-orm';
-import type { PlatformDb } from '@cloudcrane/db';
+import {
+  finishAuditEvent as finishStoredAuditEvent,
+  insertAuditEvent,
+  type AuditEventInsert,
+  type PlatformDb,
+} from '@cloudcrane/db';
 import type { RunnerRegister } from '@cloudcrane/workspace-protocol';
 import { runner, workspace } from '@cloudcrane/db';
 import type {
@@ -10,6 +15,25 @@ import type {
 
 export class DrizzleControlPlaneStore implements ControlPlaneStore {
   constructor(private readonly platform: PlatformDb) {}
+  createAuditEvent(input: {
+    operation: string;
+    requestId: string;
+    runCorrelationId: string;
+    websiteId: string;
+    workspaceId: string;
+    agentRunId?: string;
+    toolCallId?: string;
+    idempotencyKey?: string;
+  }) {
+    return insertAuditEvent(this.platform.db, {
+      ...input,
+      actorType: 'agent',
+      status: 'PENDING',
+    } satisfies AuditEventInsert);
+  }
+  finishAuditEvent(id: string, input: Parameters<typeof finishStoredAuditEvent>[2]) {
+    return finishStoredAuditEvent(this.platform.db, id, input);
+  }
   async findWorkspace(workspaceId: string, websiteId: string): Promise<WorkspaceBinding | null> {
     const rows = await this.platform.db
       .select({

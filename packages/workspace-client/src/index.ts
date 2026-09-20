@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { getLogContext, injectTraceparent } from '@cloudcrane/shared';
 import {
   clientOperationSchema,
   operationResultSchemaFor,
@@ -106,6 +107,11 @@ export class WorkspaceClient {
     options: RequestOptions = {},
   ): Promise<OperationResult<K>> {
     const context = this.getContext();
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.token}`,
+      'content-type': 'application/json',
+    };
+    injectTraceparent(headers);
     const body = clientOperationSchema.parse({
       operation,
       payload,
@@ -114,6 +120,8 @@ export class WorkspaceClient {
       websiteId: context.websiteId,
       workspaceId: context.workspaceId,
       agentRunId: context.agentRunId,
+      toolCallId: getLogContext().toolCallId,
+      traceparent: headers.traceparent,
       deadlineMs: options.deadlineMs ?? 120_000,
       idempotencyKey: options.idempotencyKey,
     });
@@ -136,7 +144,7 @@ export class WorkspaceClient {
           `${this.endpoint}/v1/workspaces/${context.workspaceId}/operations`,
           {
             method: 'POST',
-            headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+            headers,
             body: JSON.stringify(body),
             signal: controller.signal,
           },

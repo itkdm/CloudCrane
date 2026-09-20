@@ -57,6 +57,13 @@
       "when": 1790070000000,
       "tag": "0007_snapshot_metadata_reconcile",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789840444578,
+      "tag": "0008_audit_event",
+      "breakpoints": true
     }
   ]
 }

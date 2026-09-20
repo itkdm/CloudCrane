@@ -76,17 +76,21 @@ Certbot 会提示添加类似下面的 TXT 记录：
 
 ## 4. Nginx
 
-仓库模板：
+仓库的正式 source of truth 是：
 
 ```text
-deploy/nginx/cloudcrane-preview.conf
+deploy/nginx/cloudcrane-production.conf
 ```
+
+该文件已经同时包含主站、`/agent/` 和 Preview 的 server block。不要再同时启用
+`deploy/nginx/cloudcrane-preview.conf`；它仅作为旧的独立 Preview 部署替代模板，
+与生产模板二选一，否则会产生重复的 `*.preview.itkdm.com` server_name 和证书命中不确定性。
 
 ECS 安装位置：
 
 ```text
-/etc/nginx/sites-available/cloudcrane-preview.conf
-/etc/nginx/sites-enabled/cloudcrane-preview.conf
+/etc/nginx/sites-available/cloudcrane-production.conf
+/etc/nginx/sites-enabled/cloudcrane-production.conf
 ```
 
 路由关系：
@@ -144,13 +148,13 @@ PREVIEW_COOKIE_SECURE=true
 
 ```bash
 tmux ls
-tmux attach -t cloudcrane-acceptance
+tmux attach -t "${CLOUDCRANE_TMUX_SESSION:-cloudcrane-acceptance}"
 ```
 
 停止旧服务后重新启动：
 
 ```bash
-tmux kill-session -t cloudcrane-acceptance
+CLOUDCRANE_TMUX_SESSION=cloudcrane-acceptance tmux kill-session -t cloudcrane-acceptance
 ./scripts/server-acceptance-start.sh
 ```
 

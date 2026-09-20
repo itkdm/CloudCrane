@@ -207,7 +207,9 @@ const ReferenceUploadExecution = memo(function ReferenceUploadExecution({
       {!completed && !cancelled ? (
         <>
           <label className={`reference-upload-file${file ? ' has-file' : ''}`}>
-            <span>{file?.name ?? t('referenceUploadDescription')}</span>
+            <span className={file ? undefined : 'reference-upload-description'}>
+              {file?.name ?? t('referenceUploadDescription')}
+            </span>
             <input
               type="file"
               accept={interaction.accept.join(',')}

@@ -126,7 +126,7 @@ try {
 } finally {
   await platform.pool.end();
 }
-console.log(JSON.stringify({ id, storageKey, sha256, size: info.size }));
+process.stdout.write(`${JSON.stringify({ id, storageKey, sha256, size: info.size })}\n`);
 
 function parseArgs(args: string[]): Options {
   const values = new Map<string, string>();

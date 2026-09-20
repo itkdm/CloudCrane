@@ -1,0 +1,31 @@
+[Unit]
+Description=CloudCrane Runner
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=cloudcrane
+Group=docker
+WorkingDirectory=/opt/cloudcrane
+EnvironmentFile=/etc/cloudcrane/cloudcrane.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/pnpm --filter @cloudcrane/runner start
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudcrane-runner
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0027
+LimitNOFILE=65536
+ProtectHome=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

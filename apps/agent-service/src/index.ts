@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { createPlatformDb } from '@cloudcrane/db';
 import { createAuth, validateAuthRuntimeConfig } from '@cloudcrane/auth';
-import { createLogger } from '@cloudcrane/shared';
+import {
+  createLogger,
+  loadTracingConfig,
+  serializeError,
+  startObservability,
+} from '@cloudcrane/shared';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { TemplatePublishingService } from '@cloudcrane/template-publishing';
@@ -15,6 +20,7 @@ import { PreviewClientRegistry } from './infrastructure/preview-client-registry.
 
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
+const observability = startObservability(loadTracingConfig('agent-service'));
 const platform = createPlatformDb();
 validateAuthRuntimeConfig();
 const auth = createAuth(platform.db);
@@ -71,6 +77,7 @@ const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');
   await app.close();
   await platform.pool.end();
+  await observability.shutdown();
 };
 process.once('SIGINT', () => void close('SIGINT'));
 process.once('SIGTERM', () => void close('SIGTERM'));
@@ -79,7 +86,8 @@ try {
   await app.listen({ host: '127.0.0.1', port: config.port });
   logger.info({ port: config.port }, 'agent service listening');
 } catch (error) {
-  logger.error({ error }, 'agent service failed to start');
+  logger.error({ ...serializeError(error) }, 'agent service failed to start');
   await platform.pool.end();
+  await observability.shutdown();
   process.exitCode = 1;
 }

@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
-import { template, workspace, type PlatformDb } from '@cloudcrane/db';
+import {
+  finishAuditEvent,
+  insertAuditEvent,
+  template,
+  workspace,
+  type PlatformDb,
+} from '@cloudcrane/db';
 import { parseSnapshotManifest } from '@cloudcrane/pboot-snapshot';
-import { WorkspaceClient } from '@cloudcrane/workspace-client';
+import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
+import { getActiveTraceContext } from '@cloudcrane/shared';
 import { eq } from 'drizzle-orm';
 
 export type TemplatePublishMetadata = {
@@ -12,6 +19,8 @@ export type TemplatePublishMetadata = {
   category: string;
   demoUrl?: string;
   coverUrl?: string;
+  agentRunId?: string;
+  runCorrelationId?: string;
 };
 
 export type PublishWebsiteTemplateInput = TemplatePublishMetadata & {
@@ -57,31 +66,67 @@ export class TemplatePublishingService {
     if (binding[0]?.workspaceId !== input.workspaceId)
       throw new Error('website workspace binding is invalid');
 
-    const client = new WorkspaceClient(this.workspaceGatewayEndpoint, this.workspaceGatewayToken, {
-      websiteId: input.websiteId,
-      workspaceId: input.workspaceId,
-    });
-    const marker = await client.fs.read({
-      path: '/workspace/.cloudcrane/bootstrap.json',
-      maxBytes: 2_048,
-    });
-    const bootstrap = parseBootstrap(marker.content);
-    const versionMetadata = {
-      sourcePbootVersion: input.versionMetadata?.sourcePbootVersion || bootstrap.version,
-      sourceCoreCommit: input.versionMetadata?.sourceCoreCommit || bootstrap.sourceCommit,
-      dbSchemaVersion: input.versionMetadata?.dbSchemaVersion || bootstrap.version,
-    };
-    const artifactStorageKey = `template-${randomUUID()}.zip`;
-    const staged = await client.snapshot.stage({
-      artifactStorageKey,
-      sourceWebsiteId: input.websiteId,
-      sourcePbootVersion: versionMetadata.sourcePbootVersion,
-      sourceCoreCommit: versionMetadata.sourceCoreCommit,
-      dbSchemaVersion: versionMetadata.dbSchemaVersion,
-    });
-    const manifest = parseSnapshotManifest(staged.manifest);
-    const id = randomUUID();
+    const startedAt = Date.now();
+    let auditId: string;
+    let artifactStorageKey: string | undefined;
+    let templateInserted = false;
     try {
+      const traceContext = getActiveTraceContext();
+      auditId = await insertAuditEvent(this.platform.db, {
+        actorType: 'agent',
+        operation: 'template.publish',
+        resourceType: 'website',
+        resourceRef: input.websiteId,
+        websiteId: input.websiteId,
+        workspaceId: input.workspaceId,
+        agentRunId: input.agentRunId,
+        traceId: traceContext.traceId,
+        spanId: traceContext.spanId,
+        runCorrelationId: input.runCorrelationId,
+        status: 'PENDING',
+        requestSummary: {
+          nameLength: input.name.length,
+          descriptionLength: input.description.length,
+          categoryLength: input.category.length,
+          hasDemoUrl: Boolean(input.demoUrl),
+          hasCoverUrl: Boolean(input.coverUrl),
+        },
+      });
+    } catch {
+      throw new Error('template publish audit is unavailable');
+    }
+
+    try {
+      const client = new WorkspaceClient(
+        this.workspaceGatewayEndpoint,
+        this.workspaceGatewayToken,
+        {
+          websiteId: input.websiteId,
+          workspaceId: input.workspaceId,
+          traceId: input.runCorrelationId,
+          agentRunId: input.agentRunId,
+        },
+      );
+      const marker = await client.fs.read({
+        path: '/workspace/.cloudcrane/bootstrap.json',
+        maxBytes: 2_048,
+      });
+      const bootstrap = parseBootstrap(marker.content);
+      const versionMetadata = {
+        sourcePbootVersion: input.versionMetadata?.sourcePbootVersion || bootstrap.version,
+        sourceCoreCommit: input.versionMetadata?.sourceCoreCommit || bootstrap.sourceCommit,
+        dbSchemaVersion: input.versionMetadata?.dbSchemaVersion || bootstrap.version,
+      };
+      artifactStorageKey = `template-${randomUUID()}.zip`;
+      const staged = await client.snapshot.stage({
+        artifactStorageKey,
+        sourceWebsiteId: input.websiteId,
+        sourcePbootVersion: versionMetadata.sourcePbootVersion,
+        sourceCoreCommit: versionMetadata.sourceCoreCommit,
+        dbSchemaVersion: versionMetadata.dbSchemaVersion,
+      });
+      const manifest = parseSnapshotManifest(staged.manifest);
+      const id = randomUUID();
       await this.platform.db.insert(template).values({
         id,
         sourceWebsiteId: input.websiteId,
@@ -103,24 +148,47 @@ export class TemplatePublishingService {
         status: 'published',
         publishedAt: new Date(),
       });
+      templateInserted = true;
+      const published = {
+        id,
+        artifactStorageKey: staged.artifactStorageKey,
+        artifactSha256: staged.artifactSha256,
+        artifactSize: staged.artifactSize,
+        sourceWebsiteId: input.websiteId,
+        snapshotSchemaVersion: manifest.snapshotSchemaVersion,
+        sourcePbootVersion: manifest.sourcePbootVersion,
+        sourceCoreCommit: manifest.sourceCoreCommit,
+        dbEngine: manifest.dbEngine,
+        dbSchemaVersion: manifest.dbSchemaVersion,
+      } satisfies PublishedTemplate;
+      await finishAuditEvent(this.platform.db, auditId, {
+        status: 'SUCCESS',
+        durationMs: Date.now() - startedAt,
+        resultSummary: { artifactSize: published.artifactSize },
+      });
+      return published;
     } catch (error) {
-      await rm(path.join(this.artifactRoot, staged.artifactStorageKey), { force: true }).catch(
-        () => undefined,
-      );
+      if (!templateInserted && artifactStorageKey)
+        await rm(path.join(this.artifactRoot, artifactStorageKey), { force: true }).catch(
+          () => undefined,
+        );
+      try {
+        const auditStatus =
+          error instanceof WorkspaceClientError &&
+          ['UNKNOWN_RESULT', 'REQUEST_TIMEOUT', 'ABORTED'].includes(error.code)
+            ? 'UNKNOWN'
+            : 'FAILED';
+        await finishAuditEvent(this.platform.db, auditId, {
+          status: auditStatus,
+          durationMs: Date.now() - startedAt,
+          errorCode: error instanceof Error ? undefined : 'TEMPLATE_PUBLISH_FAILED',
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        });
+      } catch {
+        throw new Error('template publish audit finalization failed');
+      }
       throw error;
     }
-    return {
-      id,
-      artifactStorageKey: staged.artifactStorageKey,
-      artifactSha256: staged.artifactSha256,
-      artifactSize: staged.artifactSize,
-      sourceWebsiteId: input.websiteId,
-      snapshotSchemaVersion: manifest.snapshotSchemaVersion,
-      sourcePbootVersion: manifest.sourcePbootVersion,
-      sourceCoreCommit: manifest.sourceCoreCommit,
-      dbEngine: manifest.dbEngine,
-      dbSchemaVersion: manifest.dbSchemaVersion,
-    };
   }
 }
 

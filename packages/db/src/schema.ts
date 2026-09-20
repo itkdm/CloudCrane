@@ -239,6 +239,66 @@ export const agentRun = pgTable(
   ],
 );
 
+export const auditEvent = pgTable(
+  'audit_event',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).default(now()).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    actorType: varchar('actor_type', { length: 32 }).notNull(),
+    actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
+    impersonatorUserId: text('impersonator_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    websiteId: uuid('website_id').references(() => website.id, { onDelete: 'set null' }),
+    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'set null' }),
+    websiteSessionId: uuid('website_session_id').references(() => websiteSession.id, {
+      onDelete: 'set null',
+    }),
+    agentRunId: uuid('agent_run_id').references(() => agentRun.id, { onDelete: 'set null' }),
+    traceId: varchar('trace_id', { length: 32 }),
+    spanId: varchar('span_id', { length: 16 }),
+    runCorrelationId: uuid('run_correlation_id'),
+    requestId: varchar('request_id', { length: 255 }),
+    toolCallId: varchar('tool_call_id', { length: 255 }),
+    idempotencyKey: varchar('idempotency_key', { length: 255 }),
+    operation: varchar('operation', { length: 128 }).notNull(),
+    resourceType: varchar('resource_type', { length: 64 }),
+    resourceRef: text('resource_ref'),
+    status: varchar('status', { length: 32 }).notNull(),
+    durationMs: integer('duration_ms'),
+    errorCode: varchar('error_code', { length: 128 }),
+    errorType: varchar('error_type', { length: 128 }),
+    requestSummary: jsonb('request_summary').$type<Record<string, unknown>>(),
+    resultSummary: jsonb('result_summary').$type<Record<string, unknown>>(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => [
+    index('audit_event_occurred_at_idx').on(table.occurredAt),
+    index('audit_event_operation_status_idx').on(table.operation, table.status),
+    index('audit_event_workspace_occurred_at_idx').on(table.workspaceId, table.occurredAt),
+    index('audit_event_agent_run_occurred_at_idx').on(table.agentRunId, table.occurredAt),
+    index('audit_event_trace_id_idx').on(table.traceId),
+    index('audit_event_request_id_idx').on(table.requestId),
+    check(
+      'audit_event_actor_type_check',
+      sql`${table.actorType} in ('user', 'agent', 'gateway', 'runner', 'system', 'admin')`,
+    ),
+    check(
+      'audit_event_status_check',
+      sql`${table.status} in ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'UNKNOWN')`,
+    ),
+    check(
+      'audit_event_duration_check',
+      sql`${table.durationMs} is null or ${table.durationMs} >= 0`,
+    ),
+    check(
+      'audit_event_finished_at_check',
+      sql`((${table.status} in ('PENDING', 'RUNNING') and ${table.finishedAt} is null) or (${table.status} in ('SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'UNKNOWN') and ${table.finishedAt} is not null))`,
+    ),
+  ],
+);
+
 export type Website = typeof website.$inferSelect;
 export type Template = typeof template.$inferSelect;
 export type WebsiteTemplateAttachment = typeof websiteTemplateAttachment.$inferSelect;
@@ -247,3 +307,4 @@ export type Workspace = typeof workspace.$inferSelect;
 export type WebsiteSession = typeof websiteSession.$inferSelect;
 export type AgentRun = typeof agentRun.$inferSelect;
 export type Runner = typeof runner.$inferSelect;
+export type AuditEvent = typeof auditEvent.$inferSelect;

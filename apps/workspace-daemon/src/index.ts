@@ -1,6 +1,6 @@
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import {
   runtimeInfoSchema,
   fsMkdirRequestSchema,
@@ -10,31 +10,54 @@ import {
   processCancelRequestSchema,
   processExecRequestSchema,
 } from '@cloudcrane/workspace-protocol';
-import { createLogger } from '@cloudcrane/shared';
+import {
+  createLogger,
+  enterLogContext,
+  parseTraceparent,
+  serializeError,
+  sanitizeRequestPath,
+  loadTracingConfig,
+  startObservability,
+} from '@cloudcrane/shared';
 import { FilesystemService } from './filesystem-service.js';
 import { ProcessService } from './process-service.js';
-import { toWorkspaceError, WorkspaceDaemonError } from './errors.js';
+import { publicWorkspaceErrorDetails, toWorkspaceError, WorkspaceDaemonError } from './errors.js';
 import { WorkspacePathResolver } from './workspace-path-resolver.js';
 import { WorkspacePreviewRuntime } from './preview-runtime.js';
 
 const logger = createLogger('workspace-daemon');
+const observability = startObservability(loadTracingConfig('workspace-daemon'));
 const resolver = new WorkspacePathResolver();
 const filesystem = new FilesystemService(resolver);
 const processes = new ProcessService(resolver);
 const previewRuntime = new WorkspacePreviewRuntime();
-const app = Fastify({ loggerInstance: logger });
+// Keep request logging in the explicit hooks below. Fastify's automatic
+// request logger would emit a second record for every daemon operation.
+const app = Fastify({
+  loggerInstance: logger,
+  disableRequestLogging: true,
+}) as unknown as FastifyInstance;
 const requestStarts = new WeakMap<object, number>();
 
 app.addHook('onRequest', async (request) => {
   requestStarts.set(request, performance.now());
+  enterLogContext({
+    requestId: request.headers['x-request-id']?.toString() ?? request.id,
+    runCorrelationId: request.headers['x-cloudcrane-run-correlation-id']?.toString(),
+    ...parseTraceparent(
+      typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
+    ),
+  });
 });
 app.addHook('onResponse', async (request, reply) => {
   logger.info(
     {
-      requestId: request.id,
-      operation: `${request.method} ${request.url}`,
+      event: 'http.request.finished',
+      requestId: request.headers['x-request-id']?.toString() ?? request.id,
+      operation: `${request.method} ${sanitizeRequestPath(request.url)}`,
       durationMs: Math.round(performance.now() - (requestStarts.get(request) ?? performance.now())),
-      status: reply.statusCode,
+      statusCode: reply.statusCode,
+      outcome: reply.statusCode >= 500 ? 'failed' : 'succeeded',
     },
     'workspace daemon request completed',
   );
@@ -42,13 +65,14 @@ app.addHook('onResponse', async (request, reply) => {
 
 app.setErrorHandler((error, request, reply) => {
   const normalized = toWorkspaceError(error);
+  const details = publicWorkspaceErrorDetails(normalized.details);
   logger.error(
     {
-      requestId: request.id,
+      requestId: request.headers['x-request-id']?.toString() ?? request.id,
       operation: request.method,
       status: normalized.code,
       errorCode: normalized.code,
-      err: error,
+      ...serializeError(error),
     },
     'workspace daemon request failed',
   );
@@ -65,7 +89,11 @@ app.setErrorHandler((error, request, reply) => {
               : 400,
     )
     .send({
-      error: { code: normalized.code, message: normalized.message, details: normalized.details },
+      error: {
+        code: normalized.code,
+        message: normalized.message,
+        ...(details ? { details } : {}),
+      },
     });
 });
 
@@ -106,6 +134,7 @@ const close = async (signal: string) => {
   logger.info({ signal }, 'shutdown requested');
   await previewRuntime.stop();
   await app.close();
+  await observability.shutdown();
   process.exit(0);
 };
 process.once('SIGINT', () => void close('SIGINT'));
@@ -119,7 +148,7 @@ try {
   );
 } catch (error) {
   logger.error(
-    { error, operation: 'daemon.start', status: 'error' },
+    { ...serializeError(error), operation: 'daemon.start', status: 'error' },
     'workspace daemon failed to start',
   );
   process.exit(1);

@@ -63,4 +63,42 @@ describe('workspace gateway app', () => {
     expect(rejected).toBe(true);
     await app.close();
   });
+
+  it('accepts an authenticated runner and completes the registration handshake', async () => {
+    const app = buildGatewayApp(config, store);
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const address = app.server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('gateway did not expose a TCP address');
+
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/v1/runners/connect`, {
+      headers: { authorization: 'Bearer runner', 'x-request-id': 'runner-upgrade-test' },
+    });
+    const registered = await new Promise<{ type?: string; runnerId?: string }>(
+      (resolve, reject) => {
+        socket.once('error', reject);
+        socket.on('message', (raw) => {
+          const message = JSON.parse(raw.toString()) as { type?: string; runnerId?: string };
+          if (message.type === 'runner.registered') resolve(message);
+        });
+        socket.once('open', () =>
+          socket.send(
+            JSON.stringify({
+              type: 'runner.register',
+              runnerId: '00000000-0000-4000-8000-000000000010',
+              name: 'runner-test',
+              version: 'test',
+              capabilities: ['fs.read'],
+            }),
+          ),
+        );
+      },
+    );
+    expect(registered).toMatchObject({
+      type: 'runner.registered',
+      runnerId: '00000000-0000-4000-8000-000000000010',
+    });
+    socket.close();
+    await app.close();
+  });
 });

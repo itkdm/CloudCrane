@@ -8,6 +8,8 @@ const clientOperationCommonSchema = z.object({
   websiteId: z.string().uuid(),
   workspaceId: z.string().uuid(),
   agentRunId: z.string().uuid().optional(),
+  toolCallId: z.string().min(1).max(255).optional(),
+  traceparent: z.string().max(255).optional(),
   deadlineMs: z.number().int().positive().max(300_000),
   idempotencyKey: z.string().min(1).max(255).optional(),
 });

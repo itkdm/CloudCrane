@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { getLogContext, injectTraceparent } from '@cloudcrane/shared';
 import {
   fsListResponseSchema,
   fsMkdirResponseSchema,
@@ -93,7 +94,8 @@ export class WorkspaceDaemonClient {
     schema?: z.ZodType<T>,
     timeoutMs = this.timeoutMs,
   ): Promise<T> {
-    const requestId = randomUUID();
+    const context = getLogContext();
+    const requestId = context.requestId ?? randomUUID();
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -103,9 +105,20 @@ export class WorkspaceDaemonClient {
     try {
       let response: Response;
       try {
+        const headers: Record<string, string> = {
+          'content-type': 'application/json',
+          'x-request-id': requestId,
+          ...(context.runCorrelationId
+            ? { 'x-cloudcrane-run-correlation-id': context.runCorrelationId }
+            : {}),
+          ...(context.traceId && context.spanId
+            ? { traceparent: `00-${context.traceId}-${context.spanId}-01` }
+            : {}),
+        };
+        injectTraceparent(headers);
         response = await fetch(`${this.endpoint}${path}`, {
           method,
-          headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+          headers,
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: controller.signal,
         });

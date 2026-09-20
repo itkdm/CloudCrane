@@ -1,9 +1,19 @@
 import WebSocket from 'ws';
-import { createLogger } from '@cloudcrane/shared';
+import {
+  createLogger,
+  createSpanId,
+  createTraceId,
+  runWithLogContext,
+  runWithTraceContext,
+  sanitizeText,
+  serializeError,
+  withSpan,
+} from '@cloudcrane/shared';
 import {
   remoteErrorCodeSchema,
   runnerOperationSchema,
   runnerRegisteredSchema,
+  isMutationOperation,
   type RemoteError,
   type RunnerOperation,
 } from '@cloudcrane/workspace-protocol';
@@ -101,7 +111,10 @@ export class RunnerGatewayConnection {
       if (!operation.success) return socket.close(4002, 'invalid operation');
       await this.handleOperation(socket, operation.data);
     } catch (error) {
-      logger.warn({ error: String(error) }, 'runner operation failed');
+      logger.warn(
+        { event: 'workspace.operation.rejected', ...serializeError(error) },
+        'runner operation rejected',
+      );
     }
   }
 
@@ -112,6 +125,19 @@ export class RunnerGatewayConnection {
     const cached = idempotencyKey ? this.completed.get(idempotencyKey) : undefined;
     if (cached) return this.sendCompleted(socket, operation, cached.result, 0);
     const started = Date.now();
+    logger.info(
+      {
+        event: 'workspace.operation.started',
+        requestId: operation.requestId,
+        runCorrelationId: operation.traceId,
+        websiteId: operation.websiteId,
+        workspaceId: operation.workspaceId,
+        agentRunId: operation.agentRunId,
+        runnerId: this.config.runnerId,
+        operation: operation.operation,
+      },
+      'runner operation started',
+    );
     socket.send(
       JSON.stringify({
         type: 'runner.accepted',
@@ -123,9 +149,36 @@ export class RunnerGatewayConnection {
       if (Date.now() - started > operation.deadlineMs) throw new Error('deadline exceeded');
       let execution = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
       if (!execution) {
-        execution = this.handler.execute(operation);
+        execution = runWithLogContext(
+          {
+            requestId: operation.requestId,
+            runCorrelationId: operation.traceId,
+            traceId: createTraceId(),
+            spanId: createSpanId(),
+            websiteId: operation.websiteId,
+            workspaceId: operation.workspaceId,
+            agentRunId: operation.agentRunId,
+            runnerId: this.config.runnerId,
+            operation: operation.operation,
+          },
+          () =>
+            runWithTraceContext({ traceparent: operation.traceparent }, () =>
+              withSpan(
+                'runner.operation',
+                {
+                  'cloudcrane.operation': operation.operation,
+                  'cloudcrane.website_id': operation.websiteId,
+                  'cloudcrane.workspace_id': operation.workspaceId,
+                  'cloudcrane.agent_run_id': operation.agentRunId,
+                  'cloudcrane.runner_id': this.config.runnerId,
+                },
+                () => this.handler.execute(operation),
+              ),
+            ),
+        );
         if (idempotencyKey) this.inFlight.set(idempotencyKey, execution);
       }
+      if (!execution) throw new Error('runner operation execution was not initialized');
       const result = await execution;
       if (idempotencyKey) {
         this.completed.set(idempotencyKey, { result, at: Date.now() });
@@ -134,9 +187,44 @@ export class RunnerGatewayConnection {
         while (this.completed.size > 1_000)
           this.completed.delete(this.completed.keys().next().value as string);
       }
+      logger.info(
+        {
+          event: 'workspace.operation.finished',
+          requestId: operation.requestId,
+          runCorrelationId: operation.traceId,
+          websiteId: operation.websiteId,
+          workspaceId: operation.workspaceId,
+          agentRunId: operation.agentRunId,
+          runnerId: this.config.runnerId,
+          operation: operation.operation,
+          durationMs: Date.now() - started,
+          outcome: 'succeeded',
+        },
+        'runner operation completed',
+      );
       this.sendCompleted(socket, operation, result, Date.now() - started);
     } catch (error) {
       const remote = toRemoteError(error);
+      logger.warn(
+        {
+          event: 'workspace.operation.finished',
+          requestId: operation.requestId,
+          runCorrelationId: operation.traceId,
+          websiteId: operation.websiteId,
+          workspaceId: operation.workspaceId,
+          agentRunId: operation.agentRunId,
+          runnerId: this.config.runnerId,
+          operation: operation.operation,
+          durationMs: Date.now() - started,
+          outcome:
+            remote.code === 'UNKNOWN_RESULT' ||
+            (remote.code === 'REQUEST_TIMEOUT' && isMutationOperation(operation.operation))
+              ? 'unknown'
+              : 'failed',
+          errorCode: remote.code,
+        },
+        'runner operation failed',
+      );
       socket.send(
         JSON.stringify({
           type: 'runner.error',
@@ -144,7 +232,11 @@ export class RunnerGatewayConnection {
           traceId: operation.traceId,
           error: remote,
           durationMs: Date.now() - started,
-          outcome: 'FAILED',
+          outcome:
+            remote.code === 'UNKNOWN_RESULT' ||
+            (remote.code === 'REQUEST_TIMEOUT' && isMutationOperation(operation.operation))
+              ? 'UNKNOWN'
+              : 'FAILED',
         }),
       );
     } finally {
@@ -179,16 +271,18 @@ function toRemoteError(error: unknown): RemoteError {
   if (parsedCode?.success) {
     return {
       code: parsedCode.data,
-      message: error instanceof Error ? error.message : 'operation failed',
-      ...(error instanceof WorkspaceDaemonClientError && error.details
-        ? { details: error.details }
-        : {}),
+      message:
+        error instanceof WorkspaceDaemonClientError
+          ? `workspace operation failed (${error.code})`
+          : error instanceof Error
+            ? sanitizeText(error.message)
+            : 'operation failed',
     };
   }
   if (error instanceof Error && error.message === 'deadline exceeded')
     return { code: 'REQUEST_TIMEOUT', message: 'runner operation deadline exceeded' };
   return {
     code: 'INTERNAL_ERROR',
-    message: error instanceof Error ? error.message : 'operation failed',
+    message: error instanceof Error ? sanitizeText(error.message) : 'operation failed',
   };
 }

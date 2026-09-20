@@ -20,7 +20,7 @@ import {
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
-import { createLogger } from '@cloudcrane/shared';
+import { createLogger, runWithLogContext, serializeError, withSpan } from '@cloudcrane/shared';
 import {
   deriveCloneSessionTitle,
   deriveSessionTitle,
@@ -129,6 +129,8 @@ export type TemplatePublishRequest = {
   category: string;
   demoUrl?: string;
   coverUrl?: string;
+  agentRunId?: string;
+  runCorrelationId?: string;
 };
 
 export type TemplatePublishResult = {
@@ -300,7 +302,19 @@ function wrapMutationTool(
           'WEBSITE_MUTATION_BUSY',
           '[WEBSITE_MUTATION_BUSY] another AgentRun is currently mutating this Website workspace',
         );
-      return tool.execute(toolCallId, params, signal, onUpdate, context);
+      return withSpan(
+        'agent.tool',
+        {
+          'cloudcrane.tool_name': tool.name,
+          'cloudcrane.website_id': websiteId,
+          'cloudcrane.agent_run_id': run.runId,
+          'cloudcrane.tool_call_id': toolCallId,
+        },
+        () =>
+          runWithLogContext({ toolCallId }, () =>
+            tool.execute(toolCallId, params, signal, onUpdate, context),
+          ),
+      );
     },
   };
 }
@@ -604,6 +618,17 @@ export class WebsiteAgentRuntime {
           endedAt: null,
         });
         await this.options.store.updateRun(run.id, { status: 'RUNNING', startedAt });
+        logger.info(
+          {
+            event: 'agent.run.started',
+            outcome: 'started',
+            websiteId: this.options.websiteId,
+            sessionId: managed.websiteSessionId,
+            agentRunId: run.id,
+            runCorrelationId: traceId,
+          },
+          'agent run started',
+        );
         managed.record.lastActiveAt = startedAt;
         await this.options.store.updateSession(managed.websiteSessionId, {
           lastActiveAt: startedAt,
@@ -621,7 +646,7 @@ export class WebsiteAgentRuntime {
           await this.options.store
             .updateRun(run.id, {
               status: 'FAILED',
-              error: error instanceof Error ? error.message.slice(0, 500) : 'run bootstrap failed',
+              error: serializeError(error).message || 'run bootstrap failed',
               endedAt: new Date().toISOString(),
             })
             .catch(() => undefined);
@@ -643,7 +668,18 @@ export class WebsiteAgentRuntime {
       };
       const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
       try {
-        await this.runContext.run(activeRun, () => managed.piRuntime.session.prompt(text));
+        await this.runContext.run(activeRun, () =>
+          withSpan(
+            'agent.run',
+            {
+              'cloudcrane.website_id': this.options.websiteId,
+              'cloudcrane.session_id': managed.websiteSessionId,
+              'cloudcrane.agent_run_id': run.id,
+              'cloudcrane.run_correlation_id': traceId,
+            },
+            () => managed.piRuntime.session.prompt(text),
+          ),
+        );
         if (!settled) await settledPromise;
         const status = this.getRunStatus(managed.piRuntime.session, activeRun);
         const endedAt = new Date().toISOString();
@@ -666,6 +702,18 @@ export class WebsiteAgentRuntime {
           status,
           ...(finalMessageId ? { finalMessageId } : {}),
         });
+        logger.info(
+          {
+            event: 'agent.run.completed',
+            outcome: 'succeeded',
+            websiteId: this.options.websiteId,
+            sessionId: managed.websiteSessionId,
+            agentRunId: run.id,
+            runCorrelationId: traceId,
+            durationMs: Date.parse(endedAt) - Date.parse(startedAt),
+          },
+          'agent run completed',
+        );
         return {
           runId,
           traceId,
@@ -674,7 +722,7 @@ export class WebsiteAgentRuntime {
         };
       } catch (error) {
         const status: AgentRunStatus = activeRun.aborted ? 'ABORTED' : 'FAILED';
-        const message = error instanceof Error ? error.message.slice(0, 500) : 'agent run failed';
+        const message = serializeError(error).message || 'agent run failed';
         await this.options.store.updateRun(run.id, {
           status,
           error: message,
@@ -689,6 +737,18 @@ export class WebsiteAgentRuntime {
             error: message,
           });
         }
+        logger.warn(
+          {
+            event: activeRun.aborted ? 'agent.run.aborted' : 'agent.run.failed',
+            outcome: activeRun.aborted ? 'aborted' : 'failed',
+            websiteId: this.options.websiteId,
+            sessionId: managed.websiteSessionId,
+            agentRunId: run.id,
+            runCorrelationId: traceId,
+            ...serializeError(error),
+          },
+          'agent run did not complete',
+        );
         throw error;
       } finally {
         unsubscribe();
@@ -882,7 +942,7 @@ export class WebsiteAgentRuntime {
           {
             websiteId: this.options.websiteId,
             websiteSessionId: managed.record.id,
-            error: error instanceof Error ? error.message : 'unknown error',
+            ...serializeError(error),
           },
           'deleted session metadata but deferred session file cleanup',
         );
@@ -1152,7 +1212,7 @@ export class WebsiteAgentRuntime {
         {
           websiteId: this.options.websiteId,
           websiteSessionId: managed.websiteSessionId,
-          error: error instanceof Error ? error.message : 'unknown error',
+          ...serializeError(error),
         },
         'pi session name unavailable; persisted WebsiteSession title',
       );
@@ -1179,7 +1239,7 @@ export class WebsiteAgentRuntime {
           {
             websiteId: this.options.websiteId,
             websiteSessionId: managed.websiteSessionId,
-            error: error instanceof Error ? error.message : 'unknown error',
+            ...serializeError(error),
           },
           'pi session name could not be synchronized',
         );
@@ -1502,7 +1562,7 @@ export class WebsiteAgentRuntime {
       logger.warn(
         {
           websiteId: this.options.websiteId,
-          error: error instanceof Error ? error.message.slice(0, 200) : 'unknown error',
+          ...serializeError(error),
         },
         'remote website skills refresh failed; retaining previous mirror',
       );
@@ -1840,7 +1900,11 @@ export function createTemplatePublishTool(
     executionMode: 'sequential',
     execute: async (_toolCallId, params) => {
       if (!getRunContext()) throw new Error('template_publish requires an active AgentRun');
-      const result = await publish(params);
+      const run = getRunContext();
+      const result = await publish({
+        ...params,
+        ...(run ? { agentRunId: run.runId, runCorrelationId: run.traceId } : {}),
+      });
       return {
         content: [
           {

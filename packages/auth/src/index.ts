@@ -1,12 +1,19 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
-import type { PlatformDb } from '@cloudcrane/db';
+import { insertAuditEvent, type PlatformDb } from '@cloudcrane/db';
 import * as schema from '@cloudcrane/db';
 import { betterAuth } from 'better-auth';
 import { admin } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
+import {
+  createLogger,
+  getActiveTraceContext,
+  getLogContext,
+  serializeError,
+} from '@cloudcrane/shared';
 import { createResendEmailSender } from './email-sender.js';
 
 type Db = PlatformDb['db'];
+const logger = createLogger('auth');
 
 function configuredWebOrigin(): string {
   return (
@@ -69,13 +76,9 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         id,
       }),
       onExistingUserSignUp: async ({ user }) => {
-        console.info(
-          JSON.stringify({
-            service: 'auth',
-            event: 'AUTH_SIGNUP_EXISTING_USER',
-            userId: user.id,
-            message: 'sign-up request matched an existing account',
-          }),
+        logger.info(
+          { event: 'auth.signup.existing_user', userId: user.id },
+          'sign-up request matched an existing account',
         );
       },
       sendResetPassword: async ({ user, url }) => {
@@ -136,18 +139,10 @@ export function validateAuthRuntimeConfig(env: NodeJS.ProcessEnv = process.env):
   }
 }
 
-function safeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'unknown email provider error';
-}
-
 function logEmailFailure(error: unknown): void {
-  console.error(
-    JSON.stringify({
-      service: 'auth',
-      errorCode: 'AUTH_EMAIL_SEND_FAILED',
-      error: safeErrorMessage(error),
-      message: 'failed to send authentication email',
-    }),
+  logger.error(
+    { event: 'auth.email.failed', errorCode: 'AUTH_EMAIL_SEND_FAILED', ...serializeError(error) },
+    'failed to send authentication email',
   );
 }
 
@@ -177,10 +172,30 @@ export function headersFromNode(input: Record<string, string | string[] | undefi
 
 export async function requireSession(auth: CloudCraneAuth, headers: HeadersInit) {
   const session = await getSession(auth, headers);
-  if (!session)
+  if (!session) {
+    logger.warn(
+      {
+        event: 'auth.authorization.denied',
+        outcome: 'blocked',
+        errorCode: 'AUTHENTICATION_REQUIRED',
+      },
+      'authentication was required',
+    );
     throw new AuthorizationError('AUTHENTICATION_REQUIRED', 'authentication required', 401);
+  }
   const user = session.user as typeof session.user & { banned?: boolean };
-  if (user.banned) throw new AuthorizationError('ACCOUNT_BANNED', 'account is unavailable', 403);
+  if (user.banned) {
+    logger.warn(
+      {
+        event: 'auth.authorization.denied',
+        outcome: 'blocked',
+        userId: user.id,
+        errorCode: 'ACCOUNT_BANNED',
+      },
+      'banned account was denied',
+    );
+    throw new AuthorizationError('ACCOUNT_BANNED', 'account is unavailable', 403);
+  }
   return session;
 }
 
@@ -208,11 +223,69 @@ export async function assertWebsiteAccessForUser(
   websiteId: string,
 ) {
   const website = await db.query.website.findFirst({ where: eq(schema.website.id, websiteId) });
-  if (!website) throw new AuthorizationError('WEBSITE_NOT_FOUND', 'website was not found', 404);
+  if (!website) {
+    logger.warn(
+      {
+        event: 'auth.authorization.denied',
+        outcome: 'blocked',
+        userId,
+        websiteId,
+        errorCode: 'WEBSITE_NOT_FOUND',
+      },
+      'website was not found',
+    );
+    await recordAuthorizationDenied({ userId, websiteId, errorCode: 'WEBSITE_NOT_FOUND' }, db);
+    throw new AuthorizationError('WEBSITE_NOT_FOUND', 'website was not found', 404);
+  }
   if (role !== 'admin' && website.ownerId !== userId) {
+    logger.warn(
+      {
+        event: 'auth.authorization.denied',
+        outcome: 'blocked',
+        userId,
+        websiteId,
+        errorCode: 'WEBSITE_FORBIDDEN',
+      },
+      'website access was denied',
+    );
+    await recordAuthorizationDenied({ userId, websiteId, errorCode: 'WEBSITE_FORBIDDEN' }, db);
     throw new AuthorizationError('WEBSITE_FORBIDDEN', 'website access is forbidden', 403);
   }
   return website;
+}
+
+async function recordAuthorizationDenied(
+  input: { userId: string; websiteId: string; errorCode: string },
+  db: Db,
+): Promise<void> {
+  const context = getLogContext();
+  const traceContext = getActiveTraceContext();
+  try {
+    await insertAuditEvent(db, {
+      actorType: 'user',
+      actorUserId: input.userId,
+      websiteId: input.websiteId,
+      traceId: traceContext.traceId ?? context.traceId,
+      spanId: traceContext.spanId ?? context.spanId,
+      runCorrelationId: context.runCorrelationId,
+      requestId: context.requestId,
+      operation: 'auth.authorization.denied',
+      resourceType: 'website',
+      resourceRef: input.websiteId,
+      status: 'FAILED',
+      errorCode: input.errorCode,
+      resultSummary: { denied: true },
+    });
+  } catch (error) {
+    logger.error(
+      {
+        event: 'audit.write.failed',
+        operation: 'auth.authorization.denied',
+        ...serializeError(error),
+      },
+      'authorization denial audit could not be recorded',
+    );
+  }
 }
 
 export class AuthorizationError extends Error {

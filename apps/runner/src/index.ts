@@ -1,4 +1,4 @@
-import { createLogger } from '@cloudcrane/shared';
+import { createLogger, loadTracingConfig, startObservability } from '@cloudcrane/shared';
 import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
 import { loadRunnerConfig } from './config.js';
 import { DockerWorkspaceProvider } from './infrastructure/docker/docker-workspace-provider.js';
@@ -6,6 +6,7 @@ import { RunnerGatewayConnection } from './infrastructure/gateway/runner-gateway
 import { WorkspaceOperationHandler } from './infrastructure/gateway/workspace-operation-handler.js';
 
 const logger = createLogger('runner');
+const observability = startObservability(loadTracingConfig('runner'));
 const config = loadRunnerConfig();
 const provider = new DockerWorkspaceProvider(config);
 export const workspaceRuntimeService = new WorkspaceRuntimeService(provider);
@@ -27,6 +28,7 @@ logger.info(
 const close = (signal: string) => {
   logger.info({ signal, operation: 'runner.stop', status: 'ok' }, 'shutdown requested');
   connection.stop();
+  void observability.shutdown();
 };
 process.once('SIGINT', () => close('SIGINT'));
 process.once('SIGTERM', () => close('SIGTERM'));

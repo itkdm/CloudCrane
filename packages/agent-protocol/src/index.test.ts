@@ -57,6 +57,20 @@ describe('agent protocol', () => {
     expect(event.type).toBe('tool.completed');
   });
 
+  it('accepts an optional W3C traceparent on commands without changing legacy fields', () => {
+    const command = agentCommandSchema.parse({
+      type: 'agent.prompt',
+      requestId: 'req-traceparent',
+      websiteId,
+      sessionId,
+      traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+      timestamp: new Date().toISOString(),
+      payload: { text: 'hello' },
+    });
+    expect(command.traceparent).toContain('4bf92f3577b34da6a3ce929d0e0e4736');
+    expect(command.requestId).toBe('req-traceparent');
+  });
+
   it('accepts the maintenance command and bounded compaction events', () => {
     const command = agentCommandSchema.parse({
       type: 'session.compact',

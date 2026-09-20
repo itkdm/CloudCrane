@@ -10,6 +10,7 @@ export const remoteErrorCodeSchema = z.enum([
   'REQUEST_TIMEOUT',
   'PROTOCOL_ERROR',
   'UNKNOWN_RESULT',
+  'AUDIT_UNAVAILABLE',
   'INVALID_ARGUMENT',
   'INTERNAL_ERROR',
   'PATH_OUT_OF_SCOPE',

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { runWithLogContext } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from './index.js';
 
 const context = {
@@ -13,11 +14,13 @@ describe('WorkspaceClient', () => {
       const body = JSON.parse(String(init?.body)) as {
         operation: string;
         workspaceId: string;
+        toolCallId?: string;
         payload: unknown;
       };
       expect(body).toMatchObject({
         operation: 'fs.write',
         workspaceId: context.workspaceId,
+        toolCallId: 'tool-write-1',
         payload: { path: 'index.php', content: 'ok' },
       });
       return new Response(JSON.stringify({ result: { sha256: 'a'.repeat(64), size: 2 } }), {
@@ -26,7 +29,9 @@ describe('WorkspaceClient', () => {
     });
     const client = new WorkspaceClient('http://gateway', 'client-secret', context, fetcher);
     await expect(
-      client.fs.write({ path: 'index.php', content: 'ok' }, { idempotencyKey: 'write-1' }),
+      runWithLogContext({ toolCallId: 'tool-write-1' }, () =>
+        client.fs.write({ path: 'index.php', content: 'ok' }, { idempotencyKey: 'write-1' }),
+      ),
     ).resolves.toMatchObject({ size: 2 });
   });
 

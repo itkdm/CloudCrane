@@ -1,4 +1,37 @@
-import pino, { type Logger } from 'pino';
+export {
+  createLogger,
+  createRequestId,
+  createSpanId,
+  createTraceId,
+  extractTraceContext,
+  getLogContext,
+  getActiveTraceContext,
+  enterLogContext,
+  injectTraceparent,
+  loadTracingConfig,
+  logEvent,
+  parseTraceparent,
+  runWithLogContext,
+  runWithTraceContext,
+  sanitizeSpanAttributes,
+  sanitizeRequestPath,
+  sanitizeText,
+  serializeError,
+  shutdownObservability,
+  startObservability,
+  withSpan,
+  loadObservabilityConfig,
+  parseBooleanEnv,
+  type EventFields,
+  type LogContext,
+  type ObservabilityConfig,
+  type ObservabilityConfigOverrides,
+  type ObservabilityEvent,
+  type ObservabilityRuntime,
+  type TracingConfig,
+  OBSERVABILITY_EVENTS,
+} from '@cloudcrane/observability';
+import type { Logger } from 'pino';
 
 export {
   deriveCloneSessionTitle,
@@ -7,7 +40,3 @@ export {
 } from './session-title.js';
 
 export type ServiceLogger = Logger;
-
-export function createLogger(service: string): ServiceLogger {
-  return pino({ base: { service } });
-}

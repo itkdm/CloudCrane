@@ -21,6 +21,7 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
+    "@cloudcrane/observability": "workspace:*",
     "pino": "10.3.1"
   }
 }

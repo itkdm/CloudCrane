@@ -1,0 +1,62 @@
+// Optional host collector template. It forwards only versioned service logs;
+// credentials and full workspace/process output must never be collected here.
+local.file_match "cloudcrane_logs" {
+  path_targets = [{
+    __path__ = "/var/log/nginx/cloudcrane-*.log",
+    service = "nginx",
+    log_kind = "infrastructure",
+  }]
+}
+
+loki.source.file "cloudcrane_logs" {
+  targets    = local.file_match.cloudcrane_logs.targets
+  forward_to = [loki.write.cloudcrane.receiver]
+}
+
+// Optional systemd source. Keep website/workspace identifiers as structured
+// fields, not Loki labels, to avoid high-cardinality stream explosion.
+loki.source.journal "cloudcrane_systemd" {
+  max_age    = "12h"
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = {
+    environment = "production",
+    service     = "cloudcrane",
+    log_kind    = "systemd",
+  }
+}
+
+// Optional Docker source for Workspace Containers. The Docker socket is a
+// privileged host dependency and must be mounted read-only for Alloy.
+discovery.docker "workspace" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Only collect CloudCrane Workspace containers. The Docker socket may expose
+// unrelated host workloads, so an unfiltered discovery is not acceptable.
+discovery.relabel "workspace_only" {
+  targets = discovery.docker.workspace.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_cloudcrane_service"]
+    regex         = "workspace"
+    action        = "keep"
+  }
+}
+
+loki.source.docker "workspace" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.workspace_only.output
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = {
+    environment = "production",
+    service     = "workspace",
+    log_kind    = "container",
+  }
+}
+
+// Replace the endpoint and credentials through the host's private Alloy config.
+loki.write "cloudcrane" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}

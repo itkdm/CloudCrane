@@ -1976,6 +1976,7 @@
 .reference-upload-file {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 32px;
   padding: 0 10px;
   border: 1px dashed var(--cc-conversation-border);
@@ -2000,15 +2001,23 @@
 }
 
 .reference-upload-file span {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
 }
 
+.reference-upload-description {
+  width: 100%;
+}
+
 .reference-upload-file.has-file span {
+  flex: 1;
   text-align: left;
+}
+
+.reference-upload-file.has-file {
+  justify-content: flex-start;
 }
 
 .reference-upload-file input {

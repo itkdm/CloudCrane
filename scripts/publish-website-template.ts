@@ -44,13 +44,13 @@ async function main(): Promise<void> {
         dbSchemaVersion: values.get('db-schema-version') ?? '',
       },
     });
-    console.log(
+    process.stdout.write(
       JSON.stringify({
         id: published.id,
         artifactStorageKey: published.artifactStorageKey,
         artifactSha256: published.artifactSha256,
         artifactSize: published.artifactSize,
-      }),
+      }) + '\n',
     );
   } finally {
     await platform.pool.end();
