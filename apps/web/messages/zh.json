@@ -127,6 +127,7 @@
     "creating": "正在创建…",
     "createdAt": "创建于 {date}",
     "listLabel": "网站列表",
+    "loadingList": "正在加载网站列表…",
     "loading": "正在准备网站…",
     "empty": "还没有网站，创建你的第一个网站。",
     "loadError": "网站列表加载失败",

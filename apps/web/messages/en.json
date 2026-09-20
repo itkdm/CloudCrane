@@ -127,6 +127,7 @@
     "creating": "Creating…",
     "createdAt": "Created {date}",
     "listLabel": "Website list",
+    "loadingList": "Loading websites…",
     "loading": "Preparing your website…",
     "empty": "No websites yet. Create your first website.",
     "loadError": "Could not load websites",

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Copy,
   GitBranch,
+  LoaderCircle,
   LogOut,
   MoreHorizontal,
   PanelLeftClose,
@@ -48,6 +49,8 @@ type SessionDialogTarget = {
 type UnifiedSidebarProps = {
   view: WorkspaceView;
   collapsed: boolean;
+  websiteLoadState: 'loading' | 'success' | 'error';
+  websiteLoadError: string;
   groupedSessions: GroupedSessions[];
   selectedSession: string | null;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -60,11 +63,14 @@ type UnifiedSidebarProps = {
   onSessionPin: (websiteId: string, sessionId: string, pinned: boolean) => Promise<void>;
   onSessionClone: (websiteId: string, sessionId: string) => Promise<void>;
   onSessionDelete: (websiteId: string, sessionId: string) => Promise<void>;
+  onRetryWebsites: () => void;
 };
 
 export function UnifiedSidebar({
   view,
   collapsed,
+  websiteLoadState,
+  websiteLoadError,
   groupedSessions,
   selectedSession,
   onCollapsedChange,
@@ -77,6 +83,7 @@ export function UnifiedSidebar({
   onSessionPin,
   onSessionClone,
   onSessionDelete,
+  onRetryWebsites,
 }: UnifiedSidebarProps) {
   const locale = useLocale();
   const { data: session } = authClient.useSession();
@@ -273,174 +280,116 @@ export function UnifiedSidebar({
 
         <div className="unified-sidebar-sessions">
           <div className="unified-sidebar-section-label">{websiteT('title')}</div>
-          {groupedSessions.length === 0 ? (
+          {websiteLoadState === 'loading' ? (
+            <div className="unified-sidebar-websites-status" role="status" aria-live="polite">
+              <LoaderCircle className="spin" size={14} aria-hidden="true" />
+              <span>{websiteT('loadingList')}</span>
+            </div>
+          ) : websiteLoadState === 'error' ? (
+            <div className="unified-sidebar-websites-status error" role="alert">
+              <span>{websiteLoadError || websiteT('loadError')}</span>
+              <button type="button" onClick={onRetryWebsites}>
+                {websiteT('retry')}
+              </button>
+            </div>
+          ) : groupedSessions.length === 0 ? (
             <div className="unified-sidebar-websites-empty">{websiteT('noMoreWebsites')}</div>
           ) : null}
-          {groupedSessions.map((group) => {
-            const expanded = expandedGroups[group.websiteId] ?? true;
-            const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;
-            const visibleSessions = sessionsExpanded
-              ? group.sessions
-              : group.sessions.filter(
-                  (session, index) => index < 5 || session.id === selectedSession,
-                );
-            const hasMoreSessions = visibleSessions.length < group.sessions.length;
-            return (
-              <div key={group.websiteId} className="session-group">
-                <div className="session-group-header">
-                  <button
-                    type="button"
-                    className="session-group-toggle"
-                    onClick={() => toggleGroup(group.websiteId)}
-                    aria-expanded={expanded}
-                    title={group.websiteName}
-                  >
-                    <svg
-                      className="session-group-folder"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
+          {websiteLoadState === 'success' &&
+            groupedSessions.map((group) => {
+              const expanded = expandedGroups[group.websiteId] ?? true;
+              const sessionsExpanded = expandedSessionLists[group.websiteId] ?? false;
+              const visibleSessions = sessionsExpanded
+                ? group.sessions
+                : group.sessions.filter(
+                    (session, index) => index < 5 || session.id === selectedSession,
+                  );
+              const hasMoreSessions = visibleSessions.length < group.sessions.length;
+              return (
+                <div key={group.websiteId} className="session-group">
+                  <div className="session-group-header">
+                    <button
+                      type="button"
+                      className="session-group-toggle"
+                      onClick={() => toggleGroup(group.websiteId)}
+                      aria-expanded={expanded}
+                      title={group.websiteName}
                     >
-                      <path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-15z" />
-                      <path d="M3.5 6.5v-1a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1" />
-                    </svg>
-                    <span className="session-group-title">{group.websiteName}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="session-settings-button"
-                    onClick={() => onSettingsOpen(group.websiteId)}
-                    title={websiteT('settings')}
-                    aria-label={`${websiteT('settings')}: ${group.websiteName}`}
-                  >
-                    <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="session-new-button"
-                    onClick={() => onNewSession(group.websiteId)}
-                    title={workbenchT('newSession')}
-                    aria-label={`${workbenchT('newSession')}: ${group.websiteName}`}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
+                      <svg
+                        className="session-group-folder"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                      >
+                        <path d="M3.5 6.5h6l2 2h9v9a2 2 0 0 1-2 2h-15z" />
+                        <path d="M3.5 6.5v-1a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1" />
+                      </svg>
+                      <span className="session-group-title">{group.websiteName}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="session-settings-button"
+                      onClick={() => onSettingsOpen(group.websiteId)}
+                      title={websiteT('settings')}
+                      aria-label={`${websiteT('settings')}: ${group.websiteName}`}
                     >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                  </button>
-                </div>
-                {expanded ? (
-                  group.sessions.length === 0 ? (
-                    <div className="session-empty">{workbenchT('noSessions')}</div>
-                  ) : (
-                    <div className="session-list">
-                      {visibleSessions.map((session) => {
-                        const sessionTitle = session.title || workbenchT('newSessionTitle');
-                        return (
-                          <div
-                            key={session.id}
-                            className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
-                            ref={openMenuSessionId === session.id ? sessionMenuRef : undefined}
-                            data-session-title={sessionTitle.length > 24 ? sessionTitle : undefined}
-                          >
-                            <button
-                              type="button"
-                              className="session-select-button"
-                              onClick={() => onSessionSelect(group.websiteId, session.id)}
+                      <MoreHorizontal size={16} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="session-new-button"
+                      onClick={() => onNewSession(group.websiteId)}
+                      title={workbenchT('newSession')}
+                      aria-label={`${workbenchT('newSession')}: ${group.websiteName}`}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </svg>
+                    </button>
+                  </div>
+                  {expanded ? (
+                    group.sessions.length === 0 ? (
+                      <div className="session-empty">{workbenchT('noSessions')}</div>
+                    ) : (
+                      <div className="session-list">
+                        {visibleSessions.map((session) => {
+                          const sessionTitle = session.title || workbenchT('newSessionTitle');
+                          return (
+                            <div
+                              key={session.id}
+                              className={`session-item ${selectedSession === session.id ? 'active' : ''}`}
+                              ref={openMenuSessionId === session.id ? sessionMenuRef : undefined}
+                              data-session-title={
+                                sessionTitle.length > 24 ? sessionTitle : undefined
+                              }
                             >
-                              <span className="session-title">{sessionTitle}</span>
-                              {session.clonedFromSessionId ? (
-                                <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
-                              ) : null}
-                            </button>
-                            <div className="session-actions">
                               <button
                                 type="button"
-                                className={`session-pin-trigger${session.pinnedAt ? ' pinned' : ''}`}
-                                onClick={async () => {
-                                  if (pendingAction) return;
-                                  setPendingAction(`pin:${session.id}`);
-                                  setActionError(null);
-                                  try {
-                                    await onSessionPin(
-                                      group.websiteId,
-                                      session.id,
-                                      !session.pinnedAt,
-                                    );
-                                  } catch (error) {
-                                    setActionError(
-                                      error instanceof Error
-                                        ? error.message
-                                        : workbenchT('sessionActionFailed'),
-                                    );
-                                  } finally {
-                                    setPendingAction(null);
-                                  }
-                                }}
-                                disabled={pendingAction !== null}
-                                aria-label={
-                                  session.pinnedAt
-                                    ? workbenchT('unpinSession')
-                                    : workbenchT('pinSession')
-                                }
-                                data-tooltip={
-                                  session.pinnedAt
-                                    ? workbenchT('unpinSession')
-                                    : workbenchT('pinSession')
-                                }
+                                className="session-select-button"
+                                onClick={() => onSessionSelect(group.websiteId, session.id)}
                               >
-                                <Pin size={15} aria-hidden="true" />
+                                <span className="session-title">{sessionTitle}</span>
+                                {session.clonedFromSessionId ? (
+                                  <GitBranch size={12} aria-label={workbenchT('clonedSession')} />
+                                ) : null}
                               </button>
-                              <button
-                                type="button"
-                                className={`session-menu-trigger${session.pinnedAt ? ' pinned' : ''}`}
-                                onClick={() => {
-                                  setActionError(null);
-                                  setOpenMenuSessionId((current) =>
-                                    current === session.id ? null : session.id,
-                                  );
-                                }}
-                                aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
-                                aria-expanded={openMenuSessionId === session.id}
-                                aria-haspopup="menu"
-                                data-tooltip={workbenchT('moreActions')}
-                              >
-                                <MoreHorizontal size={15} aria-hidden="true" />
-                              </button>
-                            </div>
-                            {openMenuSessionId === session.id ? (
-                              <div className="session-menu" role="menu">
+                              <div className="session-actions">
                                 <button
                                   type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setActionError(null);
-                                    setRenameValue(sessionTitle);
-                                    setRenameTarget({
-                                      websiteId: group.websiteId,
-                                      sessionId: session.id,
-                                      title: sessionTitle,
-                                    });
-                                    setOpenMenuSessionId(null);
-                                  }}
-                                >
-                                  <Pencil size={14} aria-hidden="true" />{' '}
-                                  {workbenchT('renameSession')}
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  disabled={pendingAction !== null}
+                                  className={`session-pin-trigger${session.pinnedAt ? ' pinned' : ''}`}
                                   onClick={async () => {
+                                    if (pendingAction) return;
                                     setPendingAction(`pin:${session.id}`);
                                     setActionError(null);
                                     try {
@@ -449,7 +398,6 @@ export function UnifiedSidebar({
                                         session.id,
                                         !session.pinnedAt,
                                       );
-                                      setOpenMenuSessionId(null);
                                     } catch (error) {
                                       setActionError(
                                         error instanceof Error
@@ -460,75 +408,150 @@ export function UnifiedSidebar({
                                       setPendingAction(null);
                                     }
                                   }}
+                                  disabled={pendingAction !== null}
+                                  aria-label={
+                                    session.pinnedAt
+                                      ? workbenchT('unpinSession')
+                                      : workbenchT('pinSession')
+                                  }
+                                  data-tooltip={
+                                    session.pinnedAt
+                                      ? workbenchT('unpinSession')
+                                      : workbenchT('pinSession')
+                                  }
                                 >
-                                  <Pin size={14} aria-hidden="true" />{' '}
-                                  {session.pinnedAt
-                                    ? workbenchT('unpinSession')
-                                    : workbenchT('pinSession')}
+                                  <Pin size={15} aria-hidden="true" />
                                 </button>
                                 <button
                                   type="button"
-                                  role="menuitem"
-                                  disabled={pendingAction !== null}
-                                  onClick={async () => {
-                                    setPendingAction(`clone:${session.id}`);
-                                    setActionError(null);
-                                    try {
-                                      await onSessionClone(group.websiteId, session.id);
-                                      setOpenMenuSessionId(null);
-                                    } catch (error) {
-                                      setActionError(
-                                        error instanceof Error
-                                          ? error.message
-                                          : workbenchT('sessionActionFailed'),
-                                      );
-                                    } finally {
-                                      setPendingAction(null);
-                                    }
-                                  }}
-                                >
-                                  <Copy size={14} aria-hidden="true" /> {workbenchT('cloneSession')}
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="danger"
-                                  disabled={pendingAction !== null}
+                                  className={`session-menu-trigger${session.pinnedAt ? ' pinned' : ''}`}
                                   onClick={() => {
-                                    setDeleteError(null);
-                                    setDeleteTarget({
-                                      websiteId: group.websiteId,
-                                      sessionId: session.id,
-                                      title: session.title || workbenchT('newSessionTitle'),
-                                    });
-                                    setOpenMenuSessionId(null);
+                                    setActionError(null);
+                                    setOpenMenuSessionId((current) =>
+                                      current === session.id ? null : session.id,
+                                    );
                                   }}
+                                  aria-label={`${workbenchT('sessionMenu')}: ${sessionTitle}`}
+                                  aria-expanded={openMenuSessionId === session.id}
+                                  aria-haspopup="menu"
+                                  data-tooltip={workbenchT('moreActions')}
                                 >
-                                  <Trash2 size={14} aria-hidden="true" />{' '}
-                                  {workbenchT('deleteSession')}
+                                  <MoreHorizontal size={15} aria-hidden="true" />
                                 </button>
                               </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                      {group.sessions.length > 5 ? (
-                        <button
-                          type="button"
-                          className="session-list-toggle"
-                          onClick={() => toggleSessionList(group.websiteId)}
-                        >
-                          {hasMoreSessions
-                            ? workbenchT('showMoreSessions')
-                            : workbenchT('showFewerSessions')}
-                        </button>
-                      ) : null}
-                    </div>
-                  )
-                ) : null}
-              </div>
-            );
-          })}
+                              {openMenuSessionId === session.id ? (
+                                <div className="session-menu" role="menu">
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setActionError(null);
+                                      setRenameValue(sessionTitle);
+                                      setRenameTarget({
+                                        websiteId: group.websiteId,
+                                        sessionId: session.id,
+                                        title: sessionTitle,
+                                      });
+                                      setOpenMenuSessionId(null);
+                                    }}
+                                  >
+                                    <Pencil size={14} aria-hidden="true" />{' '}
+                                    {workbenchT('renameSession')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={pendingAction !== null}
+                                    onClick={async () => {
+                                      setPendingAction(`pin:${session.id}`);
+                                      setActionError(null);
+                                      try {
+                                        await onSessionPin(
+                                          group.websiteId,
+                                          session.id,
+                                          !session.pinnedAt,
+                                        );
+                                        setOpenMenuSessionId(null);
+                                      } catch (error) {
+                                        setActionError(
+                                          error instanceof Error
+                                            ? error.message
+                                            : workbenchT('sessionActionFailed'),
+                                        );
+                                      } finally {
+                                        setPendingAction(null);
+                                      }
+                                    }}
+                                  >
+                                    <Pin size={14} aria-hidden="true" />{' '}
+                                    {session.pinnedAt
+                                      ? workbenchT('unpinSession')
+                                      : workbenchT('pinSession')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    disabled={pendingAction !== null}
+                                    onClick={async () => {
+                                      setPendingAction(`clone:${session.id}`);
+                                      setActionError(null);
+                                      try {
+                                        await onSessionClone(group.websiteId, session.id);
+                                        setOpenMenuSessionId(null);
+                                      } catch (error) {
+                                        setActionError(
+                                          error instanceof Error
+                                            ? error.message
+                                            : workbenchT('sessionActionFailed'),
+                                        );
+                                      } finally {
+                                        setPendingAction(null);
+                                      }
+                                    }}
+                                  >
+                                    <Copy size={14} aria-hidden="true" />{' '}
+                                    {workbenchT('cloneSession')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    className="danger"
+                                    disabled={pendingAction !== null}
+                                    onClick={() => {
+                                      setDeleteError(null);
+                                      setDeleteTarget({
+                                        websiteId: group.websiteId,
+                                        sessionId: session.id,
+                                        title: session.title || workbenchT('newSessionTitle'),
+                                      });
+                                      setOpenMenuSessionId(null);
+                                    }}
+                                  >
+                                    <Trash2 size={14} aria-hidden="true" />{' '}
+                                    {workbenchT('deleteSession')}
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                        {group.sessions.length > 5 ? (
+                          <button
+                            type="button"
+                            className="session-list-toggle"
+                            onClick={() => toggleSessionList(group.websiteId)}
+                          >
+                            {hasMoreSessions
+                              ? workbenchT('showMoreSessions')
+                              : workbenchT('showFewerSessions')}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  ) : null}
+                </div>
+              );
+            })}
           {actionError ? (
             <div className="session-action-error" role="alert">
               {actionError}

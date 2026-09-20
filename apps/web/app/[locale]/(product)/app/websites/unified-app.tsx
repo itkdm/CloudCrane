@@ -395,6 +395,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const selectedWebsiteRecord = selectedWebsite
     ? websites.find((website) => website.id === selectedWebsite)
     : undefined;
+  const canRenderSelectedWorkbench = Boolean(
+    selectedWebsite &&
+    selectedSession &&
+    (websiteLoadState === 'loading' ||
+      (websiteLoadState === 'success' && canEnterWorkspace(selectedWebsiteRecord))),
+  );
 
   const handleSessionChange = useCallback(
     (change: SessionChange) => {
@@ -475,6 +481,8 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       <UnifiedSidebar
         view={view}
         collapsed={sidebarCollapsed}
+        websiteLoadState={websiteLoadState}
+        websiteLoadError={websiteLoadError}
         groupedSessions={groupedSessions}
         selectedSession={selectedSession}
         onCollapsedChange={handleSidebarCollapsedChange}
@@ -490,6 +498,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         onSessionPin={handlePinSession}
         onSessionClone={handleCloneSession}
         onSessionDelete={handleDeleteSession}
+        onRetryWebsites={() => void loadWebsites()}
       />
       <div className="unified-content">
         {view === 'templates' ? (
@@ -498,6 +507,21 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
               setSelectedTemplateForCreate(template);
               setCreateWebsiteOpen(true);
             }}
+          />
+        ) : canRenderSelectedWorkbench ? (
+          <AgentWorkbenchContent
+            websiteId={selectedWebsite!}
+            sessionId={selectedSession!}
+            sessionMetadata={sessions
+              .filter((session) => session.websiteId === selectedWebsite)
+              .map(({ id, title }) => ({ id, title }))}
+            onSessionChange={handleSessionChange}
+            onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
+            initialPrompt={
+              pendingStartPrompt?.websiteId === selectedWebsite ? pendingStartPrompt : undefined
+            }
+            onInitialPromptConsumed={handleInitialPromptConsumed}
+            onPreviewOpenChange={handlePreviewOpenChange}
           />
         ) : websiteLoadState === 'loading' ? (
           <main className="workspace-loading-state" aria-busy="true" aria-live="polite">
@@ -525,21 +549,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
               </button>
             </div>
           </main>
-        ) : selectedWebsite && selectedSession && canEnterWorkspace(selectedWebsiteRecord) ? (
-          <AgentWorkbenchContent
-            websiteId={selectedWebsite}
-            sessionId={selectedSession}
-            sessionMetadata={sessions
-              .filter((session) => session.websiteId === selectedWebsite)
-              .map(({ id, title }) => ({ id, title }))}
-            onSessionChange={handleSessionChange}
-            onSettingsOpen={() => setSettingsWebsiteId(selectedWebsite)}
-            initialPrompt={
-              pendingStartPrompt?.websiteId === selectedWebsite ? pendingStartPrompt : undefined
-            }
-            onInitialPromptConsumed={handleInitialPromptConsumed}
-            onPreviewOpenChange={handlePreviewOpenChange}
-          />
         ) : websites.length === 0 ? (
           <main className="workspace-empty-state">
             <div className="workspace-empty-state-inner">

@@ -701,6 +701,30 @@ button:disabled {
   font-size: 12px;
   text-align: center;
 }
+.unified-sidebar-websites-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 12px;
+  color: var(--cc-sidebar-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+.unified-sidebar-websites-status.error {
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+}
+.unified-sidebar-websites-status button {
+  align-self: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--cc-brand);
+  font-size: 12px;
+  cursor: pointer;
+}
 .unified-sidebar-sessions::-webkit-scrollbar {
   width: 6px;
 }
