@@ -586,7 +586,7 @@
 
 .composer-box {
   border: 1px solid var(--cc-border);
-  border-radius: 14px;
+  border-radius: 28px;
   padding: 5px 7px 4px 10px;
   background: var(--cc-surface-0);
   box-shadow: var(--cc-shadow-sm);
