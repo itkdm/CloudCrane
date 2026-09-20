@@ -113,11 +113,6 @@ function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
             {pending ? t('processing') : mode === 'sign-in' ? t('signIn') : t('signUp')}
           </button>
         </form>
-        {mode === 'sign-in' && (
-          <a className="auth-link" href={`/${locale}/forgot-password`}>
-            {t('forgotPassword')}
-          </a>
-        )}
         <button
           className="auth-secondary"
           disabled={pending}
@@ -127,9 +122,19 @@ function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
           <GoogleIcon />
           {t('googleSignIn')}
         </button>
-        <a className="auth-link" href={`/${locale}/${mode === 'sign-in' ? 'sign-up' : 'sign-in'}`}>
-          {mode === 'sign-in' ? t('noAccount') : t('hasAccount')}
-        </a>
+        <div className="auth-links-row">
+          {mode === 'sign-in' && (
+            <a className="auth-link" href={`/${locale}/forgot-password`}>
+              {t('forgotPassword')}
+            </a>
+          )}
+          <a
+            className="auth-link"
+            href={`/${locale}/${mode === 'sign-in' ? 'sign-up' : 'sign-in'}`}
+          >
+            {mode === 'sign-in' ? t('noAccount') : t('hasAccount')}
+          </a>
+        </div>
       </section>
     </main>
   );

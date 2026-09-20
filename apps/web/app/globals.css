@@ -100,6 +100,15 @@
   text-align: center;
   font-size: 14px;
 }
+.auth-links-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.auth-links-row .auth-link {
+  margin-top: 22px;
+}
 .auth-error {
   margin: 0;
   color: #b42318;
