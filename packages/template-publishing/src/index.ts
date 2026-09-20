@@ -70,6 +70,7 @@ export class TemplatePublishingService {
     let auditId: string;
     let artifactStorageKey: string | undefined;
     let templateInserted = false;
+    let operationCompleted = false;
     try {
       const traceContext = getActiveTraceContext();
       auditId = await insertAuditEvent(this.platform.db, {
@@ -149,6 +150,7 @@ export class TemplatePublishingService {
         publishedAt: new Date(),
       });
       templateInserted = true;
+      operationCompleted = true;
       const published = {
         id,
         artifactStorageKey: staged.artifactStorageKey,
@@ -172,6 +174,18 @@ export class TemplatePublishingService {
         await rm(path.join(this.artifactRoot, artifactStorageKey), { force: true }).catch(
           () => undefined,
         );
+      if (operationCompleted) {
+        try {
+          await finishAuditEvent(this.platform.db, auditId, {
+            status: 'UNKNOWN',
+            durationMs: Date.now() - startedAt,
+            errorCode: 'AUDIT_FINALIZATION_FAILED',
+          });
+        } catch {
+          // The template commit point already succeeded; never rewrite it as FAILED.
+        }
+        throw error;
+      }
       try {
         const auditStatus =
           error instanceof WorkspaceClientError &&

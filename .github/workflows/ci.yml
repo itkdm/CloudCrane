@@ -43,6 +43,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm db:migration:check
       - run: pnpm --filter @cloudcrane/db db:migrate
       - run: pnpm --filter @cloudcrane/db db:verify
 

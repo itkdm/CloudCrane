@@ -540,8 +540,8 @@ async function finishSessionAudit(
   audit: SessionAudit | undefined,
   status: 'SUCCESS' | 'FAILED',
   result: { websiteSessionId?: string; deletedSessionId?: string; error?: unknown },
-): Promise<void> {
-  if (!db || !audit) return;
+): Promise<boolean> {
+  if (!db || !audit) return true;
   const errorDetails = result.error === undefined ? undefined : serializeError(result.error);
   try {
     await finishAuditEvent(db, audit.id, {
@@ -564,10 +564,7 @@ async function finishSessionAudit(
       },
       'session mutation audit could not be finalized',
     );
-    throw new AgentServiceError(
-      'AUDIT_UNAVAILABLE',
-      'session mutation result is uncertain because its audit could not be finalized',
-      503,
-    );
+    return false;
   }
+  return true;
 }

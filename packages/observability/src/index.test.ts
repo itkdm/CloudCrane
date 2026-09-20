@@ -43,10 +43,14 @@ describe('observability foundation', () => {
     expect(createSpanId()).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it('parses only valid W3C traceparent values', () => {
+  it('parses valid W3C traceparent values, including unsampled flags', () => {
     expect(parseTraceparent('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01')).toEqual({
       traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
-      spanId: '00f067aa0ba902b7',
+      parentSpanId: '00f067aa0ba902b7',
+    });
+    expect(parseTraceparent('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00')).toEqual({
+      traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+      parentSpanId: '00f067aa0ba902b7',
     });
     expect(parseTraceparent('not-a-traceparent')).toBeUndefined();
   });
@@ -120,11 +124,15 @@ describe('observability foundation', () => {
           headers: { authorization: 'SUPER_SECRET_TEST_VALUE', cookie: 'SUPER_SECRET_TEST_VALUE' },
         },
         safeBytes: 12,
+        tool_name: 'workspace.read',
+        tool_call_id: 'call-123',
       },
       'safe event',
     );
     expect(output).not.toContain('SUPER_SECRET_TEST_VALUE');
     expect(output).toContain('safeBytes');
+    expect(output).toContain('workspace.read');
+    expect(output).toContain('call-123');
   });
 
   it('creates and closes a no-op span when no exporter is configured', async () => {
@@ -140,10 +148,18 @@ describe('observability foundation', () => {
         prompt: 'SUPER_SECRET_TEST_VALUE',
         command: 'cat secret.txt',
         token: 'SUPER_SECRET_TEST_VALUE',
+        tool_name: 'workspace.read',
+        tool_call_id: 'call-123',
+        tool_input: 'SUPER_SECRET_TEST_VALUE',
         stdout: 'SUPER_SECRET_TEST_VALUE',
         safeBytes: 12,
       }),
-    ).toEqual({ operation: 'workspace.read', safeBytes: 12 });
+    ).toEqual({
+      operation: 'workspace.read',
+      tool_name: 'workspace.read',
+      tool_call_id: 'call-123',
+      safeBytes: 12,
+    });
   });
 
   it('removes query strings from request paths', () => {

@@ -7,6 +7,7 @@ import { loadObservabilityConfig, type ObservabilityConfigOverrides } from './co
 export type LogContext = {
   requestId?: string;
   traceId?: string;
+  parentSpanId?: string;
   spanId?: string;
   runCorrelationId?: string;
   userId?: string;
@@ -115,13 +116,13 @@ export function createRequestId(): string {
 
 export function parseTraceparent(
   value: string | undefined,
-): Pick<LogContext, 'traceId' | 'spanId'> | undefined {
+): Pick<LogContext, 'traceId' | 'parentSpanId'> | undefined {
   if (!value) return undefined;
   const match = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i.exec(value.trim());
-  if (!match || match[1] === '0'.repeat(32) || match[2] === '0'.repeat(16) || match[3] === '00') {
+  if (!match || match[1] === '0'.repeat(32) || match[2] === '0'.repeat(16)) {
     return undefined;
   }
-  return { traceId: match[1], spanId: match[2] };
+  return { traceId: match[1], parentSpanId: match[2] };
 }
 
 export function getLogContext(): Readonly<LogContext> {

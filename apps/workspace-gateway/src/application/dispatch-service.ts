@@ -38,7 +38,10 @@ export class WorkspaceDispatchService {
 
   private async executeInternal(operation: ClientOperation): Promise<unknown> {
     const startedAt = Date.now();
-    const auditId = await this.createAudit(operation);
+    const auditId = isMutationOperation(operation.operation)
+      ? await this.createAudit(operation)
+      : undefined;
+    let operationCompleted = false;
     try {
       const binding = await this.store.findWorkspace(operation.workspaceId, operation.websiteId);
       if (!binding)
@@ -62,6 +65,7 @@ export class WorkspaceDispatchService {
       if (result.type !== 'runner.completed')
         throw remoteError('PROTOCOL_ERROR', 'runner returned an incomplete result');
       await this.updateState(operation, result.result, runner.runnerId);
+      operationCompleted = true;
       const auditFinalized = await this.finishAudit(auditId, {
         status: 'SUCCESS',
         durationMs: Date.now() - startedAt,
@@ -74,20 +78,21 @@ export class WorkspaceDispatchService {
       }
       return this.publicResult(operation, result.result);
     } catch (error) {
-      await this.finishAudit(auditId, {
-        status:
-          error instanceof GatewayRemoteError && error.statusCode === 504
-            ? 'UNKNOWN'
-            : error instanceof GatewayRemoteError && error.remote.code === 'REQUEST_TIMEOUT'
-              ? 'TIMEOUT'
-              : error instanceof RunnerDispatchError &&
-                  isMutationOperation(operation.operation) &&
-                  error.accepted
-                ? 'UNKNOWN'
-                : 'FAILED',
-        durationMs: Date.now() - startedAt,
-        errorCode: error instanceof GatewayRemoteError ? error.remote.code : undefined,
-      });
+      if (!operationCompleted)
+        await this.finishAudit(auditId, {
+          status:
+            error instanceof GatewayRemoteError && error.statusCode === 504
+              ? 'UNKNOWN'
+              : error instanceof GatewayRemoteError && error.remote.code === 'REQUEST_TIMEOUT'
+                ? 'TIMEOUT'
+                : error instanceof RunnerDispatchError &&
+                    isMutationOperation(operation.operation) &&
+                    error.accepted
+                  ? 'UNKNOWN'
+                  : 'FAILED',
+          durationMs: Date.now() - startedAt,
+          errorCode: error instanceof GatewayRemoteError ? error.remote.code : undefined,
+        });
       if (error instanceof GatewayRemoteError) throw error;
       if (error instanceof RunnerDispatchError)
         throw remoteError(error.code, error.message, { accepted: error.accepted });

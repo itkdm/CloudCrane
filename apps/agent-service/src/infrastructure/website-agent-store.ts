@@ -16,7 +16,7 @@ import type {
   WebsiteSessionIndex,
   WebsiteSessionStatus,
 } from '@cloudcrane/website-agent';
-import { getLogContext } from '@cloudcrane/shared';
+import { createLogger, getLogContext, serializeError } from '@cloudcrane/shared';
 
 const toIso = (value: Date | null): string | null => (value ? value.toISOString() : null);
 
@@ -200,14 +200,26 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
               : patch.status === 'INTERRUPTED'
                 ? 'UNKNOWN'
                 : 'FAILED';
-        await finishAuditEvent(this.platform.db, pendingAudit.id, {
-          status: terminalStatus,
-          durationMs: patch.endedAt
-            ? Math.max(0, new Date(patch.endedAt).getTime() - pendingAudit.occurredAt.getTime())
-            : undefined,
-          errorCode: patch.status === 'FAILED' ? 'AGENT_RUN_FAILED' : undefined,
-          resultSummary: { status: patch.status },
-        });
+        try {
+          await finishAuditEvent(this.platform.db, pendingAudit.id, {
+            status: terminalStatus,
+            durationMs: patch.endedAt
+              ? Math.max(0, new Date(patch.endedAt).getTime() - pendingAudit.occurredAt.getTime())
+              : undefined,
+            errorCode: patch.status === 'FAILED' ? 'AGENT_RUN_FAILED' : undefined,
+            resultSummary: { status: patch.status },
+          });
+        } catch (error) {
+          createLogger('website-agent.audit').error(
+            {
+              event: 'audit.finalization.failed',
+              auditEventId: pendingAudit.id,
+              outcome: 'unknown',
+              ...serializeError(error),
+            },
+            'agent run completed but audit finalization failed',
+          );
+        }
       }
     }
   }
@@ -243,13 +255,28 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
           ),
         )
         .limit(1);
-      if (pendingAudit)
-        await finishAuditEvent(this.platform.db, pendingAudit.id, {
-          status: 'UNKNOWN',
-          durationMs: run.startedAt ? Math.max(0, Date.now() - run.startedAt.getTime()) : undefined,
-          errorCode: 'AGENT_RUN_INTERRUPTED',
-          resultSummary: { status: 'INTERRUPTED' },
-        });
+      if (pendingAudit) {
+        try {
+          await finishAuditEvent(this.platform.db, pendingAudit.id, {
+            status: 'UNKNOWN',
+            durationMs: run.startedAt
+              ? Math.max(0, Date.now() - run.startedAt.getTime())
+              : undefined,
+            errorCode: 'AGENT_RUN_INTERRUPTED',
+            resultSummary: { status: 'INTERRUPTED' },
+          });
+        } catch (error) {
+          createLogger('website-agent.audit').error(
+            {
+              event: 'audit.finalization.failed',
+              auditEventId: pendingAudit.id,
+              outcome: 'unknown',
+              ...serializeError(error),
+            },
+            'stale agent run audit finalization failed',
+          );
+        }
+      }
     }
   }
 }

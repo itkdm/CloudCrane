@@ -5,6 +5,10 @@ local.file_match "cloudcrane_logs" {
     __path__ = "/var/log/nginx/cloudcrane-*.log",
     service = "nginx",
     log_kind = "infrastructure",
+  }, {
+    __path__ = "/var/log/cloudcrane/*.log",
+    service = "cloudcrane",
+    log_kind = "application",
   }]
 }
 
@@ -17,6 +21,7 @@ loki.source.file "cloudcrane_logs" {
 // fields, not Loki labels, to avoid high-cardinality stream explosion.
 loki.source.journal "cloudcrane_systemd" {
   max_age    = "12h"
+  matches    = "_SYSTEMD_UNIT =~ `cloudcrane-.*\\.service`"
   forward_to = [loki.write.cloudcrane.receiver]
   labels = {
     environment = "production",

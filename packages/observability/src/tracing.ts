@@ -48,7 +48,7 @@ function safeAttributes(attributes: Record<string, unknown> | undefined): SpanAt
   if (!attributes) return {};
   const result: SpanAttributes = {};
   const sensitiveKey =
-    /(authorization|cookie|password|token|secret|api[_-]?key|prompt|response|tool|command|stdout|stderr|environment|env|body|content|payload)/i;
+    /(authorization|cookie|password|token|secret|api[_-]?key|prompt|response|tool[_-]?(input|output|arguments|result)|command|stdout|stderr|environment|env|body|content|payload)/i;
   for (const [key, value] of Object.entries(attributes)) {
     if (sensitiveKey.test(key)) continue;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {

@@ -27,7 +27,7 @@ export class DrizzleControlPlaneStore implements ControlPlaneStore {
   }) {
     return insertAuditEvent(this.platform.db, {
       ...input,
-      actorType: 'agent',
+      actorType: 'gateway',
       status: 'PENDING',
     } satisfies AuditEventInsert);
   }

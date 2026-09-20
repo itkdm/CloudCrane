@@ -246,16 +246,14 @@ export const auditEvent = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true }).default(now()).notNull(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     actorType: varchar('actor_type', { length: 32 }).notNull(),
-    actorUserId: text('actor_user_id').references(() => user.id, { onDelete: 'set null' }),
-    impersonatorUserId: text('impersonator_user_id').references(() => user.id, {
-      onDelete: 'set null',
-    }),
-    websiteId: uuid('website_id').references(() => website.id, { onDelete: 'set null' }),
-    workspaceId: uuid('workspace_id').references(() => workspace.id, { onDelete: 'set null' }),
-    websiteSessionId: uuid('website_session_id').references(() => websiteSession.id, {
-      onDelete: 'set null',
-    }),
-    agentRunId: uuid('agent_run_id').references(() => agentRun.id, { onDelete: 'set null' }),
+    // Audit evidence must outlive the business rows it describes. These are
+    // intentionally unbound identifiers, not relational ownership edges.
+    actorUserId: text('actor_user_id'),
+    impersonatorUserId: text('impersonator_user_id'),
+    websiteId: uuid('website_id'),
+    workspaceId: uuid('workspace_id'),
+    websiteSessionId: uuid('website_session_id'),
+    agentRunId: uuid('agent_run_id'),
     traceId: varchar('trace_id', { length: 32 }),
     spanId: varchar('span_id', { length: 16 }),
     runCorrelationId: uuid('run_correlation_id'),

@@ -174,7 +174,7 @@ export async function POST(request: Request) {
         await finishAuditEvent(platform.db, auditId, {
           status: result.provisioned ? 'SUCCESS' : 'UNKNOWN',
           durationMs: Date.now() - startedAt,
-          resultSummary: { provisioned: result.provisioned },
+          resultSummary: { provisioned: result.provisioned, websiteId: result.website.id },
         });
       } catch {
         return NextResponse.json(
