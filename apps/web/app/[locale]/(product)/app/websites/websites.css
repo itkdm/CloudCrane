@@ -589,8 +589,8 @@
     box-shadow 180ms ease;
 }
 .workspace-start-composer:focus-within {
-  border-color: var(--cc-brand);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc-brand) 12%, transparent);
+  border-color: var(--cc-border);
+  box-shadow: var(--cc-shadow-sm);
 }
 .workspace-start-composer textarea {
   width: 100%;

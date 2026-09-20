@@ -593,8 +593,8 @@
 }
 
 .composer-box:focus-within {
-  border-color: var(--cc-brand);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
+  border-color: var(--cc-border);
+  box-shadow: var(--cc-shadow-sm);
 }
 
 .composer-box textarea {
