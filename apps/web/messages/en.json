@@ -158,7 +158,15 @@
     "later": "Authorize later",
     "authorizationError": "Authorization verification failed",
     "copyError": "Could not copy. Select and copy the preview address manually.",
-    "officialAuthorization": "official PbootCMS free authorization page"
+    "officialAuthorization": "official PbootCMS free authorization page",
+    "dangerZone": "Danger zone",
+    "deleteWebsite": "Delete website",
+    "deleteWebsiteDescription": "Delete “{name}”?",
+    "deleteWebsiteWarning": "The website code, preview environment, conversations, and storage will be permanently deleted. Active Agent tasks will be terminated. This cannot be undone.",
+    "confirmDeleteWebsite": "Permanently delete",
+    "deletingWebsite": "Deleting…",
+    "deleteError": "Website deletion failed. Try again shortly.",
+    "websiteNotFound": "The website does not exist or has already been deleted."
   },
   "status": {
     "ready": "Ready",
@@ -168,6 +176,7 @@
     "authorization_required": "PbootCMS authorization required",
     "template_attach_failed": "Template application failed",
     "provisioning_failed": "Creation failed",
+    "deleting": "Deleting website…",
     "unknown": "Preparing"
   },
   "authorization": { "dialogLabel": "PbootCMS authorization" },

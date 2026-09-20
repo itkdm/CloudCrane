@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir } from 'node:fs/promises';
+import { chmod, lstat, mkdir, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -118,16 +118,32 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async destroyRuntime(workspaceId: string): Promise<void> {
-    const container = await this.container(workspaceId);
-    const info = await container.inspect();
-    if (info.State?.Running) await container.stop().catch(() => undefined);
-    await container.remove({ force: true });
-    await this.restoreHostOwnership(this.persistentPath(workspaceId));
-    if (info.HostConfig?.NetworkMode) {
+    let container: Docker.Container | undefined;
+    try {
+      container = await this.container(workspaceId);
+      const info = await container.inspect();
+      if (info.State?.Running) await container.stop().catch(() => undefined);
+      await container.remove({ force: true }).catch((error) => {
+        if (!this.isNotFound(error)) throw error;
+      });
+      if (info.HostConfig?.NetworkMode) {
+        await this.docker
+          .getNetwork(info.HostConfig.NetworkMode)
+          .remove()
+          .catch((error) => {
+            if (!this.isNotFound(error)) throw error;
+          });
+      }
+    } catch (error) {
+      if (!this.isNotFound(error)) throw error;
+    } finally {
+      await this.removeWorkspaceFiles(workspaceId);
       await this.docker
-        .getNetwork(info.HostConfig.NetworkMode)
+        .getNetwork(`cloudcrane-workspace-${workspaceId}`)
         .remove()
-        .catch(() => undefined);
+        .catch((error) => {
+          if (!this.isNotFound(error)) throw error;
+        });
     }
   }
 
@@ -357,6 +373,30 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     } finally {
       await ownerContainer.remove({ force: true }).catch(() => undefined);
     }
+  }
+  private async removeWorkspaceFiles(workspaceId: string): Promise<void> {
+    const persistentPath = this.persistentPath(workspaceId);
+    try {
+      await lstat(persistentPath);
+      await this.restoreHostOwnership(persistentPath);
+    } catch (error) {
+      if (!this.isNotFound(error)) throw error;
+    }
+    await rm(path.dirname(persistentPath), { recursive: true, force: true });
+    if (this.config.referenceRoot)
+      await rm(`${this.config.referenceRoot}/${workspaceId}`, { recursive: true, force: true });
+  }
+  private isNotFound(error: unknown): boolean {
+    return (
+      (typeof error === 'object' &&
+        error !== null &&
+        'statusCode' in error &&
+        (error as { statusCode?: number }).statusCode === 404) ||
+      (typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: string }).code === 'ENOENT')
+    );
   }
   private assertWorkspaceId(workspaceId: string): void {
     if (!z.string().uuid().safeParse(workspaceId).success)

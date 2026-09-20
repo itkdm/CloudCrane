@@ -76,7 +76,9 @@ type WebsiteStore = {
   } | null>;
   listWebsites(): Promise<PublicWebsite[]>;
   findWorkspaceId?(websiteId: string): Promise<string | null>;
+  findWorkspace?(websiteId: string): Promise<{ id: string; status: string } | null>;
   findPreviewSlug?(websiteId: string): Promise<string | null>;
+  deleteWebsite?(websiteId: string): Promise<boolean>;
 };
 
 type RuntimeClient = {
@@ -86,6 +88,7 @@ type RuntimeClient = {
   reconcileBootstrap(): Promise<boolean>;
   configureAuthorization(sn: string): Promise<{ status: string }>;
   verifyAuthorization(canonicalHost: string): Promise<boolean>;
+  destroy?(): Promise<void>;
   applyTemplateSnapshot?(referenceId: string): Promise<{ status: string }>;
 };
 
@@ -621,6 +624,19 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .limit(1);
       return rows[0]?.id ?? null;
     },
+    async findWorkspace(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const conditions = [eq(workspace.websiteId as never, websiteId)];
+      if (ownerId) conditions.push(eq(website.ownerId as never, ownerId));
+      const rows = await db
+        .select({ id: workspace.id, status: workspace.status })
+        .from(workspace)
+        .innerJoin(website, eq(workspace.websiteId as never, website.id as never))
+        .where(and(...conditions))
+        .limit(1);
+      return rows[0] ?? null;
+    },
     async findPreviewSlug(websiteId: string) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = platform.db;
@@ -630,6 +646,17 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .where(eq(website.id as never, websiteId))
         .limit(1);
       return rows[0]?.previewSlug ?? null;
+    },
+    async deleteWebsite(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const conditions = [eq(website.id as never, websiteId)];
+      if (ownerId) conditions.push(eq(website.ownerId as never, ownerId));
+      const deleted = await db
+        .delete(website)
+        .where(and(...conditions))
+        .returning({ id: website.id });
+      return deleted.length > 0;
     },
   };
   return { platform, store };
@@ -713,6 +740,9 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
         30_000,
       );
       return result.exitCode === 0;
+    },
+    destroy: async () => {
+      await client.runtime.destroy({ idempotencyKey: `website-delete-${websiteId}` });
     },
     applyTemplateSnapshot: async (referenceId: string) => {
       const result = await exec('cloudcrane-apply-pboot-snapshot', [referenceId], 120_000);

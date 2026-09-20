@@ -100,6 +100,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] =
     useState<TemplateSummary | null>(null);
   const [settingsWebsiteId, setSettingsWebsiteId] = useState<string | null>(null);
+  const [deletingWebsiteId, setDeletingWebsiteId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const previewOpenRef = useRef(false);
   const sidebarBeforePreviewRef = useRef<boolean | null>(null);
@@ -332,6 +333,47 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setSettingsWebsiteId(websiteId);
   }
 
+  async function handleDeleteWebsite() {
+    if (!settingsWebsiteId) return;
+    const websiteId = settingsWebsiteId;
+    let response: Response;
+    try {
+      response = await fetch(`/api/websites/${websiteId}`, { method: 'DELETE' });
+    } catch (error) {
+      setDeletingWebsiteId(null);
+      throw error;
+    }
+    if (!response.ok) {
+      let message = t('operationIncomplete');
+      try {
+        const payload = (await response.json()) as { error?: { code?: string; message?: string } };
+        message =
+          payload.error?.code === 'WEBSITE_NOT_FOUND' ? t('websiteNotFound') : t('deleteError');
+      } catch {
+        // Keep the generic message when the server did not return JSON.
+      }
+      setDeletingWebsiteId(null);
+      throw new Error(message);
+    }
+    const remainingWebsites = websites.filter((website) => website.id !== websiteId);
+    deletedSessionIdsRef.current = new Set([
+      ...deletedSessionIdsRef.current,
+      ...sessions.filter((session) => session.websiteId === websiteId).map((session) => session.id),
+    ]);
+    setWebsites(remainingWebsites);
+    setSessions((current) => current.filter((session) => session.websiteId !== websiteId));
+    setSettingsWebsiteId(null);
+    setDeletingWebsiteId(null);
+    setPendingFirstSessionWebsiteId((current) => (current === websiteId ? null : current));
+    setPendingStartPrompt((current) => (current?.websiteId === websiteId ? null : current));
+    setStartError('');
+    if (selectedWebsite === websiteId) {
+      const nextWebsite = remainingWebsites.find(canEnterWorkspace);
+      setSelectedWebsite(nextWebsite?.id ?? null);
+      setSelectedSession(null);
+    }
+  }
+
   function handleAuthorizationComplete() {
     if (!settingsWebsiteId) return;
     const websiteId = settingsWebsiteId;
@@ -398,6 +440,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   const canRenderSelectedWorkbench = Boolean(
     selectedWebsite &&
     selectedSession &&
+    deletingWebsiteId !== selectedWebsite &&
     (websiteLoadState === 'loading' ||
       (websiteLoadState === 'success' && canEnterWorkspace(selectedWebsiteRecord))),
   );
@@ -619,6 +662,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             ),
           );
         }}
+        onDeleteStart={() => {
+          if (settingsWebsiteId) setDeletingWebsiteId(settingsWebsiteId);
+        }}
+        onDeleted={handleDeleteWebsite}
       />
     </div>
   );

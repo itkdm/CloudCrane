@@ -166,6 +166,14 @@ export class PreviewClientRegistry implements PreviewObservationProvider {
     this.clients.clear();
   }
 
+  disposeWebsite(websiteId: string): void {
+    for (const [key, client] of this.clients) {
+      if (client.websiteId !== websiteId) continue;
+      this.rejectPendingForDisconnect(client);
+      this.clients.delete(key);
+    }
+  }
+
   private request(
     context: PreviewObservationContext,
     payload: PreviewRequestPayload,

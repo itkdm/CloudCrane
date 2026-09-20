@@ -986,3 +986,25 @@
 .website-settings-authorization > .primary-button {
   margin-top: 2px;
 }
+.website-settings-danger {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--cc-danger) 28%, var(--cc-border));
+}
+.website-settings-danger h3 {
+  color: var(--cc-danger);
+}
+.website-delete-confirmation p {
+  margin: 0 0 10px;
+  color: var(--cc-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.website-delete-confirmation h4 {
+  margin: 0 0 10px;
+  color: var(--cc-text);
+  font-size: 14px;
+}
+.website-delete-confirmation .website-dialog-actions {
+  margin-top: 16px;
+}

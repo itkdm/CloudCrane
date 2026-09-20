@@ -103,6 +103,12 @@ export class AgentSocketTransport {
     return this.connections.size;
   }
 
+  disposeWebsite(websiteId: string): void {
+    for (const connection of this.connections) {
+      if (connection.belongsToWebsite(websiteId)) connection.close(1000, 'website deleted');
+    }
+  }
+
   async close(): Promise<void> {
     for (const connection of this.connections) connection.close();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -150,6 +156,10 @@ class AgentSocketConnection {
   close(code = 1000, reason?: string): void {
     this.socket.close(code, reason);
     this.dispose();
+  }
+
+  belongsToWebsite(websiteId: string): boolean {
+    return this.websiteId === websiteId || this.previewWebsiteId === websiteId;
   }
 
   private async handleMessage(raw: string): Promise<void> {

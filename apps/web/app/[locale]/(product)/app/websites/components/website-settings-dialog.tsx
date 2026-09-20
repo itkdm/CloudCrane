@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { copyTextWithFallback, PBOOT_AUTHORIZATION_URL } from '@/lib/website-authorization';
 import { isWebsiteStatus } from '@/lib/presentation/website-status';
@@ -11,11 +11,15 @@ export function WebsiteSettingsDialog({
   onClose,
   onAuthorized,
   onTemplateRetried,
+  onDeleteStart,
+  onDeleted,
 }: {
   website: CreatedWebsite | null;
   onClose: () => void;
   onAuthorized: () => void;
   onTemplateRetried: () => void;
+  onDeleteStart: () => void;
+  onDeleted: () => Promise<void>;
 }) {
   const t = useTranslations('websites');
   const statusT = useTranslations('status');
@@ -27,6 +31,20 @@ export function WebsiteSettingsDialog({
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [retryingTemplate, setRetryingTemplate] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!confirmingDelete) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !deleting) {
+        setConfirmingDelete(false);
+        setError('');
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [confirmingDelete, deleting]);
 
   if (!website) return null;
   const currentWebsite = website;
@@ -80,6 +98,18 @@ export function WebsiteSettingsDialog({
     }
   }
 
+  async function deleteWebsite() {
+    onDeleteStart();
+    setDeleting(true);
+    setError('');
+    try {
+      await onDeleted();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t('deleteError'));
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="website-authorization-backdrop">
       <section
@@ -93,7 +123,7 @@ export function WebsiteSettingsDialog({
           type="button"
           aria-label={common('close')}
           onClick={onClose}
-          disabled={authorizing}
+          disabled={authorizing || deleting}
         >
           ×
         </button>
@@ -193,6 +223,61 @@ export function WebsiteSettingsDialog({
               </button>
             </div>
           ) : null}
+        </section>
+
+        <section className="website-settings-danger" aria-labelledby="website-delete-title">
+          <h3 id="website-delete-title">{t('dangerZone')}</h3>
+          {!confirmingDelete ? (
+            <button
+              className="secondary-button danger-button"
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={authorizing || retryingTemplate}
+            >
+              {t('deleteWebsite')}
+            </button>
+          ) : (
+            <div
+              className="website-delete-confirmation"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="website-delete-confirm-title"
+              aria-describedby="website-delete-confirm-description website-delete-confirm-warning"
+            >
+              <h4 id="website-delete-confirm-title">{t('confirmDeleteWebsite')}</h4>
+              <p id="website-delete-confirm-description">
+                {t('deleteWebsiteDescription', { name: currentWebsite.name })}
+              </p>
+              <p id="website-delete-confirm-warning">{t('deleteWebsiteWarning')}</p>
+              {error ? (
+                <p className="website-modal-error" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="website-dialog-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  autoFocus
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    setError('');
+                  }}
+                  disabled={deleting}
+                >
+                  {common('cancel')}
+                </button>
+                <button
+                  className="primary-button danger-button"
+                  type="button"
+                  onClick={() => void deleteWebsite()}
+                  disabled={deleting}
+                >
+                  {deleting ? t('deletingWebsite') : t('confirmDeleteWebsite')}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </section>
     </div>

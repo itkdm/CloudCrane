@@ -188,6 +188,30 @@ export function buildAgentServiceApp(
     });
     return reply.code(201).send(result);
   });
+  app.delete<{ Params: { websiteId: string } }>(
+    '/v1/internal/websites/:websiteId/runtime',
+    async (request, reply) => {
+      if (!isUuid(request.params.websiteId))
+        throw new AgentServiceError('INVALID_ARGUMENT', 'websiteId must be a UUID', 400);
+      sockets.disposeWebsite(request.params.websiteId);
+      previewClients.disposeWebsite(request.params.websiteId);
+      await options.registry.dispose(request.params.websiteId);
+      await rm(path.join(options.config.agentDataRoot, request.params.websiteId), {
+        recursive: true,
+        force: true,
+      });
+      return reply.code(204).send();
+    },
+  );
+  app.post<{ Params: { websiteId: string } }>(
+    '/v1/internal/websites/:websiteId/runtime/finalize',
+    async (request, reply) => {
+      if (!isUuid(request.params.websiteId))
+        throw new AgentServiceError('INVALID_ARGUMENT', 'websiteId must be a UUID', 400);
+      options.registry.forget(request.params.websiteId);
+      return reply.code(204).send();
+    },
+  );
   app.post<{ Params: { websiteId: string; sessionId: string; interactionId: string } }>(
     '/v1/websites/:websiteId/sessions/:sessionId/interactions/:interactionId/reference-upload',
     { bodyLimit: options.config.referenceUploadMaxBytes + 1024 * 1024 },

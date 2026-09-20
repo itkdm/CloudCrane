@@ -24,10 +24,13 @@ export type WebsiteRuntimeRegistryOptions = {
 
 export class WebsiteRuntimeRegistry {
   private readonly runtimes = new Map<string, Promise<WebsiteAgentRuntime>>();
+  private readonly disposing = new Set<string>();
 
   constructor(private readonly options: WebsiteRuntimeRegistryOptions) {}
 
   async get(websiteId: string): Promise<WebsiteAgentRuntime> {
+    if (this.disposing.has(websiteId))
+      throw new AgentServiceError('WEBSITE_DELETING', 'website is being deleted', 409);
     const existing = this.runtimes.get(websiteId);
     if (existing) return existing;
     const pending = this.create(websiteId);
@@ -61,6 +64,19 @@ export class WebsiteRuntimeRegistry {
 
   get size(): number {
     return this.runtimes.size;
+  }
+
+  async dispose(websiteId: string): Promise<void> {
+    this.disposing.add(websiteId);
+    const pending = this.runtimes.get(websiteId);
+    if (!pending) return;
+    this.runtimes.delete(websiteId);
+    await (await pending).shutdown();
+  }
+
+  forget(websiteId: string): void {
+    this.runtimes.delete(websiteId);
+    this.disposing.delete(websiteId);
   }
 
   async shutdown(): Promise<void> {

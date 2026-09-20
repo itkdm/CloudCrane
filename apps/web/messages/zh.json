@@ -158,7 +158,15 @@
     "later": "稍后授权",
     "authorizationError": "授权验证失败",
     "copyError": "复制失败，请手动选择并复制预览地址。",
-    "officialAuthorization": "PbootCMS 官方免费授权页"
+    "officialAuthorization": "PbootCMS 官方免费授权页",
+    "dangerZone": "危险操作",
+    "deleteWebsite": "删除网站",
+    "deleteWebsiteDescription": "确定要删除“{name}”吗？",
+    "deleteWebsiteWarning": "网站代码、预览环境、全部对话和占用的空间都会被永久删除；正在执行的 Agent 任务也会被终止，且无法撤销。",
+    "confirmDeleteWebsite": "确认永久删除",
+    "deletingWebsite": "正在删除…",
+    "deleteError": "网站删除失败，请稍后重试。",
+    "websiteNotFound": "网站不存在或已被删除。"
   },
   "status": {
     "ready": "已准备",
@@ -168,6 +176,7 @@
     "authorization_required": "PbootCMS 待授权",
     "template_attach_failed": "模板应用失败",
     "provisioning_failed": "创建失败",
+    "deleting": "正在删除网站…",
     "unknown": "准备中"
   },
   "authorization": { "dialogLabel": "PbootCMS 授权" },
