@@ -90,6 +90,13 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
       });
     return null;
   }
+  if (value.type === 'context_usage_updated') {
+    return createAgentEnvelope({
+      ...base,
+      type: 'context.usage.updated',
+      payload: { contextUsage: value.contextUsage ?? null },
+    });
+  }
   if (value.type === 'turn_start' || value.type === 'turn_end') {
     const state = turnStates.get(key) ?? { nextIndex: 0 };
     const turnIndex = validTurnIndex(event.turnIndex) ?? state.currentIndex ?? state.nextIndex;

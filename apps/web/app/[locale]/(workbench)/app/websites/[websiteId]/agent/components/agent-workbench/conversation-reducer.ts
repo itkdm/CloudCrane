@@ -18,17 +18,25 @@ export type ContextMaintenanceSnapshot = {
   status: 'running';
 };
 
+export type ContextUsageSnapshot = {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+};
+
 /** `turns` is the source of truth; `messages` remains a renderer compatibility projection. */
 export type ConversationState = {
   turns: ConversationTurn[];
   messages: Message[];
   manualMaintenanceItems: ManualMaintenanceItem[];
+  contextUsage: ContextUsageSnapshot | null;
 };
 
 export const initialConversationState: ConversationState = {
   turns: [],
   messages: [],
   manualMaintenanceItems: [],
+  contextUsage: null,
 };
 
 export type ConversationEvent =
@@ -40,6 +48,7 @@ export type ConversationEvent =
         session?: unknown;
         activeRun?: unknown;
         contextMaintenance?: ContextMaintenanceSnapshot | null;
+        contextUsage?: ContextUsageSnapshot | null;
         pendingInteractions?: Array<
           | {
               interactionId: string;
@@ -62,6 +71,7 @@ export type ConversationEvent =
   | { type: 'user.added'; payload: { message: Message } }
   | { type: 'message.status'; payload: { requestId?: string; status: string } }
   | { type: 'run.started'; payload?: { runId?: string } }
+  | { type: 'context.usage.updated'; payload: { contextUsage: ContextUsageSnapshot | null } }
   | {
       type:
         | 'context.compaction.started'
@@ -130,12 +140,14 @@ export function conversationReducer(
       isEmptySnapshot
         ? initialConversationState.manualMaintenanceItems
         : state.manualMaintenanceItems,
+      state.contextUsage,
     );
     const restored = restoreSnapshotMaintenance(
       next,
       event.payload.activeRun,
       event.payload.contextMaintenance,
     );
+    restored.contextUsage = event.payload.contextUsage ?? null;
     return (event.payload.pendingInteractions ?? []).reduce(
       (current, interaction) =>
         conversationReducer(
@@ -157,6 +169,7 @@ export function conversationReducer(
           { userMessage: boundMessage(event.payload.message), status: 'running', expanded: true },
         ],
         state.manualMaintenanceItems,
+        state.contextUsage,
       );
     const current = state.turns[index];
     return current
@@ -178,6 +191,7 @@ export function conversationReducer(
             : turn.userMessage,
       })),
       state.manualMaintenanceItems,
+      state.contextUsage,
     );
   }
 
@@ -188,6 +202,9 @@ export function conversationReducer(
     event.type === 'context.compaction.not_needed'
   )
     return reduceContextMaintenance(state, event.type, event.payload?.runId);
+
+  if (event.type === 'context.usage.updated')
+    return { ...state, contextUsage: event.payload.contextUsage };
 
   if (event.type === 'run.started') {
     const index = latestTurnIndex(state.turns);
@@ -879,11 +896,13 @@ function flattenTurns(turns: ConversationTurn[]): Message[] {
 function present(
   turns: ConversationTurn[],
   manualMaintenanceItems: ManualMaintenanceItem[],
+  contextUsage: ContextUsageSnapshot | null = null,
 ): ConversationState {
   return {
     turns,
     messages: flattenTurns(turns),
     manualMaintenanceItems,
+    contextUsage,
   };
 }
 
@@ -900,6 +919,7 @@ function replaceTurn(
   return present(
     state.turns.map((current, currentIndex) => (currentIndex === index ? turn : current)),
     state.manualMaintenanceItems,
+    state.contextUsage,
   );
 }
 function mergeMessage(current: Message, next: Message): Message {

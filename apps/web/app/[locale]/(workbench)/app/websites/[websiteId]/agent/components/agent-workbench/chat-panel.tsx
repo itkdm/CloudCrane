@@ -2,7 +2,12 @@ import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
-import type { ConversationTurn, ManualMaintenanceItem, WorkbenchError } from './types';
+import type {
+  ContextUsage,
+  ConversationTurn,
+  ManualMaintenanceItem,
+  WorkbenchError,
+} from './types';
 
 type ChatPanelProps = {
   turns: ConversationTurn[];
@@ -29,6 +34,7 @@ type ChatPanelProps = {
   manualMaintenanceItems?: ManualMaintenanceItem[];
   manualMaintenanceRunning?: boolean;
   onCompact?: () => void;
+  contextUsage?: ContextUsage | null;
 };
 
 export function ChatPanel({
@@ -53,12 +59,14 @@ export function ChatPanel({
   manualMaintenanceItems = [],
   manualMaintenanceRunning = false,
   onCompact,
+  contextUsage,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   return (
     <section className="chat-panel" aria-label={t('chat')}>
       {onPreviewToggle || onSettingsOpen || onCompact ? (
         <div className="chat-toolbar">
+          <ContextUsageIndicator usage={contextUsage} />
           {onSettingsOpen ? (
             <button
               type="button"
@@ -131,6 +139,56 @@ export function ChatPanel({
       />
     </section>
   );
+}
+
+function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
+  const t = useTranslations('workbench');
+  const percent = usage?.percent;
+  const displayPercent =
+    percent === null || percent === undefined ? null : Math.max(0, Math.min(100, percent));
+  const severity =
+    displayPercent === null
+      ? 'unknown'
+      : displayPercent >= 90
+        ? 'danger'
+        : displayPercent >= 70
+          ? 'warning'
+          : 'normal';
+  const label =
+    usage && displayPercent !== null
+      ? t('contextUsageLabel', {
+          used: formatTokens(usage.tokens),
+          max: formatTokens(usage.contextWindow),
+          percent: Math.round(displayPercent),
+        })
+      : t('contextUsageUnknown');
+
+  return (
+    <div
+      className={`context-usage ${severity}`}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <span className="context-usage-label">{label}</span>
+      <div
+        className="context-usage-track"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        {...(displayPercent === null ? {} : { 'aria-valuenow': displayPercent })}
+      >
+        <span style={{ width: displayPercent === null ? '0%' : `${displayPercent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function formatTokens(tokens: number | null | undefined): string {
+  if (tokens === null || tokens === undefined) return '?';
+  if (tokens < 1000) return String(tokens);
+  return `${(tokens / 1000).toFixed(tokens >= 100_000 ? 0 : 1)}k`;
 }
 
 function friendlyError(error: string | WorkbenchError, t: (key: string) => string): string {

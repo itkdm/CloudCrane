@@ -964,6 +964,10 @@ function handleEvent(
     queueConversation({ type: event.type, payload: { runId: envelope.runId } }, true);
     return;
   }
+  if (event.type === 'context.usage.updated') {
+    queueConversation({ type: 'context.usage.updated', payload: event.payload }, true);
+    return;
+  }
   if (event.type === 'run.started') {
     setRunId(event.payload.runId);
     setError(undefined);
@@ -1020,6 +1024,7 @@ function handleEvent(
           session: event.payload.session,
           activeRun: event.payload.activeRun,
           contextMaintenance: event.payload.contextMaintenance,
+          contextUsage: event.payload.contextUsage,
           pendingInteractions: event.payload.pendingInteractions,
         },
       },

@@ -397,6 +397,7 @@ export function buildAgentServiceApp(
       return sessionSnapshotSchema.parse({
         session: toSessionView(snapshot.session),
         messages: snapshot.messages,
+        contextUsage: snapshot.contextUsage,
         contextMaintenance: snapshot.contextMaintenance,
         activeRun: snapshot.activeRun,
         pendingInteractions: snapshot.pendingInteractions,

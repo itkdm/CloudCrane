@@ -118,6 +118,10 @@ class AgentSocketConnection {
   private closed = false;
   private previewWebsiteId?: string;
   private previewClientId?: string;
+  private attachState?: {
+    sessionId: string;
+    queued: ReturnType<typeof createAgentEnvelope>[];
+  };
   private readonly previewConnection = {
     send: (message: ReturnType<typeof createAgentEnvelope>) => this.write(message),
   };
@@ -273,21 +277,37 @@ class AgentSocketConnection {
       this.runtime = runtime;
       this.websiteId = command.websiteId;
       this.sessionId = session.id;
+      const attachState = {
+        sessionId: session.id,
+        queued: [] as ReturnType<typeof createAgentEnvelope>[],
+      };
+      this.attachState = attachState;
       this.unsubscribe = runtime.subscribe((event) => {
         if (event.websiteSessionId !== this.sessionId) return;
         const message = projectWebsiteAgentEvent(event);
-        if (message) this.write(message);
+        if (!message) return;
+        if (this.attachState === attachState) attachState.queued.push(message);
+        else this.write(message);
       });
       this.ack(command);
       this.send('session.attached', { session: toSessionView(session) });
-      const snapshot = await runtime.getSessionSnapshot(session.id);
-      this.send('session.snapshot', {
-        session: toSessionView(snapshot.session),
-        messages: snapshot.messages,
-        contextMaintenance: snapshot.contextMaintenance,
-        activeRun: snapshot.activeRun,
-        pendingInteractions: snapshot.pendingInteractions,
-      });
+      try {
+        const snapshot = await runtime.getSessionSnapshot(session.id);
+        if (this.attachState !== attachState) return;
+        this.send('session.snapshot', {
+          session: toSessionView(snapshot.session),
+          messages: snapshot.messages,
+          contextUsage: snapshot.contextUsage,
+          contextMaintenance: snapshot.contextMaintenance,
+          activeRun: snapshot.activeRun,
+          pendingInteractions: snapshot.pendingInteractions,
+        });
+      } finally {
+        if (this.attachState === attachState) {
+          this.attachState = undefined;
+          attachState.queued.forEach((message) => this.write(message));
+        }
+      }
       return;
     }
     if (command.type === 'preview.client.register') {

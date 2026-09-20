@@ -294,6 +294,8 @@
     "compactionCompleted": "已整理较早的对话上下文",
     "compactionFailed": "上下文整理未完成",
     "compactContextNotNeeded": "当前对话暂时无需整理",
+    "contextUsageLabel": "上下文 {used} / {max} · 已使用 {percent}%",
+    "contextUsageUnknown": "上下文用量暂时不可用",
     "questionOther": "其他",
     "questionCustomPlaceholder": "输入你的答案",
     "questionCancel": "取消",

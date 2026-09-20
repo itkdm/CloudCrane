@@ -92,6 +92,24 @@ describe('agent protocol', () => {
     expect(JSON.stringify(event)).not.toMatch(/summary|reason|token/i);
   });
 
+  it('accepts nullable context usage in snapshots and live events', () => {
+    const usage = { tokens: 12_400, contextWindow: 200_000, percent: 6.2 };
+    expect(
+      agentEventSchema.parse({
+        type: 'context.usage.updated',
+        payload: { contextUsage: usage },
+      }),
+    ).toEqual({ type: 'context.usage.updated', payload: { contextUsage: usage } });
+    const unknownUsage = agentEventSchema.parse({
+      type: 'context.usage.updated',
+      payload: { contextUsage: { tokens: null, contextWindow: 200_000, percent: null } },
+    });
+    expect(unknownUsage).toEqual({
+      type: 'context.usage.updated',
+      payload: { contextUsage: { tokens: null, contextWindow: 200_000, percent: null } },
+    });
+  });
+
   it('rejects non-finite and unbounded turn indexes', () => {
     expect(() =>
       agentEventSchema.parse({

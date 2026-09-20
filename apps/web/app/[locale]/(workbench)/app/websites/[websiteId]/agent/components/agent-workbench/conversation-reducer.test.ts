@@ -15,6 +15,22 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
+  it('restores and updates context usage without losing it across turn updates', () => {
+    const usage = { tokens: 12_400, contextWindow: 200_000, percent: 6.2 };
+    const state = reduce({
+      type: 'session.snapshot',
+      payload: { messages: [], contextUsage: usage },
+    });
+    expect(state.contextUsage).toEqual(usage);
+    expect(
+      conversationReducer(state, {
+        type: 'context.usage.updated',
+        payload: { contextUsage: { tokens: null, contextWindow: 200_000, percent: null } },
+      }).contextUsage,
+    ).toEqual({ tokens: null, contextWindow: 200_000, percent: null });
+    expect(conversationReducer(state, user()).contextUsage).toEqual(usage);
+  });
+
   it('restores a pending reference upload without treating it as a question', () => {
     const state = reduce(user(), {
       type: 'reference_upload.requested',
@@ -660,7 +676,12 @@ describe('empty session snapshot reset boundary', () => {
       { type: 'context.compaction.started' },
       { type: 'session.snapshot', payload: { messages: [] } },
     );
-    expect(state).toEqual({ turns: [], messages: [], manualMaintenanceItems: [] });
+    expect(state).toEqual({
+      turns: [],
+      messages: [],
+      manualMaintenanceItems: [],
+      contextUsage: null,
+    });
   });
 
   it('restores only current snapshot manual maintenance after an empty reset', () => {

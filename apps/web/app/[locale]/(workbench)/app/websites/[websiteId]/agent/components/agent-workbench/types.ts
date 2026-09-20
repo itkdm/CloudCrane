@@ -94,6 +94,12 @@ export type Session = {
   updatedAt: string;
 };
 
+export type ContextUsage = {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+};
+
 export type PreviewState = {
   status: 'loading' | 'ready' | 'unavailable' | 'stopped';
   url?: string;

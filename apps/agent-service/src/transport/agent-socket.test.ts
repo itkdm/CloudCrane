@@ -53,6 +53,7 @@ describe('AgentSocketTransport', () => {
     getSessionSnapshot: async () => ({
       session,
       messages: [],
+      contextUsage: null,
       contextMaintenance: null,
       activeRun: null,
     }),

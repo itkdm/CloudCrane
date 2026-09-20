@@ -294,6 +294,8 @@
     "compactionCompleted": "Earlier conversation context organized",
     "compactionFailed": "Context organization was not completed",
     "compactContextNotNeeded": "This conversation does not need organizing yet",
+    "contextUsageLabel": "Context {used} / {max} · {percent}% used",
+    "contextUsageUnknown": "Context usage temporarily unavailable",
     "questionOther": "Other",
     "questionCustomPlaceholder": "Enter your answer",
     "questionCancel": "Cancel",

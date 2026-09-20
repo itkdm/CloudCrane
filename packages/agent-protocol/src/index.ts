@@ -115,9 +115,17 @@ export const snapshotMessageSchema = z.object({
 });
 export type SnapshotMessage = z.infer<typeof snapshotMessageSchema>;
 
+export const contextUsageSchema = z.object({
+  tokens: z.number().int().nonnegative().nullable(),
+  contextWindow: z.number().int().positive(),
+  percent: z.number().finite().nonnegative().nullable(),
+});
+export type ContextUsage = z.infer<typeof contextUsageSchema>;
+
 export const sessionSnapshotSchema = z.object({
   session: sessionViewSchema,
   messages: z.array(snapshotMessageSchema),
+  contextUsage: contextUsageSchema.nullable(),
   contextMaintenance: z
     .object({ operation: z.literal('compaction'), status: z.literal('running') })
     .nullable()
@@ -167,6 +175,10 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({ session: sessionViewSchema }),
   }),
   z.object({ type: z.literal('session.snapshot'), payload: sessionSnapshotSchema }),
+  z.object({
+    type: z.literal('context.usage.updated'),
+    payload: z.object({ contextUsage: contextUsageSchema.nullable() }),
+  }),
   z.object({
     type: z.literal('context.compaction.started'),
     payload: z.object({ operation: z.literal('compaction') }),

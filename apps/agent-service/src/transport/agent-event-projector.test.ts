@@ -62,6 +62,21 @@ describe('agent event projector', () => {
     expect(JSON.stringify(message)).not.toMatch(/summary|reason|token|Nothing|Already/i);
   });
 
+  it('projects context usage without exposing Pi internals', () => {
+    const message = projectWebsiteAgentEvent({
+      ...context,
+      event: {
+        type: 'context_usage_updated',
+        contextUsage: { tokens: 12_400, contextWindow: 200_000, percent: 6.2 },
+      },
+    });
+    expect(message).toMatchObject({
+      type: 'context.usage.updated',
+      payload: { contextUsage: { tokens: 12_400, contextWindow: 200_000, percent: 6.2 } },
+    });
+    expect(JSON.stringify(message)).not.toMatch(/summary|reason|rawPiEvent/i);
+  });
+
   it('assigns a fresh UUID to every assistant turn and keeps deltas correlated', () => {
     const message = { role: 'assistant', content: [] } as never;
     const first = projectWebsiteAgentEvent({

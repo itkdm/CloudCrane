@@ -59,6 +59,27 @@ const REMOTE_SKILLS_MAX_DEPTH = 8;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
 
+function sameContextUsage(
+  left: ContextUsageState | null | undefined,
+  right: ContextUsageState | null,
+): boolean {
+  return (
+    left?.tokens === right?.tokens &&
+    left?.contextWindow === right?.contextWindow &&
+    left?.percent === right?.percent
+  );
+}
+
+function isContextUsageRefreshEvent(eventType: AgentSessionEvent['type']): boolean {
+  return (
+    eventType === 'message_end' ||
+    eventType === 'turn_end' ||
+    eventType === 'agent_end' ||
+    eventType === 'compaction_start' ||
+    eventType === 'compaction_end'
+  );
+}
+
 function sessionActivityTimestamp(
   session: Pick<WebsiteSessionIndex, 'lastActiveAt' | 'createdAt'>,
 ) {
@@ -184,9 +205,16 @@ export type ContextMaintenanceState = {
   status: 'running';
 };
 
+export type ContextUsageState = {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+};
+
 export type WebsiteAgentSessionSnapshot = {
   session: WebsiteSessionIndex;
   messages: WebsiteAgentMessage[];
+  contextUsage: ContextUsageState | null;
   contextMaintenance: ContextMaintenanceState | null;
   activeRun: (RunContext & { status: 'RUNNING' }) | null;
   pendingInteractions: HumanInteraction[];
@@ -219,6 +247,11 @@ export type WebsiteAgentCompactionEvent = {
   status: 'started' | 'completed' | 'failed' | 'not_needed';
 };
 
+export type WebsiteAgentContextUsageEvent = {
+  type: 'context_usage_updated';
+  contextUsage: ContextUsageState | null;
+};
+
 export type WebsiteAgentEvent = {
   websiteId: string;
   websiteSessionId: string;
@@ -231,6 +264,7 @@ export type WebsiteAgentEvent = {
     | AgentSessionEvent
     | WebsiteAgentLifecycleEvent
     | WebsiteAgentCompactionEvent
+    | WebsiteAgentContextUsageEvent
     | WebsiteAgentInteractionEvent;
 };
 
@@ -325,6 +359,7 @@ class ManagedSession implements DisposableSession {
   private turnRunId?: string;
   private currentTurnIndex?: number;
   private currentTurnId?: string;
+  private lastContextUsage?: ContextUsageState | null;
   compactionStatus?: 'running';
   activeRun?: ActiveRun;
   private primaryOperation?: PrimaryOperation;
@@ -367,6 +402,35 @@ class ManagedSession implements DisposableSession {
       metadata: { turnIndex?: number; turnId?: string },
     ) => void,
   ) {}
+
+  getContextUsage(): ContextUsageState | null {
+    try {
+      const usage = this.piRuntime.session.getContextUsage();
+      if (!usage) return null;
+      return {
+        tokens: usage.tokens,
+        contextWindow: usage.contextWindow,
+        percent: usage.percent,
+      };
+    } catch (error) {
+      logger.warn(
+        {
+          websiteId: this.record.websiteId,
+          sessionId: this.websiteSessionId,
+          errorType: error instanceof Error ? error.name : 'unknown',
+        },
+        'context usage unavailable; retaining last known value',
+      );
+      return this.lastContextUsage ?? null;
+    }
+  }
+
+  takeContextUsageChange(): ContextUsageState | null | undefined {
+    const next = this.getContextUsage();
+    if (sameContextUsage(this.lastContextUsage, next)) return undefined;
+    this.lastContextUsage = next;
+    return next;
+  }
 
   async reloadResources(): Promise<void> {
     await this.refreshResources();
@@ -529,6 +593,7 @@ export class WebsiteAgentRuntime {
     return {
       session: { ...managed.record },
       messages: projectSessionHistory(managed.sessionManager.getBranch()),
+      contextUsage: managed.getContextUsage(),
       contextMaintenance: managed.compactionStatus
         ? { operation: 'compaction', status: 'running' }
         : null,
@@ -1167,6 +1232,10 @@ export class WebsiteAgentRuntime {
                 : 'completed';
           this.emitCompaction(current, status);
         }
+        if (isContextUsageRefreshEvent(event.type)) {
+          const contextUsage = current.takeContextUsageChange();
+          if (contextUsage !== undefined) this.emitContextUsage(current, contextUsage);
+        }
         if (event.type === 'session_info_changed') {
           const title = event.name?.trim() || null;
           if (current.record.title === title) return;
@@ -1350,6 +1419,19 @@ export class WebsiteAgentRuntime {
       runId: context?.runId ?? managed.activeRun?.runId,
       traceId: context?.traceId ?? managed.activeRun?.traceId,
       event: { type: 'context_compaction', status },
+    };
+    for (const listener of this.listeners) listener(payload);
+  }
+
+  private emitContextUsage(managed: ManagedSession, contextUsage: ContextUsageState | null): void {
+    const context = this.runContext.getStore();
+    const payload: WebsiteAgentEvent = {
+      websiteId: this.options.websiteId,
+      websiteSessionId: managed.websiteSessionId,
+      piSessionId: managed.piRuntime.session.sessionId,
+      runId: context?.runId ?? managed.activeRun?.runId,
+      traceId: context?.traceId ?? managed.activeRun?.traceId,
+      event: { type: 'context_usage_updated', contextUsage },
     };
     for (const listener of this.listeners) listener(payload);
   }
