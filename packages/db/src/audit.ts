@@ -145,15 +145,35 @@ export async function finishAuditEvent(
       : { resultSummary: sanitizeAuditSummary(input.resultSummary) }),
     ...(input.metadata === undefined ? {} : { metadata: sanitizeAuditSummary(input.metadata) }),
   };
-  const [updated] = await platformDb
-    .update(auditEvent)
-    .set(updates)
-    .where(
-      and(
-        eq(auditEvent.id, id),
-        or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
-      ),
-    )
-    .returning({ id: auditEvent.id });
-  if (!updated) throw new Error('audit event is missing or already finalized');
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const [updated] = await platformDb
+        .update(auditEvent)
+        .set(updates)
+        .where(
+          and(
+            eq(auditEvent.id, id),
+            or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
+          ),
+        )
+        .returning({ id: auditEvent.id });
+      if (updated) return;
+
+      // Finalization is intentionally idempotent. A caller can retry after a
+      // lost response without turning an already-terminal audit event into an
+      // operational error.
+      const [existing] = await platformDb
+        .select({ status: auditEvent.status })
+        .from(auditEvent)
+        .where(eq(auditEvent.id, id))
+        .limit(1);
+      if (existing?.status === input.status) return;
+      throw new Error('audit event is missing or already finalized');
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('audit event finalization failed');
 }

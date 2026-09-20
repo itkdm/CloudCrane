@@ -17,17 +17,42 @@ loki.source.file "cloudcrane_logs" {
   forward_to = [loki.write.cloudcrane.receiver]
 }
 
-// Optional systemd source. Keep website/workspace identifiers as structured
-// fields, not Loki labels, to avoid high-cardinality stream explosion.
-loki.source.journal "cloudcrane_systemd" {
+// Optional systemd sources. Journal matches use systemd's exact FIELD=VALUE
+// syntax; keep website/workspace identifiers as structured fields, not Loki
+// labels, to avoid high-cardinality stream explosion.
+loki.source.journal "cloudcrane_agent" {
   max_age    = "12h"
-  matches    = "_SYSTEMD_UNIT =~ `cloudcrane-.*\\.service`"
+  matches    = "_SYSTEMD_UNIT=cloudcrane-agent.service"
   forward_to = [loki.write.cloudcrane.receiver]
-  labels = {
-    environment = "production",
-    service     = "cloudcrane",
-    log_kind    = "systemd",
-  }
+  labels = { environment = "production", service = "cloudcrane", log_kind = "systemd" }
+}
+
+loki.source.journal "cloudcrane_preview_gateway" {
+  max_age    = "12h"
+  matches    = "_SYSTEMD_UNIT=cloudcrane-preview-gateway.service"
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = { environment = "production", service = "cloudcrane", log_kind = "systemd" }
+}
+
+loki.source.journal "cloudcrane_runner" {
+  max_age    = "12h"
+  matches    = "_SYSTEMD_UNIT=cloudcrane-runner.service"
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = { environment = "production", service = "cloudcrane", log_kind = "systemd" }
+}
+
+loki.source.journal "cloudcrane_web" {
+  max_age    = "12h"
+  matches    = "_SYSTEMD_UNIT=cloudcrane-web.service"
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = { environment = "production", service = "cloudcrane", log_kind = "systemd" }
+}
+
+loki.source.journal "cloudcrane_workspace_gateway" {
+  max_age    = "12h"
+  matches    = "_SYSTEMD_UNIT=cloudcrane-workspace-gateway.service"
+  forward_to = [loki.write.cloudcrane.receiver]
+  labels = { environment = "production", service = "cloudcrane", log_kind = "systemd" }
 }
 
 // Optional Docker source for Workspace Containers. The Docker socket is a

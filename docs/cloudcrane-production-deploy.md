@@ -45,6 +45,15 @@ Cloudflare SSL/TLS 模式为“完全（严格）”。服务器使用 Let’s E
 
 证书覆盖 `app.itkdm.com`、`*.itkdm.com` 和 `*.preview.itkdm.com`。当前证书通过 DNS-01 手动申请，不能依赖 Certbot 默认定时器自动续期；到期前必须配置 Cloudflare DNS API 最小权限 Token 与 `--manual-auth-hook`，或重新执行 DNS-01。证书私钥、DNS Token 和 TXT 验证值禁止提交 Git。
 
+主机日志轮转：tmux 生产进程写入 `/var/log/cloudcrane/*.log`，部署时同步安装仓库模板：
+
+```bash
+sudo install -m 0644 deploy/logrotate/cloudcrane /etc/logrotate.d/cloudcrane
+sudo logrotate -d /etc/logrotate.d/cloudcrane
+```
+
+该策略每日轮转、保留 14 份并压缩，使用 `copytruncate` 兼容现有 tmux `pipe-pane` 文件输出。
+
 部署配置中：
 
 ```dotenv
