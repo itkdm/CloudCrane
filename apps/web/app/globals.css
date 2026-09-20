@@ -526,11 +526,14 @@ button:disabled {
   background: var(--cc-workspace-canvas-bg);
 }
 .unified-sidebar-header {
+  box-sizing: border-box;
+  height: 56px;
   padding: 16px 16px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-shrink: 0;
 }
 .unified-sidebar .cc-brand {
   display: flex;
@@ -541,6 +544,13 @@ button:disabled {
   font-size: 15px;
   font-weight: 600;
   transition: opacity 180ms ease;
+}
+.unified-sidebar .cc-brand-content {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.unified-sidebar .cc-brand-content > span {
+  white-space: nowrap;
 }
 .unified-sidebar.collapsed .cc-brand {
   width: 120px;
