@@ -154,14 +154,26 @@ function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
         : displayPercent >= 70
           ? 'warning'
           : 'normal';
-  const label =
-    usage && displayPercent !== null
-      ? t('contextUsageLabel', {
-          used: formatTokens(usage.tokens),
-          max: formatTokens(usage.contextWindow),
-          percent: Math.round(displayPercent),
-        })
-      : t('contextUsageUnknown');
+  const label = t('contextUsageLabel', {
+    used: formatTokens(usage?.tokens),
+    max: formatTokens(usage?.contextWindow),
+    percent: Math.round(displayPercent ?? 0),
+  });
+
+  if (displayPercent === null) {
+    const loadingLabel = t('contextUsageLoading');
+    return (
+      <div
+        className={`context-usage ${severity}`}
+        role="status"
+        aria-live="polite"
+        aria-label={loadingLabel}
+        title={loadingLabel}
+      >
+        <span className="context-usage-loading" aria-hidden="true" />
+      </div>
+    );
+  }
 
   return (
     <div
