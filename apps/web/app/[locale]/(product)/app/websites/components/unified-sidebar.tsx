@@ -223,6 +223,7 @@ export function UnifiedSidebar({
           className="sidebar-toggle"
           onClick={() => onCollapsedChange(!collapsed)}
           aria-label={collapsed ? t('expand') : t('collapse')}
+          data-tooltip={collapsed ? t('expand') : t('collapse')}
         >
           <PanelLeftClose size={17} strokeWidth={1.8} aria-hidden="true" />
         </button>
