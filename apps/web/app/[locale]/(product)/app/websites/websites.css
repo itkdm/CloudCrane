@@ -886,26 +886,26 @@
 .website-settings-content {
   min-height: 0;
   overflow: auto;
-  padding: 24px;
+  padding: 20px 24px 18px;
 }
 .website-settings-panel h2 {
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   color: var(--cc-text);
   font-size: 21px;
 }
 .website-settings-section {
-  margin-top: 18px;
-  padding-top: 16px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--cc-border);
 }
 .website-settings-section h3 {
-  margin: 0 0 12px;
+  margin: 0 0 9px;
   color: var(--cc-text);
   font-size: 15px;
 }
 .website-settings-details {
   display: grid;
-  gap: 12px;
+  gap: 9px;
   margin: 0;
 }
 .website-settings-details > div,
@@ -913,7 +913,7 @@
   display: grid;
   grid-template-columns: 120px minmax(0, 1fr);
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 .website-settings-details dt,
 .website-settings-row > span {
@@ -933,7 +933,7 @@
 .website-settings-preview {
   grid-template-columns: 120px minmax(0, 1fr) auto;
   align-items: start;
-  margin-top: 12px;
+  margin-top: 9px;
 }
 .website-settings-preview code {
   min-width: 0;
@@ -952,10 +952,10 @@
   font-size: 13px;
 }
 .website-settings-authorization {
-  margin-top: 20px;
+  margin-top: 14px;
 }
 .website-settings-authorization p {
-  margin: 0 0 12px;
+  margin: 0 0 9px;
   color: var(--cc-text-secondary);
   font-size: 13px;
   line-height: 1.6;
@@ -965,7 +965,7 @@
 }
 .website-settings-authorization label {
   display: block;
-  margin: 20px 0 10px;
+  margin: 14px 0 8px;
   color: var(--cc-text);
   font-size: 14px;
   font-weight: 600;
@@ -973,9 +973,9 @@
 .website-settings-authorization textarea {
   display: block;
   width: 100%;
-  min-height: 96px;
+  min-height: 78px;
   max-height: 180px;
-  margin: 0 0 22px;
+  margin: 0;
   padding: 12px;
   border: 1px solid var(--cc-border);
   border-radius: var(--cc-radius-md);
@@ -989,9 +989,6 @@
 .website-settings-authorization textarea:focus {
   border-color: var(--cc-brand);
 }
-.website-settings-authorization > .primary-button {
-  margin-top: 2px;
-}
 .website-settings-delete {
   flex: 0 0 auto;
   display: flex;
@@ -999,6 +996,13 @@
   padding: 16px 24px 20px;
   border-top: 1px solid var(--cc-border);
   background: var(--cc-surface-0);
+}
+.website-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 .website-settings-delete.is-confirming {
   display: block;

@@ -177,7 +177,11 @@ export function WebsiteSettingsDialog({
             </div>
 
             {currentWebsite.status === 'authorization_required' ? (
-              <form className="website-settings-authorization" onSubmit={submit}>
+              <form
+                id="pboot-authorization-form"
+                className="website-settings-authorization"
+                onSubmit={submit}
+              >
                 <p>{t('authorizationDescription')}</p>
                 <p>
                   {t('authorizationStepOne')}{' '}
@@ -201,9 +205,6 @@ export function WebsiteSettingsDialog({
                     {error}
                   </p>
                 ) : null}
-                <button className="primary-button" type="submit" disabled={authorizing}>
-                  {authorizing ? t('verifying') : t('saveVerify')}
-                </button>
               </form>
             ) : null}
             {currentWebsite.status === 'template_attach_failed' ? (
@@ -229,14 +230,26 @@ export function WebsiteSettingsDialog({
 
         <div className={`website-settings-delete${confirmingDelete ? ' is-confirming' : ''}`}>
           {!confirmingDelete ? (
-            <button
-              className="secondary-button danger-button"
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              disabled={authorizing || retryingTemplate}
-            >
-              {t('deleteWebsite')}
-            </button>
+            <div className="website-settings-actions">
+              {currentWebsite.status === 'authorization_required' ? (
+                <button
+                  className="primary-button"
+                  type="submit"
+                  form="pboot-authorization-form"
+                  disabled={authorizing}
+                >
+                  {authorizing ? t('verifying') : t('saveVerify')}
+                </button>
+              ) : null}
+              <button
+                className="secondary-button danger-button"
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={authorizing || retryingTemplate}
+              >
+                {t('deleteWebsite')}
+              </button>
+            </div>
           ) : (
             <div
               className="website-delete-confirmation"
