@@ -10,8 +10,8 @@ export function Brand() {
         src="/cloudcrane-logo.png?v=f9d843e"
         alt=""
         aria-hidden="true"
-        width={20}
-        height={20}
+        width={28}
+        height={28}
         unoptimized
       />
       <span>{t('brand')}</span>

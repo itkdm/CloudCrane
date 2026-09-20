@@ -22,8 +22,8 @@ export function WorkbenchHeader({ connection }: WorkbenchHeaderProps) {
           src="/cloudcrane-logo.png?v=f9d843e"
           alt=""
           aria-hidden="true"
-          width={20}
-          height={20}
+          width={24}
+          height={24}
           unoptimized
         />
         <span className="brand-name">筑云鹤</span>

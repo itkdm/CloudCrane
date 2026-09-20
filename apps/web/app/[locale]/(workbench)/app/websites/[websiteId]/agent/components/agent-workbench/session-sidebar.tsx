@@ -37,8 +37,8 @@ export function SessionSidebar({
             src="/cloudcrane-logo.png?v=f9d843e"
             alt=""
             aria-hidden="true"
-            width={20}
-            height={20}
+            width={24}
+            height={24}
             unoptimized
           />
           {!collapsed ? <span>筑云鹤</span> : null}
