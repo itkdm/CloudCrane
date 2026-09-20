@@ -46,7 +46,9 @@ export function PreviewPane({
 }: PreviewPaneProps) {
   const t = useTranslations('workbench');
   const path = resolvePreviewPath(preview, currentPath, currentUrl);
-  const previewSource = resolvePreviewSource(preview.url, currentUrl);
+  // Internal navigation is already handled by the preview bridge. Keep the
+  // iframe source stable so observed URLs do not trigger a second navigation.
+  const previewSource = resolvePreviewSource(preview.url, undefined);
   const isUnavailable = preview.status === 'unavailable' || preview.status === 'stopped';
   const bridgeIssue = bridgeIssueMessage(bridgeStatus, t);
   const canvasRef = useRef<HTMLDivElement | null>(null);

@@ -112,6 +112,11 @@ export function AgentWorkbenchContent({
   const activeRunRef = useRef<string | undefined>(undefined);
   const conversationRafRef = useRef<number | undefined>(undefined);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const previewDirtyRef = useRef(false);
+  const previewDirtyGenerationRef = useRef(0);
+  const previewEpochRef = useRef(0);
+  const previewRefreshRunRef = useRef<string | undefined>(undefined);
+  const previewRefreshGenerationRef = useRef<number | undefined>(undefined);
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
@@ -226,6 +231,7 @@ export function AgentWorkbenchContent({
   });
 
   useEffect(() => {
+    previewEpochRef.current += 1;
     previewStateWebsiteIdRef.current = websiteId;
     previewCurrentUrlRef.current = undefined;
     previewUrlRef.current = undefined;
@@ -238,6 +244,10 @@ export function AgentWorkbenchContent({
       clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = undefined;
     }
+    previewDirtyRef.current = false;
+    previewDirtyGenerationRef.current += 1;
+    previewRefreshRunRef.current = undefined;
+    previewRefreshGenerationRef.current = undefined;
     previewOperationRef.current = Promise.resolve();
     const waiter = previewReadyRef.current;
     if (waiter) {
@@ -247,6 +257,14 @@ export function AgentWorkbenchContent({
     }
     setPreviewOpen(false);
   }, [websiteId]);
+
+  useEffect(
+    () => () => {
+      previewEpochRef.current += 1;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    },
+    [],
+  );
 
   const ensurePreviewAuthorizationFresh = useCallback(
     async ({ force = false }: { force?: boolean } = {}) => {
@@ -258,22 +276,79 @@ export function AgentWorkbenchContent({
   );
 
   const refreshPreview = useCallback(
-    (source: 'user' | 'background' = 'user') => {
+    async (
+      source: 'user' | 'background' = 'user',
+      generation = previewDirtyGenerationRef.current,
+      runId?: string,
+    ) => {
       if (source === 'background' && !previewOpen) return;
-      void ensurePreviewAuthorizationFresh()
-        .then(() => previewClient.current?.refresh())
-        .catch((cause) => {
-          if (source === 'user')
-            setError(toWorkbenchError('preview-explicit', cause, t('operationIncomplete')));
-        });
+      const epoch = previewEpochRef.current;
+      const operation = previewOperationRef.current.then(async () => {
+        if (previewEpochRef.current !== epoch) return;
+        if (
+          source === 'background' &&
+          (!previewDirtyRef.current ||
+            previewRefreshGenerationRef.current === generation ||
+            (runId &&
+              previewRefreshRunRef.current === runId &&
+              previewRefreshGenerationRef.current === generation))
+        )
+          return;
+        await ensurePreviewAuthorizationFresh();
+        if (previewEpochRef.current !== epoch) return;
+        const client = previewClient.current;
+        if (!client) return;
+        await client.refresh();
+        if (previewEpochRef.current !== epoch) return;
+        if (source === 'background') previewRefreshGenerationRef.current = generation;
+        if (source === 'background' && previewDirtyGenerationRef.current === generation) {
+          previewRefreshRunRef.current = runId;
+          previewRefreshGenerationRef.current = generation;
+        }
+        if (previewDirtyGenerationRef.current === generation) previewDirtyRef.current = false;
+      });
+      previewOperationRef.current = operation.catch(() => undefined);
+      try {
+        await operation;
+      } catch (cause) {
+        if (source === 'user')
+          setError(toWorkbenchError('preview-explicit', cause, t('operationIncomplete')));
+      }
     },
     [ensurePreviewAuthorizationFresh, previewOpen, t],
   );
 
-  const schedulePreviewRefresh = useCallback(() => {
+  const markPreviewDirty = useCallback(() => {
+    previewDirtyRef.current = true;
+    previewDirtyGenerationRef.current += 1;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => refreshPreview('background'), 300);
+    const generation = previewDirtyGenerationRef.current;
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = undefined;
+      if (!previewDirtyRef.current || previewRefreshGenerationRef.current === generation) return;
+      void refreshPreview('background', previewDirtyGenerationRef.current);
+    }, 500);
   }, [refreshPreview]);
+
+  const schedulePreviewRefresh = useCallback(
+    (runId?: string) => {
+      if (!previewDirtyRef.current) return;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = undefined;
+        const currentGeneration = previewDirtyGenerationRef.current;
+        if (
+          runId &&
+          previewRefreshRunRef.current === runId &&
+          previewRefreshGenerationRef.current === currentGeneration
+        )
+          return;
+        if (previewRefreshGenerationRef.current === currentGeneration) return;
+        void refreshPreview('background', currentGeneration, runId);
+      }, 500);
+    },
+    [refreshPreview],
+  );
 
   const registerPreviewClient = useCallback(() => {
     if (!previewClientIdRef.current) return;
@@ -301,8 +376,12 @@ export function AgentWorkbenchContent({
   }, [sendCommand, websiteId]);
 
   const ensurePreviewReady = useCallback(
-    async ({ ensureAccess = true }: { ensureAccess?: boolean } = {}) => {
+    async ({
+      ensureAccess = true,
+      isCurrent = () => true,
+    }: { ensureAccess?: boolean; isCurrent?: () => boolean } = {}) => {
       if (ensureAccess || !previewClient.current) await ensurePreviewAuthorizationFresh();
+      if (!isCurrent()) throw new Error('Preview request expired');
       setPreviewOpen(true);
       if (previewClient.current) return previewClient.current;
       if (!previewReadyRef.current) {
@@ -364,11 +443,13 @@ export function AgentWorkbenchContent({
       !previewFrame.current
     )
       return;
+    const epoch = previewEpochRef.current;
     const client = new PreviewBridgeClient(
       previewFrame.current,
       previewCurrentUrlRef.current ?? previewUrlRef.current,
       {
         onReady: (capabilities) => {
+          if (previewEpochRef.current !== epoch || previewClient.current !== client) return;
           previewCapabilitiesRef.current = capabilities;
           setBridgeStatus('attached');
           updatePreviewCapabilities();
@@ -376,6 +457,7 @@ export function AgentWorkbenchContent({
           previewReadyRef.current = null;
         },
         onLocationChange: ({ url, path }) => {
+          if (previewEpochRef.current !== epoch || previewClient.current !== client) return;
           previewCurrentUrlRef.current = url;
           setPreviewCurrentUrl(url);
           setPreviewCurrentPath(path);
@@ -397,7 +479,7 @@ export function AgentWorkbenchContent({
       }
       setBridgeStatus('waiting');
     };
-  }, [preview.status, previewOpen, updatePreviewCapabilities]);
+  }, [preview.status, preview.url, previewOpen, previewKey, updatePreviewCapabilities]);
 
   // Listen to external sessionId changes
   useEffect(() => {
@@ -510,14 +592,23 @@ export function AgentWorkbenchContent({
 
   const requestPreview = useCallback(
     (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
+      const epoch = previewEpochRef.current;
       const operation = previewOperationRef.current.then(async () => {
+        if (previewEpochRef.current !== epoch) throw new Error('Preview request expired');
         let recovered = false;
         while (true) {
           try {
             const client = await ensurePreviewReady({
               ensureAccess: payload.operation !== 'observe',
+              isCurrent: () => previewEpochRef.current === epoch,
             });
-            const response = await handlePreviewRequest(client, payload);
+            if (previewEpochRef.current !== epoch) throw new Error('Preview request expired');
+            const response =
+              payload.operation === 'refresh' &&
+              previewRefreshGenerationRef.current === previewDirtyGenerationRef.current
+                ? { ok: true as const, observation: await client.observe() }
+                : await handlePreviewRequest(client, payload);
+            if (previewEpochRef.current !== epoch) throw new Error('Preview request expired');
             if (response.ok) {
               setPreview((current) => ({ ...current, path: response.observation.path }));
               setError((current) => (shouldClearErrorOnRecovery(current) ? undefined : current));
@@ -527,6 +618,8 @@ export function AgentWorkbenchContent({
             if (recovered || !isPreviewTimeout(cause)) throw cause;
             recovered = true;
             await ensurePreviewAuthorizationFresh({ force: true });
+            if (previewEpochRef.current !== epoch)
+              throw new Error('Preview request expired', { cause });
             setPreviewKey((current) => current + 1);
           }
         }
@@ -609,14 +702,36 @@ export function AgentWorkbenchContent({
 
         // Handle preview requests
         if (projected.event.type === 'preview.request') {
+          const previewEpoch = previewEpochRef.current;
+          const previewRefreshGeneration = previewDirtyGenerationRef.current;
+          const isExplicitRefresh =
+            'operation' in projected.event.payload &&
+            projected.event.payload.operation === 'refresh';
+          if (isExplicitRefresh && refreshTimerRef.current) {
+            clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = undefined;
+          }
           void requestPreview(projected.event.payload)
             .then((payload) => {
+              if (previewEpochRef.current !== previewEpoch) return;
+              if (isExplicitRefresh && payload.ok) {
+                previewRefreshRunRef.current = projected.envelope.runId;
+                previewRefreshGenerationRef.current = previewRefreshGeneration;
+                if (previewDirtyGenerationRef.current === previewRefreshGeneration)
+                  previewDirtyRef.current = false;
+              }
               sendCommand(
                 { type: 'preview.response', websiteId, sessionId: currentSessionId, payload },
                 projected.envelope.requestId,
               );
             })
             .catch((cause) => {
+              if (previewEpochRef.current !== previewEpoch) return;
+              if (isExplicitRefresh && previewRefreshRunRef.current === projected.envelope.runId)
+                previewRefreshRunRef.current = undefined;
+              if (isExplicitRefresh && previewRefreshRunRef.current === undefined)
+                previewRefreshGenerationRef.current = undefined;
+              if (isExplicitRefresh) schedulePreviewRefresh();
               sendCommand(
                 {
                   type: 'preview.response',
@@ -674,6 +789,7 @@ export function AgentWorkbenchContent({
           setRunIdState,
           setError,
           schedulePreviewRefresh,
+          markPreviewDirty,
         );
       };
     };
@@ -695,6 +811,7 @@ export function AgentWorkbenchContent({
     queueConversation,
     flushConversation,
     schedulePreviewRefresh,
+    markPreviewDirty,
     setRunIdState,
     t,
   ]);
@@ -760,7 +877,7 @@ export function AgentWorkbenchContent({
           frameRef={previewFrame}
           bridgeStatus={bridgeStatus}
           onClose={() => setPreviewOpen(false)}
-          onRefresh={refreshPreview}
+          onRefresh={() => void refreshPreview('user')}
           onOpen={() => {
             const popup = window.open('about:blank', '_blank');
             if (!popup) {
@@ -920,7 +1037,8 @@ function handleEvent(
   flushConversation: () => void,
   setRunId: (value: string | undefined) => void,
   setError: Dispatch<SetStateAction<WorkbenchError | undefined>>,
-  schedulePreviewRefresh: () => void,
+  schedulePreviewRefresh: (runId?: string) => void,
+  markPreviewDirty: () => void,
 ) {
   if (
     event.type === 'context.compaction.started' ||
@@ -957,7 +1075,7 @@ function handleEvent(
       true,
     );
     setRunId(undefined);
-    schedulePreviewRefresh();
+    schedulePreviewRefresh(event.payload.runId ?? envelope.runId);
     if (event.payload.status === 'COMPLETED')
       setError((current) =>
         shouldClearErrorOnRunSettled(current, settledRunId) ? undefined : current,
@@ -1015,7 +1133,7 @@ function handleEvent(
     queueConversation({ type: 'tool.updated', payload: event.payload });
   if (event.type === 'tool.completed') {
     queueConversation({ type: 'tool.completed', payload: event.payload }, true);
-    if (['edit', 'write', 'bash'].includes(event.payload.toolName)) schedulePreviewRefresh();
+    if (['edit', 'write', 'bash'].includes(event.payload.toolName)) markPreviewDirty();
   }
   if (event.type === 'interaction.requested') {
     if ('accept' in event.payload) {
