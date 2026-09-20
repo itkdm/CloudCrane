@@ -49,7 +49,13 @@ describe.skipIf(!enabled)('Pi coding tools over real Gateway, Runner, Docker, an
     if (!platform) throw new Error('DATABASE_URL is required');
     await platform.db
       .insert(website)
-      .values({ id: websiteId, name: 'pi-integration', status: 'active', cmsType: 'pbootcms' })
+      .values({
+        id: websiteId,
+        name: 'pi-integration',
+        previewSlug: 'piintg123456',
+        status: 'active',
+        cmsType: 'pbootcms',
+      })
       .onConflictDoNothing();
     await platform.db
       .insert(workspace)
