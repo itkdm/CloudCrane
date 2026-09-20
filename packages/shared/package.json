@@ -12,6 +12,10 @@
     "./session-title": {
       "types": "./dist/session-title.d.ts",
       "default": "./dist/session-title.js"
+    },
+    "./preview-slug": {
+      "types": "./dist/preview-slug.d.ts",
+      "default": "./dist/preview-slug.js"
     }
   },
   "scripts": {

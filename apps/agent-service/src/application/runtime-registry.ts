@@ -5,6 +5,7 @@ export type WebsiteRuntimeBinding = Pick<
   WebsiteAgentRuntimeOptions,
   'websiteId' | 'workspaceId'
 > & {
+  previewSlug?: string | null;
   websiteStatus: string;
   workspaceStatus: string;
   previewPort?: number | null;

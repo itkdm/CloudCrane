@@ -119,6 +119,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       .values({
         id: websiteId,
         name: 'agent-runtime-integration',
+        previewSlug: 'agnt12345678',
         status: 'active',
         cmsType: 'pbootcms',
       })
@@ -596,7 +597,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         workspaceGatewayEndpoint: `http://127.0.0.1:${port}`,
         workspaceGatewayClientToken: clientToken,
         agentDataRoot: dataRoot,
-        previewGatewayOriginTemplate: 'http://site-{websiteId}.localhost:4103/',
+        previewGatewayOriginTemplate: 'http://{previewSlug}.localhost:4103/',
         previewSigningSecret: 'test-preview-signing-secret',
         previewTokenTtlSeconds: 600,
         modelProvider: 'cloudcrane-browser-protocol',
@@ -697,7 +698,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
           previewOperations.push(operation);
           const path = operation === 'navigate' ? (message.payload?.path ?? '/') : '/';
           const next: PreviewObservation = {
-            url: `http://site-${websiteId}.localhost:4103${path}`,
+            url: `http://abc123def456.localhost:4103${path}`,
             path,
             title: 'After',
             viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
@@ -775,7 +776,7 @@ function requestPreview(pathname: string, cookie?: string) {
           port: 4103,
           path: pathname,
           headers: {
-            host: `site-${websiteId}.localhost:4103`,
+            host: `abc123def456.localhost:4103`,
             ...(cookie ? { cookie } : {}),
           },
         },

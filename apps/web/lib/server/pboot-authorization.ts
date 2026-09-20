@@ -26,10 +26,13 @@ export function normalizePbootAuthorization(value: unknown): string {
   return normalized;
 }
 
-export function previewUrlForWebsite(websiteId: string): string {
+export function previewUrlForWebsite(previewSlug: string): string {
   const template = process.env.PREVIEW_GATEWAY_ORIGIN_TEMPLATE;
   if (!template) throw new Error('preview gateway origin template is required');
-  return template.replace('{websiteId}', websiteId).replace(/\/$/, '');
+  return template
+    .replace('{previewSlug}', previewSlug)
+    .replace('{websiteId}', previewSlug)
+    .replace(/\/$/, '');
 }
 
 export async function configurePbootAuthorization(websiteId: string, value: unknown) {
@@ -42,7 +45,9 @@ export async function configurePbootAuthorization(websiteId: string, value: unkn
     const configured = await runtime.configureAuthorization(sn);
     if (configured.status !== 'AUTHORIZED')
       throw new PbootAuthorizationError('VERIFICATION_FAILED', '授权码配置失败，请重试');
-    const previewUrl = previewUrlForWebsite(websiteId);
+    const previewSlug = await store.findPreviewSlug?.(websiteId);
+    if (!previewSlug) throw new PbootAuthorizationError('NOT_FOUND', '网站预览地址不存在');
+    const previewUrl = previewUrlForWebsite(previewSlug);
     const verified = await runtime.verifyAuthorization(new URL(previewUrl).host);
     await store.updateWebsiteStatus(websiteId, verified ? 'ready' : PBOOT_AUTHORIZATION_REQUIRED);
     if (!verified)

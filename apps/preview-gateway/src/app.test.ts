@@ -47,7 +47,7 @@ describe('Preview Gateway', () => {
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
     const upstreamPort = (upstream.address() as { port: number }).port;
     const app = buildPreviewGatewayApp(config, {
-      find: async () => ({
+      findByPreviewSlug: async () => ({
         websiteId,
         websiteStatus: 'active',
         workspaceStatus: 'running',
@@ -61,7 +61,7 @@ describe('Preview Gateway', () => {
       { websiteId, expiresAt: Math.floor(Date.now() / 1000) + 60 },
       secret,
     );
-    const previewHost = `site-${websiteId}.localhost:4103`;
+    const previewHost = `abc123def456.localhost:4103`;
     const first = await request(address.port, '/index.php?token=' + token, previewHost);
     expect(first.status).toBe(302);
     expect(first.headers.location).toBe('/index.php');
@@ -101,7 +101,7 @@ describe('Preview Gateway', () => {
   it('serves the reserved Bridge path only after preview auth and does not proxy it', async () => {
     const upstreamCalls = 0;
     const app = buildPreviewGatewayApp(config, {
-      find: async () => ({
+      findByPreviewSlug: async () => ({
         websiteId,
         websiteStatus: 'active',
         workspaceStatus: 'running',
@@ -111,7 +111,7 @@ describe('Preview Gateway', () => {
     const unauthorized = await app.inject({
       method: 'GET',
       url: '/__cloudcrane/preview-bridge.js',
-      headers: { host: `site-${websiteId}.localhost:4103` },
+      headers: { host: `abc123def456.localhost:4103` },
     });
     expect(unauthorized.statusCode).toBe(401);
     expect(upstreamCalls).toBe(0);
@@ -122,7 +122,7 @@ describe('Preview Gateway', () => {
     const app = buildPreviewGatewayApp(
       { ...config, publicProtocol: 'https', cookieSecure: true },
       {
-        find: async () => ({
+        findByPreviewSlug: async () => ({
           websiteId,
           websiteStatus: 'active',
           workspaceStatus: 'running',
@@ -137,7 +137,7 @@ describe('Preview Gateway', () => {
     const response = await app.inject({
       method: 'GET',
       url: `/?token=${token}`,
-      headers: { host: `site-${websiteId}.localhost:4103` },
+      headers: { host: `abc123def456.localhost:4103` },
     });
     expect(response.headers['set-cookie']).toContain('Secure');
     expect(response.headers['set-cookie']).toContain('SameSite=None');
@@ -153,7 +153,7 @@ describe('Preview Gateway', () => {
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', () => resolve()));
     const upstreamPort = (upstream.address() as { port: number }).port;
     const app = buildPreviewGatewayApp(config, {
-      find: async () => ({
+      findByPreviewSlug: async () => ({
         websiteId,
         websiteStatus: 'active',
         workspaceStatus: 'running',
@@ -170,13 +170,13 @@ describe('Preview Gateway', () => {
     const css = await request(
       address.port,
       `/style.css?token=${token}`,
-      `site-${websiteId}.localhost:4103`,
+      `abc123def456.localhost:4103`,
     );
     expect(css.status).toBe(302);
     const cssBody = await request(
       address.port,
       '/style.css',
-      `site-${websiteId}.localhost:4103`,
+      `abc123def456.localhost:4103`,
       css.headers['set-cookie']?.[0]?.split(';')[0],
     );
     expect(cssBody.body).not.toContain('/__cloudcrane/preview-bridge.js');

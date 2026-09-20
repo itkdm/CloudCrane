@@ -11,10 +11,10 @@
 当前 Preview 统一使用：
 
 ```text
-https://site-{websiteId}.preview.itkdm.com/
+https://{previewSlug}.preview.itkdm.com/
 ```
 
-其中 `{websiteId}` 是完整 UUID。所有 Website 共用一个 wildcard DNS 记录，不为每个 Website 单独创建 DNS 记录。
+其中 `{previewSlug}` 是数据库生成的 12 位小写字母数字串。所有 Website 共用一个 wildcard DNS 记录，不为每个 Website 单独创建 DNS 记录。
 
 ## 2. Cloudflare DNS
 
@@ -123,7 +123,7 @@ sudo systemctl reload nginx
 ECS 的 `/opt/cloudcrane/.env.server.local` 应包含以下非 Secret 配置：
 
 ```dotenv
-PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://site-{websiteId}.preview.itkdm.com/
+PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://{previewSlug}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com,localhost
 PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
@@ -197,7 +197,7 @@ Web → Workspace Gateway → Runner → Workspace Daemon → Workspace Containe
 
 使用真实 ECS、真实 Workspace 和真实 Preview：
 
-1. 首次打开 `https://site-{websiteId}.preview.itkdm.com/`，不人工刷新、不打开新窗口。
+1. 首次打开 `https://{previewSlug}.preview.itkdm.com/`，不人工刷新、不打开新窗口。
 2. 确认 TLS 有效、iframe 返回 200、Preview Bridge READY。
 3. 在 DevTools Network 中确认 token 只用于首次授权，之后由 HttpOnly Cookie 承载，URL 不保留 token。
 4. 无授权时应看到 PbootCMS 官方授权提示，Website 状态为 `authorization_required`。

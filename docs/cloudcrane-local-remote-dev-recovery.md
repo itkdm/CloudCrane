@@ -95,7 +95,7 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
    # 仅使用备用“本地 Web + ECS 后端”流程时设置：
    $env:NEXT_PUBLIC_AGENT_SERVICE_URL = 'http://localhost:14101'
    $env:WORKSPACE_GATEWAY_ENDPOINT = 'http://127.0.0.1:14102'
-   $env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://site-{websiteId}.preview.itkdm.com/'
+   $env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://{previewSlug}.preview.itkdm.com/'
    $env:PREVIEW_PUBLIC_PROTOCOL = 'https'
    $env:PREVIEW_COOKIE_SECURE = 'true'
    ```
@@ -107,13 +107,13 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
 Gateway 和 Preview Gateway 时，Preview 仍应使用正式的 canonical host：
 
 ```powershell
-$env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://site-{websiteId}.preview.itkdm.com/'
+$env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://{previewSlug}.preview.itkdm.com/'
 $env:PREVIEW_HOST_SUFFIXES = 'preview.itkdm.com,localhost'
 $env:PREVIEW_PUBLIC_PROTOCOL = 'https'
 $env:PREVIEW_COOKIE_SECURE = 'true'
 ```
 
-`.env.example` 中的 `site-{websiteId}.localhost` 仅用于完全本地的 Preview Gateway
+`.env.example` 中的 `{previewSlug}.localhost` 仅用于完全本地的 Preview Gateway
 开发场景。它不能作为“本地 Web + ECS 远程 Preview”模式的配置，否则设置页会显示
 错误的 localhost 预览地址，并可能与正式 DNS、TLS 及授权 Cookie 行为不一致。
 

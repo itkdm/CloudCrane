@@ -274,10 +274,9 @@ export function buildAgentServiceApp(
       },
       options.config.previewSigningSecret,
     );
-    const origin = options.config.previewGatewayOriginTemplate.replace(
-      '{websiteId}',
-      binding.websiteId,
-    );
+    const origin = options.config.previewGatewayOriginTemplate
+      .replace('{previewSlug}', binding.previewSlug ?? binding.websiteId)
+      .replace('{websiteId}', binding.websiteId);
     return { url: `${origin.replace(/\/$/, '')}/?token=${encodeURIComponent(token)}`, expiresAt };
   });
   app.get<{ Params: { websiteId: string } }>(

@@ -13,6 +13,7 @@ export class DrizzleWebsiteBindingStore implements WebsiteBindingStore {
     const rows = await this.platform.db
       .select({
         websiteId: website.id,
+        previewSlug: website.previewSlug,
         websiteStatus: website.status,
         workspaceId: workspace.id,
         workspaceStatus: workspace.status,

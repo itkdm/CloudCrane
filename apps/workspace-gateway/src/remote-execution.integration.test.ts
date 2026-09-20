@@ -49,7 +49,13 @@ describe.skipIf(!enabled)('remote execution over real Gateway and Runner process
     if (!platform) throw new Error('DATABASE_URL is required');
     await platform.db
       .insert(website)
-      .values({ id: websiteId, name: 'integration', status: 'active', cmsType: 'pbootcms' })
+      .values({
+        id: websiteId,
+        name: 'integration',
+        previewSlug: 'intg12345678',
+        status: 'active',
+        cmsType: 'pbootcms',
+      })
       .onConflictDoNothing();
     await platform.db
       .insert(workspace)

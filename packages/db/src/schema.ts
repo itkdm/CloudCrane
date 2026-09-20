@@ -20,6 +20,7 @@ export const website = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     ownerId: text('owner_id').references(() => user.id, { onDelete: 'set null' }),
     name: varchar('name', { length: 255 }).notNull(),
+    previewSlug: varchar('preview_slug', { length: 12 }).notNull().unique(),
     status: varchar('status', { length: 32 }).notNull(),
     cmsType: varchar('cms_type', { length: 64 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),

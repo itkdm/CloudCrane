@@ -7,7 +7,7 @@
 | `app.itkdm.com` | A | `186.244.238.219` | 已代理 |
 | `*.preview.itkdm.com` | A | `186.244.238.219` | 仅 DNS |
 
-Web 主站使用 `https://app.itkdm.com`；Preview 使用 `https://site-{websiteId}.preview.itkdm.com/`。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
+Web 主站使用 `https://app.itkdm.com`；Preview 使用 `https://{previewSlug}.preview.itkdm.com/`。slug 是数据库持久化的 12 位小写字母数字串。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
 
 ## 服务器入口
 
@@ -16,6 +16,10 @@ Nginx 配置模板：
 ```text
 deploy/nginx/cloudcrane-production.conf
 ```
+
+发布包含数据库迁移时，先执行 `pnpm --filter @cloudcrane/db db:migrate`，再执行
+`pnpm --filter @cloudcrane/db db:backfill-preview-slugs`。回填完成并确认 `preview_slug`
+非空后，才重启 Web、Agent 和 Preview Gateway。
 
 服务器安装位置：
 
@@ -61,7 +65,7 @@ WEB_ORIGIN=https://app.itkdm.com
 BETTER_AUTH_URL=https://app.itkdm.com
 NODE_ENV=production
 NEXT_PUBLIC_AGENT_SERVICE_URL=/agent
-PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://site-{websiteId}.preview.itkdm.com/
+PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://{previewSlug}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com
 PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true

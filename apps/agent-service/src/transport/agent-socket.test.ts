@@ -28,7 +28,7 @@ const config: AgentServiceConfig = {
   workspaceGatewayEndpoint: 'http://localhost:4102',
   workspaceGatewayClientToken: 'test-token',
   agentDataRoot: '.test-data',
-  previewGatewayOriginTemplate: 'http://site-{websiteId}.localhost:4103/',
+  previewGatewayOriginTemplate: 'http://{previewSlug}.localhost:4103/',
   previewSigningSecret: 'test-preview-signing-secret',
   previewTokenTtlSeconds: 600,
   modelProvider: undefined,

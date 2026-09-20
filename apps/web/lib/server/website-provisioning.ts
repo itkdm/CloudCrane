@@ -7,7 +7,7 @@ import {
   websiteTemplateAttachment,
   workspace,
 } from '@cloudcrane/db';
-import { createLogger } from '@cloudcrane/shared';
+import { createLogger, generatePreviewSlug } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
 
 export const WEBSITE_CMS_TYPE = 'pbootcms';
@@ -26,6 +26,7 @@ export type PublicWebsite = {
   name: string;
   status: string;
   createdAt: Date;
+  previewSlug?: string | null;
   previewUrl?: string;
 };
 
@@ -75,6 +76,7 @@ type WebsiteStore = {
   } | null>;
   listWebsites(): Promise<PublicWebsite[]>;
   findWorkspaceId?(websiteId: string): Promise<string | null>;
+  findPreviewSlug?(websiteId: string): Promise<string | null>;
 };
 
 type RuntimeClient = {
@@ -162,6 +164,7 @@ export function publicWebsiteView(row: PublicWebsite): PublicWebsite {
     name: row.name,
     status: row.status,
     createdAt: row.createdAt,
+    ...(row.previewSlug ? { previewSlug: row.previewSlug } : {}),
     ...(row.previewUrl ? { previewUrl: row.previewUrl } : {}),
   };
 }
@@ -406,40 +409,50 @@ export function createProductionWebsiteStore(ownerId?: string) {
       // Keep this wiring local while the shared DB package remains the schema owner.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = platform.db;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await db.transaction(async (tx: any) => {
-        const [row] = await tx
-          .insert(website)
-          .values({
-            id: input.websiteId,
-            name: input.name,
-            ownerId: input.ownerId,
-            status: WEBSITE_PROVISIONING,
-            cmsType: WEBSITE_CMS_TYPE,
-          })
-          .returning({
-            id: website.id,
-            name: website.name,
-            status: website.status,
-            createdAt: website.createdAt,
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const previewSlug = generatePreviewSlug();
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await db.transaction(async (tx: any) => {
+            const [row] = await tx
+              .insert(website)
+              .values({
+                id: input.websiteId,
+                name: input.name,
+                ownerId: input.ownerId,
+                previewSlug,
+                status: WEBSITE_PROVISIONING,
+                cmsType: WEBSITE_CMS_TYPE,
+              })
+              .returning({
+                id: website.id,
+                name: website.name,
+                status: website.status,
+                createdAt: website.createdAt,
+                previewSlug: website.previewSlug,
+              });
+            await tx.insert(workspace).values({
+              id: input.workspaceId,
+              websiteId: input.websiteId,
+              provider: WORKSPACE_PROVIDER,
+              status: 'missing',
+            });
+            if (input.template) {
+              await tx.insert(websiteTemplateAttachment).values({
+                websiteId: input.websiteId,
+                templateId: input.template.id,
+                artifactStorageKey: input.template.artifactStorageKey,
+                artifactSha256: input.template.artifactSha256,
+                status: 'pending',
+              });
+            }
+            created = row;
           });
-        await tx.insert(workspace).values({
-          id: input.workspaceId,
-          websiteId: input.websiteId,
-          provider: WORKSPACE_PROVIDER,
-          status: 'missing',
-        });
-        if (input.template) {
-          await tx.insert(websiteTemplateAttachment).values({
-            websiteId: input.websiteId,
-            templateId: input.template.id,
-            artifactStorageKey: input.template.artifactStorageKey,
-            artifactSha256: input.template.artifactSha256,
-            status: 'pending',
-          });
+          break;
+        } catch (error) {
+          if ((error as { code?: string }).code !== '23505' || attempt === 4) throw error;
         }
-        created = row;
-      });
+      }
       if (!created) throw new Error('website record was not created');
       return created;
     },
@@ -460,6 +473,7 @@ export function createProductionWebsiteStore(ownerId?: string) {
           name: website.name,
           status: website.status,
           createdAt: website.createdAt,
+          previewSlug: website.previewSlug,
         })
         .from(website)
         .where(ownerId ? eq(website.ownerId as never, ownerId) : undefined)
@@ -606,6 +620,16 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .where(eq(workspace.websiteId as never, websiteId))
         .limit(1);
       return rows[0]?.id ?? null;
+    },
+    async findPreviewSlug(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const rows = await db
+        .select({ previewSlug: website.previewSlug })
+        .from(website)
+        .where(eq(website.id as never, websiteId))
+        .limit(1);
+      return rows[0]?.previewSlug ?? null;
     },
   };
   return { platform, store };

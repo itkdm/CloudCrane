@@ -34,7 +34,10 @@ export async function GET(request: Request) {
       try {
         const websites = await listWebsites(store);
         return NextResponse.json(
-          websites.map((website) => ({ ...website, previewUrl: previewUrlForWebsite(website.id) })),
+          websites.map((website) => ({
+            ...website,
+            previewUrl: website.previewSlug ? previewUrlForWebsite(website.previewSlug) : undefined,
+          })),
         );
       } finally {
         await platform.pool.end();
@@ -185,7 +188,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           ...publicWebsiteView(result.website),
-          previewUrl: previewUrlForWebsite(result.website.id),
+          previewUrl: result.website.previewSlug
+            ? previewUrlForWebsite(result.website.previewSlug)
+            : undefined,
         },
         {
           status: result.provisioned ? 201 : 502,

@@ -45,10 +45,8 @@ export function buildPreviewGatewayApp(
   const requestStarts = new WeakMap<object, number>();
   app.addHook('onRequest', async (request) => {
     requestStarts.set(request, performance.now());
-    const websiteId = /^site-([0-9a-f-]{36})\./i.exec(request.headers.host ?? '')?.[1];
     enterLogContext({
       requestId: request.headers['x-request-id']?.toString() ?? request.id,
-      websiteId,
       ...parseTraceparent(
         typeof request.headers.traceparent === 'string' ? request.headers.traceparent : undefined,
       ),
@@ -126,20 +124,25 @@ async function authenticate(
   config: PreviewGatewayConfig,
   store: PreviewBindingStore,
 ): Promise<
-  | { binding: PreviewBinding & { previewPort: number }; publicHost: string; previewPort: number }
+  | {
+      binding: PreviewBinding & { previewPort: number };
+      publicHost: string;
+      upstreamHost: string;
+      previewPort: number;
+    }
   | { binding?: undefined; status: 401 | 404; message: string }
   | { binding?: undefined; redirect: string; cookie: string }
 > {
   const host = parsePreviewHost(request.headers.host, config.hostSuffixes);
   if (!host) return { status: 404, message: 'preview host is invalid' };
-  const binding = await store.find(host.websiteId);
+  const binding = (await store.findByPreviewSlug?.(host.value)) ?? null;
   if (!isPreviewReady(binding)) return { status: 404, message: 'preview is unavailable' };
 
   const queryToken = tokenFromQuery(request);
   const cookieToken = tokenFromCookie(request);
   const token = queryToken ?? cookieToken;
   const claims = verifyPreviewToken(token ?? '', config.signingSecret);
-  if (!claims || claims.websiteId !== host.websiteId)
+  if (!claims || claims.websiteId !== binding.websiteId)
     return { status: 401, message: 'preview authorization is required' };
   if (!cookieToken && queryToken) {
     const target = new URL(request.url, `http://${host.publicHost}`);
@@ -149,28 +152,33 @@ async function authenticate(
       cookie: serializePreviewCookie(queryToken, claims.expiresAt, config.cookieSecure),
     };
   }
-  return { binding, publicHost: host.publicHost, previewPort: binding.previewPort };
+  return {
+    binding,
+    publicHost: host.publicHost,
+    upstreamHost: host.publicHost,
+    previewPort: binding.previewPort,
+  };
 }
 
 function parsePreviewHost(
   value: string | undefined,
   suffixes: string[],
-): { websiteId: string; publicHost: string; publicPort?: number } | null {
+): { kind: 'slug'; value: string; suffix: string; publicHost: string; publicPort?: number } | null {
   if (!value || value.includes(',')) return null;
   const normalized = value.trim().toLowerCase();
   const match = /^(?<hostname>[^:]+)(?::(?<port>[0-9]{1,5}))?$/.exec(normalized);
   const hostname = match?.groups?.hostname;
   const portValue = match?.groups?.port;
   if (!hostname) return null;
-  const website =
-    /^site-([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(.+)$/i.exec(
-      hostname,
-    );
-  if (!website || !suffixes.some((suffix) => website[2] === suffix.toLowerCase())) return null;
+  const slug = /^([a-z0-9]{12})\.(.+)$/i.exec(hostname);
+  const route = slug ? { kind: 'slug' as const, value: slug[1]!, suffix: slug[2]! } : null;
+  if (!route || !suffixes.some((suffix) => route.suffix === suffix.toLowerCase())) return null;
   const publicPort = portValue ? Number(portValue) : undefined;
   if (publicPort !== undefined && (publicPort < 1 || publicPort > 65535)) return null;
   return {
-    websiteId: website[1]!,
+    kind: route.kind,
+    value: route.value,
+    suffix: route.suffix,
     publicHost: publicPort ? `${hostname}:${publicPort}` : hostname,
     publicPort,
   };
