@@ -87,6 +87,7 @@ describe('AgentSocketTransport', () => {
     }),
     steer: async () => undefined,
     followUp: async () => undefined,
+    recoverStaleRuns: async () => undefined,
     shutdown: async () => undefined,
   } as unknown as WebsiteAgentRuntime;
 

@@ -16,9 +16,11 @@
 | CC-SEC-002 | Workspace Gateway 生产配置 | E2E_VERIFIED | targeted config tests; commit `c15fa39`; ECS health 200; DEVTOOLS page/screenshot verified |
 | CC-SEC-003 | Agent Service HTTP/WebSocket 鉴权 | E2E_VERIFIED | Agent socket/config tests; commit `c15fa39`; ECS health 200; DEVTOOLS page/screenshot verified |
 | CC-SEC-004 | Agent session snapshot 错误映射 | E2E_VERIFIED | targeted Agent Service tests; commit `c15fa39`; DEVTOOLS website list/session requests verified |
-| CC-DATA-004 | Session metadata 创建失败留下 Pi 文件 | FIXED_PENDING_DEPLOY | `packages/website-agent/src/runtime.test.ts` |
-| CC-AGENT-001 | Runtime 首次加载未恢复 stale AgentRun | FIXED_PENDING_DEPLOY | `apps/agent-service/src/application/runtime-registry.test.ts` |
-| CC-AGENT-002 | stale-run 恢复失败泄漏 runtime | FIXED_PENDING_DEPLOY | runtime-registry failure cleanup test |
+| CC-DATA-004 | Session metadata 创建失败留下 Pi 文件 | E2E_VERIFIED | `packages/website-agent/src/runtime.test.ts`; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
+| CC-AGENT-001 | Runtime 首次加载未恢复 stale AgentRun | E2E_VERIFIED | `apps/agent-service/src/application/runtime-registry.test.ts`; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
+| CC-AGENT-002 | stale-run 恢复失败泄漏 runtime | E2E_VERIFIED | runtime-registry failure cleanup test; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
+| CC-DATA-002 | Attachment 删除失败后错误标记 deleted | FIXED_PENDING_DEPLOY | `apps/agent-service/src/infrastructure/attachment-service.test.ts` |
+| CC-DATA-006 | Expired attachment cleanup 竞争覆盖状态 | FIXED_PENDING_DEPLOY | `apps/agent-service/src/infrastructure/attachment-service.test.ts` |
 
 ## Confirmed Bugs
 
@@ -50,7 +52,7 @@
 - Root cause：通过错误消息是否包含 `session` 判断 `SESSION_NOT_FOUND`，数据库/文件系统故障也会被映射为 404。
 - Evidence：`apps/agent-service/src/app.ts` 原 `getSnapshot` 实现。
 - Fix：仅接受 `WebsiteAgentRuntimeError.code === 'SESSION_NOT_FOUND'`，其他错误保留为统一内部错误路径。
-- Review：独立子智能体确认原实现不可靠；当前仍需补专门错误映射测试后再标记 E2E_VERIFIED。
+- Review：独立子智能体确认原实现不可靠；专门错误映射测试已补齐并随 `c15fa39` 部署验证。
 
 ### CC-DATA-004 — Session metadata 创建失败留下 Pi 文件
 
@@ -71,12 +73,26 @@
 - Fix：恢复失败时关闭 runtime 后再向调用方抛错。
 - Test：恢复抛错时断言 shutdown 一次且 registry 不保留失败 runtime。
 
+### CC-DATA-002 — Attachment 删除失败后错误标记 deleted
+
+- Root cause：`ConversationAttachmentService.remove` 删除对象失败时吞掉存储异常，仍继续把元数据标记为 `deleted`，导致数据库状态与实际对象不一致且无法可靠重试。
+- Evidence：删除路径先调用 storage adapter，原实现把失败转换为成功状态；针对 OSS/local 共同抽象均成立。
+- Fix：对象删除失败直接返回失败，不写入 `deleted`；保留 `ready` 记录供用户或清理 worker 重试。
+- Test：storage delete 抛错时断言服务失败且 metadata update 未执行。
+
+### CC-DATA-006 — Expired attachment cleanup 竞争覆盖状态
+
+- Root cause：清理 worker 虽然先以 `ready → deleting` 条件抢占，但成功删除后的最终更新原先只按 ID 写入，可能覆盖其他 worker 已经改变的状态。
+- Evidence：两个 worker 可同时读取同一过期记录；没有状态条件的最终 update 会把非本 worker 的状态写成 `deleted`。
+- Fix：抢占使用受影响行数 CAS；成功和失败回写都限定当前状态为 `deleting`，失败恢复为 `ready` 并记录可重试错误码。
+- Test：抢占失败时不删对象；成功和失败路径均覆盖两阶段更新。
+
 ## Candidates / Needs More Evidence
 
 | ID | 领域 | 候选问题 | 当前证据 | 下一步 |
 | --- | --- | --- | --- | --- |
 | CC-DATA-001 | Attachment lifecycle | Session/Website 删除后对象存储孤儿 | 静态链路已确认；需按本地/OSS 实际对象补偿策略设计 | 设计可追踪的删除任务或先清对象再删元数据 |
-| CC-DATA-002 | Attachment lifecycle | 删除失败后错误标记 deleted | `ConversationAttachmentService.remove` 吞异常 | 增加可重试状态与对象清理测试 |
+| CC-DATA-002 | Attachment lifecycle | 删除失败后错误标记 deleted | 已有 storage failure 复现和回归测试 | 已修复，待提交部署后完成 E2E |
 | CC-DATA-003 | Attachment quota | 并发上传 TOCTOU | 两次 quota 查询与插入无锁 | 设计事务/预留记录并补并发测试 |
-| CC-DATA-004 | Session lifecycle | Pi 文件与 DB 创建非原子 | `createSession` 先文件后 DB | 增加补偿清理与故障测试 |
-| CC-DATA-005 | Runtime recovery | stale AgentRun recovery 未启动 | 仅有定义，无启动调用 | 接入启动/attach 恢复并补重启测试 |
+| CC-DATA-004 | Session lifecycle | Pi 文件与 DB 创建非原子 | 已完成补偿清理和故障测试 | 已修复并部署 |
+| CC-DATA-005 | Runtime recovery | stale AgentRun recovery 未启动 | 已接入首次 runtime 加载 | 全量启动恢复仍是后续候选 |

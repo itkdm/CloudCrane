@@ -22,6 +22,7 @@ describe('reference upload route', () => {
       workspaceId: '00000000-0000-4000-0000-000000000004',
       isReferenceUploadPending: () => true,
       resolveReferenceUpload: () => undefined,
+      recoverStaleRuns: async () => undefined,
       shutdown: async () => undefined,
     } as unknown as WebsiteAgentRuntime;
     const app = buildAgentServiceApp({
@@ -71,6 +72,7 @@ describe('reference upload route', () => {
       workspaceId: '00000000-0000-4000-0000-000000000004',
       isReferenceUploadPending: () => true,
       resolveReferenceUpload: () => undefined,
+      recoverStaleRuns: async () => undefined,
       shutdown: async () => undefined,
     } as unknown as WebsiteAgentRuntime;
     const app = buildAgentServiceApp({

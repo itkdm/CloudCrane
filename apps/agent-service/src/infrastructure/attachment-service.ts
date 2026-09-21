@@ -164,21 +164,26 @@ export class ConversationAttachmentService {
       limit: 100,
     });
     for (const row of expired) {
-      await this.db
+      const claim = await this.db
         .update(conversationAttachment)
         .set({ status: 'deleting' })
         .where(and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'ready')));
+      if (claim.rowCount !== 1) continue;
       try {
         await this.storage.delete(row.storageKey);
         await this.db
           .update(conversationAttachment)
           .set({ status: 'deleted', deletedAt: now })
-          .where(eq(conversationAttachment.id, row.id));
+          .where(
+            and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
+          );
       } catch {
         await this.db
           .update(conversationAttachment)
-          .set({ status: 'failed', errorCode: 'STORAGE_DELETE_FAILED' })
-          .where(eq(conversationAttachment.id, row.id));
+          .set({ status: 'ready', errorCode: 'STORAGE_DELETE_FAILED' })
+          .where(
+            and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
+          );
       }
     }
   }
@@ -188,11 +193,11 @@ export class ConversationAttachmentService {
       where: and(eq(conversationAttachment.id, id), eq(conversationAttachment.ownerId, userId)),
     });
     if (!row) return;
-    await this.storage.delete(row.storageKey).catch(() => undefined);
+    await this.storage.delete(row.storageKey);
     await this.db
       .update(conversationAttachment)
       .set({ status: 'deleted', deletedAt: new Date() })
-      .where(eq(conversationAttachment.id, id));
+      .where(and(eq(conversationAttachment.id, id), eq(conversationAttachment.ownerId, userId)));
   }
 }
 
