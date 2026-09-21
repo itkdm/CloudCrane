@@ -21,6 +21,7 @@ import { createTemplateCatalog, TEMPLATE_PUBLISHED } from '../../../lib/server/t
 import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
 import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../lib/server/observability.js';
+import { toWebsiteCreationResponse } from '../../../lib/website-creation-response.js';
 
 export const runtime = 'nodejs';
 
@@ -197,17 +198,16 @@ export async function POST(request: Request) {
             { status: 502 },
           );
       }
-      return NextResponse.json(
+      const creationResponse = toWebsiteCreationResponse(
         {
           ...publicWebsiteView(result.website),
           previewUrl: result.website.previewSlug
             ? previewUrlForWebsite(result.website.previewSlug)
             : undefined,
         },
-        {
-          status: result.provisioned ? 201 : 502,
-        },
+        result.provisioned,
       );
+      return NextResponse.json(creationResponse.payload, { status: creationResponse.status });
     } catch (error) {
       try {
         await finishAuditEvent(platform.db, auditId!, {
