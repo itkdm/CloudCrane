@@ -1831,8 +1831,36 @@
   line-height: 1.7;
 }
 
-.message-list .markdown-body code {
-  color: var(--cc-text);
+.message-list .markdown-body :not(pre) > code {
+  border-color: var(--cc-conversation-code-border);
+  background: var(--cc-conversation-code-surface);
+  color: var(--cc-conversation-code-text);
+}
+
+.message-list .markdown-body pre {
+  border-color: var(--cc-conversation-border);
+  background: var(--cc-conversation-code-surface);
+}
+
+.message-list .markdown-body pre code {
+  color: var(--cc-conversation-text);
+}
+
+.message-list .markdown-table-wrap {
+  border-color: var(--cc-conversation-border);
+}
+
+.message-list .markdown-table-wrap th {
+  background: var(--cc-conversation-table-header);
+}
+
+.message-list .markdown-table-wrap th,
+.message-list .markdown-table-wrap td {
+  border-bottom-color: var(--cc-conversation-border);
+}
+
+.message-list .markdown-table-wrap tbody tr:nth-child(even) {
+  background: var(--cc-conversation-table-stripe);
 }
 
 .message-list .markdown-body a {
@@ -1864,7 +1892,7 @@
   background: var(--cc-surface-2);
 }
 
-/* Conversation-only neutral palette; product chrome keeps the CloudCrane brand tokens. */
+/* Conversation palette: one low-saturation blue family keeps Markdown accents cohesive. */
 .message-list {
   --cc-conversation-text: #e2e2e2;
   --cc-conversation-secondary: #b7b7b7;
@@ -1872,6 +1900,11 @@
   --cc-conversation-surface: #242424;
   --cc-conversation-surface-subtle: #1f1f1f;
   --cc-conversation-border: #3a3a3a;
+  --cc-conversation-code-surface: #263f55;
+  --cc-conversation-code-border: #416077;
+  --cc-conversation-code-text: #c3dcf2;
+  --cc-conversation-table-header: #2c485f;
+  --cc-conversation-table-stripe: #253b4d;
 }
 
 :root[data-theme='light'] .message-list {
@@ -1880,7 +1913,12 @@
   --cc-conversation-muted: #747775;
   --cc-conversation-surface: #f5f5f5;
   --cc-conversation-surface-subtle: #f1f1f1;
-  --cc-conversation-border: #e5e5e5;
+  --cc-conversation-border: #d6e4f0;
+  --cc-conversation-code-surface: #eef5ff;
+  --cc-conversation-code-border: #d4e4f3;
+  --cc-conversation-code-text: #365b7c;
+  --cc-conversation-table-header: #e9f3fc;
+  --cc-conversation-table-stripe: #f7fbff;
 }
 
 .message-list .message-body,
