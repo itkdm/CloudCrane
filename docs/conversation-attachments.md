@@ -18,25 +18,22 @@ ATTACHMENT_STORAGE_ROOT=/var/lib/cloudcrane/attachments
 ATTACHMENT_MAX_BYTES=20971520
 ```
 
-启用阿里云 OSS 时，使用服务端 Node.js SDK 和 V4 签名。Bucket 应保持 `private`，Agent Service 只在服务端读写对象，不向浏览器返回公开对象 URL：
+生产环境推荐使用 Cloudflare R2。R2 兼容 S3 API，Bucket 应保持私有，Agent Service 只在服务端读写对象，不向浏览器返回公开对象 URL。上传适配器使用 AWS SDK 的 multipart 能力，避免大附件由单次请求长时间阻塞：
 
 ```dotenv
-ATTACHMENT_STORAGE_DRIVER=oss
-ATTACHMENT_OSS_BUCKET=cloudcrane-attachments-prod
-ATTACHMENT_OSS_REGION=oss-cn-<region>
-ATTACHMENT_OSS_ENDPOINT=https://oss-cn-<region>.aliyuncs.com
-ATTACHMENT_OSS_INTERNAL=false
-ATTACHMENT_OSS_ACCESS_KEY_ID=<RAM user or STS access key>
-ATTACHMENT_OSS_ACCESS_KEY_SECRET=<secret>
-# 使用 STS 临时凭证时填写；长期 RAM AK 不建议直接用于生产。
-ATTACHMENT_OSS_STS_TOKEN=
-ATTACHMENT_OSS_TIMEOUT_MS=60000
+ATTACHMENT_STORAGE_DRIVER=r2
+ATTACHMENT_R2_ACCOUNT_ID=<Cloudflare Account ID>
+ATTACHMENT_R2_BUCKET=cloudcrane
+ATTACHMENT_R2_ENDPOINT=https://<Cloudflare Account ID>.r2.cloudflarestorage.com
+ATTACHMENT_R2_ACCESS_KEY_ID=<R2 API token access key>
+ATTACHMENT_R2_SECRET_ACCESS_KEY=<R2 API token secret>
+ATTACHMENT_R2_TIMEOUT_MS=120000
 ```
 
-生产环境必须先创建 Bucket，再配置地域、私有读写权限和生命周期规则（建议 `attachments/` 前缀超过 7 天自动删除）。RAM 身份只授予该 Bucket 下 `PutObject`、`GetObject`、`DeleteObject`，禁止使用主账号 AccessKey；密钥只放在服务器私有环境文件中，不写入仓库、日志或浏览器。当前实现支持长期 RAM AK 和 STS Token，后续可在不改附件协议的前提下增加自动 AssumeRole。
+Cloudflare 控制台中创建 R2 Bucket 后，创建仅限该 Bucket 的 R2 API Token，权限只需要对象读写；不需要开启公共访问，也不需要为附件配置公开域名。建议配置 R2 生命周期规则，让 `attachments/` 前缀超过 7 天自动删除。Account ID、Access Key ID 和 Secret Access Key 只放在 ECS 私有环境文件中，不写入仓库、日志或浏览器。
 
 未配置 `ATTACHMENT_STORAGE_ROOT` 时，开发环境使用 `AGENT_DATA_ROOT/attachments`。生产 ECS 应显式配置绝对路径，并确保运行用户拥有该目录的 `0700` 目录和 `0600` 文件权限；该目录不能位于公开站点根目录或 Workspace 网站目录。
 
-浏览器先通过 multipart 上传附件，再通过 `agent.prompt` 发送附件元数据引用。Agent Service 每次读取都会重新校验附件属于当前 Website 和 Session；未来切换阿里云 OSS 时，只替换 `AttachmentStorage` 适配器，不改变 WebSocket 协议和数据库元数据。
+浏览器先通过 multipart 上传附件，再通过 `agent.prompt` 发送附件元数据引用。Agent Service 每次读取都会重新校验附件属于当前 Website 和 Session；切换存储后不改变 WebSocket 协议和数据库元数据。R2 对象仍不直接暴露给浏览器，后续如果需要直传，可在该抽象上增加短时 presigned URL，而不是改变附件权限模型。
 
 PDF、DOCX、XLSX、SVG、HTML、脚本和可执行文件暂不支持。需要扩展时必须先增加独立解析器、资源限制和安全测试，不能把原文件直接交给 Pi 或 Workspace。

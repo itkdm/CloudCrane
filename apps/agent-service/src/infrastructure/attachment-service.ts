@@ -22,7 +22,7 @@ export class ConversationAttachmentService {
   constructor(
     private readonly db: PlatformDb['db'],
     private readonly storage: AttachmentStorage,
-    private readonly storageDriver: 'local' | 'oss',
+    private readonly storageDriver: 'local' | 'r2',
     private readonly maxBytes: number,
   ) {}
 
@@ -43,7 +43,8 @@ export class ConversationAttachmentService {
       ),
       columns: { id: true },
     });
-    if (!session) throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
+    if (!session)
+      throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
     const quota = await this.db
       .select({ total: sql<number>`coalesce(sum(${conversationAttachment.sizeBytes}), 0)` })
       .from(conversationAttachment)
@@ -89,8 +90,15 @@ export class ConversationAttachmentService {
         );
       if (Number(currentQuota[0]?.total ?? 0) + object.size > SESSION_ATTACHMENT_QUOTA)
         throw new AgentServiceError('INVALID_ARGUMENT', 'session attachment quota exceeded', 413);
-      if (kind === 'image' && !(await hasValidImageHeader(this.storage, object.key, object.contentType)))
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment content does not match its image type', 415);
+      if (
+        kind === 'image' &&
+        !(await hasValidImageHeader(this.storage, object.key, object.contentType))
+      )
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'attachment content does not match its image type',
+          415,
+        );
       const now = new Date();
       await this.db.insert(conversationAttachment).values({
         id,
@@ -129,7 +137,9 @@ export class ConversationAttachmentService {
     attachments: AttachmentRef[];
   }): Promise<Array<AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }>> {
     if (input.attachments.length === 0) return [];
-    const resolved = [] as Array<AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }>;
+    const resolved = [] as Array<
+      AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }
+    >;
     for (const requested of input.attachments) {
       const row = await this.db.query.conversationAttachment.findFirst({
         where: and(
@@ -141,7 +151,11 @@ export class ConversationAttachmentService {
         ),
       });
       if (!row || row.originalFilename !== requested.name || row.sizeBytes !== requested.size)
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is not valid for this session', 400);
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'attachment is not valid for this session',
+          400,
+        );
       resolved.push({
         id: row.id,
         kind: row.kind as 'image' | 'document',
@@ -167,7 +181,9 @@ export class ConversationAttachmentService {
       await this.db
         .update(conversationAttachment)
         .set({ status: 'deleting' })
-        .where(and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'ready')));
+        .where(
+          and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'ready')),
+        );
       try {
         await this.storage.delete(row.storageKey);
         await this.db
@@ -211,24 +227,43 @@ async function hasValidImageHeader(
     if (size >= 16) break;
   }
   const header = Buffer.concat(chunks).subarray(0, 16);
-  if (contentType === 'image/png') return header.length >= 8 && header.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (contentType === 'image/jpeg') return header.length >= 3 && header.subarray(0, 3).equals(Buffer.from([255, 216, 255]));
-  if (contentType === 'image/gif') return header.length >= 6 && (header.subarray(0, 6).toString() === 'GIF87a' || header.subarray(0, 6).toString() === 'GIF89a');
-  if (contentType === 'image/webp') return header.length >= 12 && header.subarray(0, 4).toString() === 'RIFF' && header.subarray(8, 12).toString() === 'WEBP';
+  if (contentType === 'image/png')
+    return (
+      header.length >= 8 &&
+      header.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    );
+  if (contentType === 'image/jpeg')
+    return header.length >= 3 && header.subarray(0, 3).equals(Buffer.from([255, 216, 255]));
+  if (contentType === 'image/gif')
+    return (
+      header.length >= 6 &&
+      (header.subarray(0, 6).toString() === 'GIF87a' ||
+        header.subarray(0, 6).toString() === 'GIF89a')
+    );
+  if (contentType === 'image/webp')
+    return (
+      header.length >= 12 &&
+      header.subarray(0, 4).toString() === 'RIFF' &&
+      header.subarray(8, 12).toString() === 'WEBP'
+    );
   return false;
 }
 
 function classify(filename: string, contentType: string): 'image' | 'document' | null {
   const extension = extname(filename).toLowerCase();
   if (IMAGE_TYPES.has(contentType.toLowerCase()) && IMAGE_EXTENSIONS.has(extension)) return 'image';
-  if ((contentType === 'text/plain' || contentType === 'text/markdown' || !contentType) && TEXT_EXTENSIONS.has(extension))
+  if (
+    (contentType === 'text/plain' || contentType === 'text/markdown' || !contentType) &&
+    TEXT_EXTENSIONS.has(extension)
+  )
     return 'document';
   return null;
 }
 
 function normalizeContentType(contentType: string, filename: string): string {
   if (contentType) return contentType.toLowerCase();
-  return extname(filename).toLowerCase() === '.md' || extname(filename).toLowerCase() === '.markdown'
+  return extname(filename).toLowerCase() === '.md' ||
+    extname(filename).toLowerCase() === '.markdown'
     ? 'text/markdown'
     : 'text/plain';
 }

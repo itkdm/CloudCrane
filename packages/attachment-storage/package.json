@@ -11,9 +11,8 @@
     "test": "vitest run --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
-    "ali-oss": "^6.23.0"
-  },
-  "devDependencies": {
-    "@types/ali-oss": "^6.23.3"
+    "@aws-sdk/client-s3": "^3.821.0",
+    "@aws-sdk/lib-storage": "^3.821.0",
+    "@smithy/node-http-handler": "^4.1.0"
   }
 }

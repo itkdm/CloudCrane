@@ -29,24 +29,24 @@ describe('agent service production configuration', () => {
     expect(config.templateArtifactMaxBytes).toBe(524288000);
   });
 
-  it('requires complete OSS configuration when the OSS driver is selected', () => {
+  it('requires complete R2 configuration when the R2 driver is selected', () => {
     expect(() =>
       loadAgentServiceConfig({
-        ATTACHMENT_STORAGE_DRIVER: 'oss',
+        ATTACHMENT_STORAGE_DRIVER: 'r2',
       }),
-    ).toThrow('ATTACHMENT_OSS_BUCKET is required when ATTACHMENT_STORAGE_DRIVER=oss');
+    ).toThrow('ATTACHMENT_R2_ACCOUNT_ID is required when ATTACHMENT_STORAGE_DRIVER=r2');
   });
 
-  it('parses the OSS internal endpoint flag without treating "false" as true', () => {
+  it('loads the R2 credentials and bucket configuration', () => {
     const config = loadAgentServiceConfig({
-      ATTACHMENT_STORAGE_DRIVER: 'oss',
-      ATTACHMENT_OSS_BUCKET: 'cloudcrane-test',
-      ATTACHMENT_OSS_REGION: 'oss-cn-hangzhou',
-      ATTACHMENT_OSS_ACCESS_KEY_ID: 'test-id',
-      ATTACHMENT_OSS_ACCESS_KEY_SECRET: 'test-secret',
-      ATTACHMENT_OSS_INTERNAL: 'false',
+      ATTACHMENT_STORAGE_DRIVER: 'r2',
+      ATTACHMENT_R2_ACCOUNT_ID: 'test-account',
+      ATTACHMENT_R2_BUCKET: 'cloudcrane-test',
+      ATTACHMENT_R2_ACCESS_KEY_ID: 'test-id',
+      ATTACHMENT_R2_SECRET_ACCESS_KEY: 'test-secret',
     });
 
-    expect(config.attachmentOssInternal).toBe(false);
+    expect(config.attachmentR2AccountId).toBe('test-account');
+    expect(config.attachmentR2Bucket).toBe('cloudcrane-test');
   });
 });

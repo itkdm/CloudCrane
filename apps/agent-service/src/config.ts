@@ -9,20 +9,19 @@ const configSchema = z.object({
   workspaceGatewayEndpoint: z.string().url().default('http://127.0.0.1:4102'),
   workspaceGatewayClientToken: z.string().min(1).default('dev-client-token'),
   agentDataRoot: z.string().min(1).default('.cloudcrane-data'),
-  attachmentStorageDriver: z.enum(['local', 'oss']).default('local'),
+  attachmentStorageDriver: z.enum(['local', 'r2']).default('local'),
   attachmentStorageRoot: z.string().min(1).optional(),
-  attachmentMaxBytes: z.coerce.number().int().positive().default(20 * 1024 * 1024),
-  attachmentOssBucket: z.string().min(3).optional(),
-  attachmentOssRegion: z.string().min(1).optional(),
-  attachmentOssEndpoint: z.string().url().optional(),
-  attachmentOssInternal: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((value) => value === 'true'),
-  attachmentOssAccessKeyId: z.string().min(1).optional(),
-  attachmentOssAccessKeySecret: z.string().min(1).optional(),
-  attachmentOssStsToken: z.string().min(1).optional(),
-  attachmentOssTimeoutMs: z.coerce.number().int().positive().default(60_000),
+  attachmentMaxBytes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(20 * 1024 * 1024),
+  attachmentR2AccountId: z.string().min(1).optional(),
+  attachmentR2Bucket: z.string().min(3).optional(),
+  attachmentR2Endpoint: z.string().url().optional(),
+  attachmentR2AccessKeyId: z.string().min(1).optional(),
+  attachmentR2SecretAccessKey: z.string().min(1).optional(),
+  attachmentR2TimeoutMs: z.coerce.number().int().positive().default(120_000),
   modelProvider: z.string().min(1).optional(),
   modelId: z.string().min(1).optional(),
   modelAuthPath: z.string().min(1).optional(),
@@ -50,23 +49,20 @@ export type AgentServiceConfig = Omit<
   | 'attachmentStorageDriver'
   | 'attachmentStorageRoot'
   | 'attachmentMaxBytes'
-  | 'attachmentOssInternal'
-  | 'attachmentOssTimeoutMs'
+  | 'attachmentR2TimeoutMs'
   | 'templateArtifactRoot'
   | 'templateArtifactMaxBytes'
 > & {
   agentDataRoot: string;
-  attachmentStorageDriver?: 'local' | 'oss';
+  attachmentStorageDriver?: 'local' | 'r2';
   attachmentStorageRoot?: string;
   attachmentMaxBytes?: number;
-  attachmentOssBucket?: string;
-  attachmentOssRegion?: string;
-  attachmentOssEndpoint?: string;
-  attachmentOssInternal?: boolean;
-  attachmentOssAccessKeyId?: string;
-  attachmentOssAccessKeySecret?: string;
-  attachmentOssStsToken?: string;
-  attachmentOssTimeoutMs?: number;
+  attachmentR2AccountId?: string;
+  attachmentR2Bucket?: string;
+  attachmentR2Endpoint?: string;
+  attachmentR2AccessKeyId?: string;
+  attachmentR2SecretAccessKey?: string;
+  attachmentR2TimeoutMs?: number;
   templateArtifactRoot?: string;
   internalServiceToken?: string;
   templateArtifactMaxBytes?: number;
@@ -78,14 +74,14 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     throw new Error('AGENT_SERVICE_INTERNAL_TOKEN is required in production');
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
     throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
-  if (env.ATTACHMENT_STORAGE_DRIVER === 'oss') {
+  if (env.ATTACHMENT_STORAGE_DRIVER === 'r2') {
     for (const [name, value] of [
-      ['ATTACHMENT_OSS_BUCKET', env.ATTACHMENT_OSS_BUCKET],
-      ['ATTACHMENT_OSS_REGION', env.ATTACHMENT_OSS_REGION],
-      ['ATTACHMENT_OSS_ACCESS_KEY_ID', env.ATTACHMENT_OSS_ACCESS_KEY_ID],
-      ['ATTACHMENT_OSS_ACCESS_KEY_SECRET', env.ATTACHMENT_OSS_ACCESS_KEY_SECRET],
+      ['ATTACHMENT_R2_ACCOUNT_ID', env.ATTACHMENT_R2_ACCOUNT_ID],
+      ['ATTACHMENT_R2_BUCKET', env.ATTACHMENT_R2_BUCKET],
+      ['ATTACHMENT_R2_ACCESS_KEY_ID', env.ATTACHMENT_R2_ACCESS_KEY_ID],
+      ['ATTACHMENT_R2_SECRET_ACCESS_KEY', env.ATTACHMENT_R2_SECRET_ACCESS_KEY],
     ] as const) {
-      if (!value) throw new Error(`${name} is required when ATTACHMENT_STORAGE_DRIVER=oss`);
+      if (!value) throw new Error(`${name} is required when ATTACHMENT_STORAGE_DRIVER=r2`);
     }
   }
   const parsed = configSchema.parse({
@@ -97,14 +93,12 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     attachmentStorageDriver: env.ATTACHMENT_STORAGE_DRIVER,
     attachmentStorageRoot: env.ATTACHMENT_STORAGE_ROOT,
     attachmentMaxBytes: env.ATTACHMENT_MAX_BYTES,
-    attachmentOssBucket: env.ATTACHMENT_OSS_BUCKET,
-    attachmentOssRegion: env.ATTACHMENT_OSS_REGION,
-    attachmentOssEndpoint: env.ATTACHMENT_OSS_ENDPOINT,
-    attachmentOssInternal: env.ATTACHMENT_OSS_INTERNAL,
-    attachmentOssAccessKeyId: env.ATTACHMENT_OSS_ACCESS_KEY_ID,
-    attachmentOssAccessKeySecret: env.ATTACHMENT_OSS_ACCESS_KEY_SECRET,
-    attachmentOssStsToken: env.ATTACHMENT_OSS_STS_TOKEN,
-    attachmentOssTimeoutMs: env.ATTACHMENT_OSS_TIMEOUT_MS,
+    attachmentR2AccountId: env.ATTACHMENT_R2_ACCOUNT_ID,
+    attachmentR2Bucket: env.ATTACHMENT_R2_BUCKET,
+    attachmentR2Endpoint: env.ATTACHMENT_R2_ENDPOINT,
+    attachmentR2AccessKeyId: env.ATTACHMENT_R2_ACCESS_KEY_ID,
+    attachmentR2SecretAccessKey: env.ATTACHMENT_R2_SECRET_ACCESS_KEY,
+    attachmentR2TimeoutMs: env.ATTACHMENT_R2_TIMEOUT_MS,
     modelProvider: env.AGENT_MODEL_PROVIDER,
     modelId: env.AGENT_MODEL_ID,
     modelAuthPath: env.AGENT_MODEL_AUTH_PATH,

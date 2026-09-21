@@ -46,17 +46,15 @@ const templatePublisher = new TemplatePublishingService(
 const attachmentStorage = createAttachmentStorage({
   driver: config.attachmentStorageDriver ?? 'local',
   root: config.attachmentStorageRoot ?? path.join(config.agentDataRoot, 'attachments'),
-  ...((config.attachmentStorageDriver ?? 'local') === 'oss'
+  ...((config.attachmentStorageDriver ?? 'local') === 'r2'
     ? {
-        oss: {
-          bucket: config.attachmentOssBucket!,
-          region: config.attachmentOssRegion!,
-          accessKeyId: config.attachmentOssAccessKeyId!,
-          accessKeySecret: config.attachmentOssAccessKeySecret!,
-          ...(config.attachmentOssStsToken ? { stsToken: config.attachmentOssStsToken } : {}),
-          ...(config.attachmentOssEndpoint ? { endpoint: config.attachmentOssEndpoint } : {}),
-          internal: config.attachmentOssInternal,
-          timeoutMs: config.attachmentOssTimeoutMs,
+        r2: {
+          accountId: config.attachmentR2AccountId!,
+          bucket: config.attachmentR2Bucket!,
+          accessKeyId: config.attachmentR2AccessKeyId!,
+          secretAccessKey: config.attachmentR2SecretAccessKey!,
+          ...(config.attachmentR2Endpoint ? { endpoint: config.attachmentR2Endpoint } : {}),
+          timeoutMs: config.attachmentR2TimeoutMs,
         },
       }
     : {}),
