@@ -12,7 +12,12 @@ import {
   type SetStateAction,
 } from 'react';
 import { useTranslations } from 'next-intl';
-import type { AgentEnvelope, AgentEvent, AttachmentRef, PreviewCapability } from '@cloudcrane/agent-protocol';
+import type {
+  AgentEnvelope,
+  AgentEvent,
+  AttachmentRef,
+  PreviewCapability,
+} from '@cloudcrane/agent-protocol';
 import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
@@ -89,6 +94,7 @@ export function AgentWorkbenchContent({
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
   const [error, setError] = useState<WorkbenchError | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
@@ -542,7 +548,16 @@ export function AgentWorkbenchContent({
       queueConversation(
         {
           type: 'user.added',
-          payload: { message: { id: requestId, requestId, role: 'user', text, attachments, status: 'pending' } },
+          payload: {
+            message: {
+              id: requestId,
+              requestId,
+              role: 'user',
+              text,
+              attachments,
+              status: 'pending',
+            },
+          },
         },
         true,
       );
@@ -583,16 +598,26 @@ export function AgentWorkbenchContent({
 
   function selectAttachments(files: File[]) {
     if (!currentSessionId) return;
+    const selectedFiles = files.slice(0, 8 - attachments.length);
+    if (selectedFiles.length === 0) return;
     setAttachmentsUploading(true);
-    const uploads = files.slice(0, 8 - attachments.length).map((file) =>
+    setUploadingAttachmentNames(selectedFiles.map((file) => file.name));
+    const uploads = selectedFiles.map((file) =>
       uploadAttachment(websiteId, currentSessionId, file),
     );
-    void Promise.allSettled(uploads).then((results) => {
-      const uploaded = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
-      if (uploaded.length) setAttachments((current) => [...current, ...uploaded]);
-      if (results.some((result) => result.status === 'rejected'))
-        setError(toWorkbenchError('command', undefined, t('operationIncomplete')));
-    }).finally(() => setAttachmentsUploading(false));
+    void Promise.allSettled(uploads)
+      .then((results) => {
+        const uploaded = results.flatMap((result) =>
+          result.status === 'fulfilled' ? [result.value] : [],
+        );
+        if (uploaded.length) setAttachments((current) => [...current, ...uploaded]);
+        if (results.some((result) => result.status === 'rejected'))
+          setError(toWorkbenchError('command', undefined, t('operationIncomplete')));
+      })
+      .finally(() => {
+        setUploadingAttachmentNames([]);
+        setAttachmentsUploading(false);
+      });
   }
 
   useEffect(() => {
@@ -968,8 +993,11 @@ export function AgentWorkbenchContent({
           onInteractionCancel={cancelInteraction}
           onReferenceUpload={uploadReferenceFile}
           attachments={attachments}
+          uploadingAttachmentNames={uploadingAttachmentNames}
           onAttachmentSelect={selectAttachments}
-          onAttachmentRemove={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
+          onAttachmentRemove={(id) =>
+            setAttachments((current) => current.filter((item) => item.id !== id))
+          }
         />
         {previewOpen ? (
           <WorkspaceResizeHandle

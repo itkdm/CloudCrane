@@ -39,6 +39,7 @@ type ChatPanelProps = {
   onCompact?: () => void;
   contextUsage?: ContextUsage | null;
   attachments?: AttachmentRef[];
+  uploadingAttachmentNames?: string[];
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
 };
@@ -68,6 +69,7 @@ export function ChatPanel({
   onCompact,
   contextUsage,
   attachments = [],
+  uploadingAttachmentNames = [],
   onAttachmentSelect,
   onAttachmentRemove,
 }: ChatPanelProps) {
@@ -158,6 +160,7 @@ export function ChatPanel({
         onSubmit={onSubmit}
         onStop={onStop}
         attachments={attachments}
+        uploadingAttachmentNames={uploadingAttachmentNames}
         onAttachmentSelect={onAttachmentSelect}
         onAttachmentRemove={onAttachmentRemove}
       />

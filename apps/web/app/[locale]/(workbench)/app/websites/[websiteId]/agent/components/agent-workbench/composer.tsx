@@ -11,6 +11,7 @@ type ComposerProps = {
   onSubmit: () => void;
   onStop: () => void;
   attachments?: AttachmentRef[];
+  uploadingAttachmentNames?: string[];
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
 };
@@ -23,6 +24,7 @@ export function Composer({
   onSubmit,
   onStop,
   attachments = [],
+  uploadingAttachmentNames = [],
   onAttachmentSelect,
   onAttachmentRemove,
 }: ComposerProps) {
@@ -41,12 +43,28 @@ export function Composer({
   return (
     <div className="composer-wrap">
       <div className="composer-box">
-        {attachments.length > 0 ? (
-          <div className="composer-attachments" aria-label="Attachments">
+        {attachments.length > 0 || uploadingAttachmentNames.length > 0 ? (
+          <div
+            className="composer-attachments"
+            aria-label={
+              uploadingAttachmentNames.length > 0 ? t('attachmentUploading') : 'Attachments'
+            }
+            aria-live="polite"
+          >
+            {uploadingAttachmentNames.map((name, index) => (
+              <span className="composer-attachment is-uploading" key={`uploading-${name}-${index}`}>
+                <LoaderCircle className="spin" size={13} aria-hidden="true" />
+                <span>{name}</span>
+              </span>
+            ))}
             {attachments.map((attachment) => (
               <span className="composer-attachment" key={attachment.id}>
                 <span>{attachment.name}</span>
-                <button type="button" onClick={() => onAttachmentRemove?.(attachment.id)} aria-label={`Remove ${attachment.name}`}>
+                <button
+                  type="button"
+                  onClick={() => onAttachmentRemove?.(attachment.id)}
+                  aria-label={`Remove ${attachment.name}`}
+                >
                   <X size={13} aria-hidden="true" />
                 </button>
               </span>

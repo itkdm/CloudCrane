@@ -226,6 +226,7 @@
     "loadingConversation": "正在加载对话…",
     "promptPlaceholder": "描述你想修改的网站…",
     "promptLabel": "描述你想修改的网站",
+    "attachmentUploading": "正在上传附件…",
     "stop": "停止",
     "send": "发送",
     "sessions": "对话",

@@ -798,6 +798,10 @@
   font-size: 11px;
 }
 
+.composer-attachment.is-uploading {
+  color: var(--cc-text-secondary);
+}
+
 .composer-attachment span {
   overflow: hidden;
   text-overflow: ellipsis;

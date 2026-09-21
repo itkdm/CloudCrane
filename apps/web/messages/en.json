@@ -226,6 +226,7 @@
     "loadingConversation": "Loading conversation…",
     "promptPlaceholder": "Describe what you want to change…",
     "promptLabel": "Describe the website change",
+    "attachmentUploading": "Uploading attachment…",
     "stop": "Stop",
     "send": "Send",
     "sessions": "Conversations",
