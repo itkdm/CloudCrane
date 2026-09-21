@@ -81,7 +81,7 @@ type WebsiteStore = {
   findWorkspaceId?(websiteId: string): Promise<string | null>;
   findWorkspace?(websiteId: string): Promise<{ id: string; status: string } | null>;
   findPreviewSlug?(websiteId: string): Promise<string | null>;
-  deleteWebsite?(websiteId: string): Promise<boolean>;
+  deleteWebsite(websiteId: string): Promise<boolean>;
 };
 
 type RuntimeClient = {
@@ -91,7 +91,7 @@ type RuntimeClient = {
   reconcileBootstrap(): Promise<boolean>;
   configureAuthorization(sn: string): Promise<{ status: string }>;
   verifyAuthorization(canonicalHost: string): Promise<boolean>;
-  destroy?(): Promise<void>;
+  destroy?(idempotencyKey?: string): Promise<void>;
   applyTemplateSnapshot?(referenceId: string): Promise<{ status: string }>;
 };
 
@@ -199,22 +199,65 @@ export async function createWebsite(
   const websiteId = randomUUID();
   const workspaceId = randomUUID();
   const logger = createLogger('web');
-  const created = await dependencies.store.persistDesiredState({
-    websiteId,
-    workspaceId,
-    name,
-    ownerId: dependencies.ownerId,
-    ...(dependencies.template ? { template: dependencies.template } : {}),
-  });
+  let created: PublicWebsite;
+  try {
+    created = await dependencies.store.persistDesiredState({
+      websiteId,
+      workspaceId,
+      name,
+      ownerId: dependencies.ownerId,
+      ...(dependencies.template ? { template: dependencies.template } : {}),
+    });
+  } catch (error) {
+    try {
+      await dependencies.store.deleteWebsite(websiteId);
+    } catch (cleanupError) {
+      const logger = createLogger('web');
+      logger.error(
+        {
+          websiteId,
+          workspaceId,
+          errorType:
+            cleanupError instanceof Error ? cleanupError.constructor.name : typeof cleanupError,
+        },
+        'website persistence failed and compensating cleanup did not complete',
+      );
+    }
+    throw error;
+  }
+  let runtime: RuntimeClient | undefined;
   const failed = async (status: string, error?: unknown) => {
-    await dependencies.store.updateWebsiteStatus(websiteId, status);
-    if (dependencies.template)
-      await dependencies.store.updateTemplateAttachment?.({
-        websiteId,
-        status: 'failed',
-        errorCode: error instanceof Error ? error.name : 'PROVISIONING_FAILED',
-        errorMessage: error instanceof Error ? error.message : 'website provisioning failed',
-      });
+    let statusUpdateError: unknown;
+    try {
+      await dependencies.store.updateWebsiteStatus(websiteId, status);
+    } catch (updateError) {
+      statusUpdateError = updateError;
+    }
+    if (dependencies.template) {
+      try {
+        await dependencies.store.updateTemplateAttachment?.({
+          websiteId,
+          status: 'failed',
+          errorCode: error instanceof Error ? error.name : 'PROVISIONING_FAILED',
+          errorMessage: error instanceof Error ? error.message : 'website provisioning failed',
+        });
+      } catch (attachmentError) {
+        statusUpdateError ??= attachmentError;
+      }
+    }
+    if (statusUpdateError) {
+      logger.warn(
+        {
+          websiteId,
+          workspaceId,
+          errorType:
+            statusUpdateError instanceof Error
+              ? statusUpdateError.constructor.name
+              : typeof statusUpdateError,
+        },
+        'website provisioning failure status could not be persisted before cleanup',
+      );
+    }
     logger.warn(
       {
         websiteId,
@@ -224,10 +267,39 @@ export async function createWebsite(
       },
       'website provisioning did not complete',
     );
+
+    let cleanupError: unknown;
+    if (runtime?.destroy) {
+      try {
+        await runtime.destroy(`website-provisioning-cleanup-${websiteId}`);
+      } catch (destroyError) {
+        cleanupError ??= destroyError;
+      }
+    }
+    if (!cleanupError) {
+      try {
+        const deleted = await dependencies.store.deleteWebsite(websiteId);
+        if (!deleted)
+          cleanupError = new Error('failed website record was not found during cleanup');
+      } catch (deleteError) {
+        cleanupError = deleteError;
+      }
+    }
+    if (cleanupError) {
+      logger.error(
+        {
+          websiteId,
+          workspaceId,
+          errorType:
+            cleanupError instanceof Error ? cleanupError.constructor.name : typeof cleanupError,
+        },
+        'website provisioning failed and cleanup did not complete',
+      );
+      throw cleanupError;
+    }
     return { website: { ...created, status }, provisioned: false };
   };
 
-  let runtime: RuntimeClient;
   try {
     runtime = dependencies.runtime({ websiteId, workspaceId });
   } catch (error) {
@@ -249,7 +321,11 @@ export async function createWebsite(
   if (runtimeStatus !== 'running' && runtimeStatus !== 'created')
     return failed(WEBSITE_PROVISIONING_FAILED);
 
-  await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_INITIALIZING);
+  try {
+    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_INITIALIZING);
+  } catch (error) {
+    return failed(WEBSITE_INITIALIZATION_FAILED, error);
+  }
   try {
     let bootstrapStatus: string;
     try {
@@ -257,8 +333,12 @@ export async function createWebsite(
     } catch (error) {
       if (!(error instanceof WorkspaceClientError) || error.code !== 'UNKNOWN_RESULT')
         return failed(WEBSITE_INITIALIZATION_FAILED, error);
-      if (!(await runtime.reconcileBootstrap()))
-        return failed(WEBSITE_INITIALIZATION_FAILED, error);
+      try {
+        if (!(await runtime.reconcileBootstrap()))
+          return failed(WEBSITE_INITIALIZATION_FAILED, error);
+      } catch (reconciliationError) {
+        return failed(WEBSITE_INITIALIZATION_FAILED, reconciliationError);
+      }
       bootstrapStatus = 'RECONCILED';
     }
     if (
@@ -276,14 +356,22 @@ export async function createWebsite(
       new Error('template attachment is not configured'),
     );
   if (dependencies.template && dependencies.attachTemplate) {
-    const claimed = await dependencies.store.updateTemplateAttachment?.({
-      websiteId,
-      status: 'materializing',
-      incrementAttempt: true,
-      expectedStatus: 'pending',
-    });
+    let claimed: number | boolean | void;
+    try {
+      claimed = await dependencies.store.updateTemplateAttachment?.({
+        websiteId,
+        status: 'materializing',
+        incrementAttempt: true,
+        expectedStatus: 'pending',
+      });
+    } catch (error) {
+      return failed(WEBSITE_TEMPLATE_ATTACH_FAILED, error);
+    }
     if (claimed === false)
-      throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
+      return failed(
+        WEBSITE_TEMPLATE_ATTACH_FAILED,
+        new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管'),
+      );
     const claimedAttempt = typeof claimed === 'number' ? claimed : undefined;
     let reference: { referenceId: string };
     try {
@@ -298,32 +386,46 @@ export async function createWebsite(
         await runtime.applyTemplateSnapshot(reference.referenceId);
       }
     } catch (error) {
-      const failed = await finalizeTemplateAttachment(dependencies.store, {
-        websiteId,
-        status: 'failed',
-        websiteStatus: WEBSITE_TEMPLATE_ATTACH_FAILED,
-        expectedAttemptCount: claimedAttempt,
-        errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
-        errorMessage: error instanceof Error ? error.message : 'template attachment failed',
-      });
-      if (!failed) throw error;
-      return {
-        website: { ...created, status: WEBSITE_TEMPLATE_ATTACH_FAILED },
-        provisioned: false,
-      };
+      try {
+        const finalized = await finalizeTemplateAttachment(dependencies.store, {
+          websiteId,
+          status: 'failed',
+          websiteStatus: WEBSITE_TEMPLATE_ATTACH_FAILED,
+          expectedAttemptCount: claimedAttempt,
+          errorCode: error instanceof Error ? error.name : 'TEMPLATE_ATTACH_FAILED',
+          errorMessage: error instanceof Error ? error.message : 'template attachment failed',
+        });
+        if (!finalized) throw error;
+      } catch (finalizeError) {
+        return failed(WEBSITE_TEMPLATE_ATTACH_FAILED, finalizeError);
+      }
+      return failed(WEBSITE_TEMPLATE_ATTACH_FAILED, error);
     }
-    const completed = await finalizeTemplateAttachment(dependencies.store, {
-      websiteId,
-      status: 'ready',
-      websiteStatus: WEBSITE_AUTHORIZATION_REQUIRED,
-      expectedAttemptCount: claimedAttempt,
-      referenceId: reference.referenceId,
-    });
+    let completed: boolean;
+    try {
+      completed = await finalizeTemplateAttachment(dependencies.store, {
+        websiteId,
+        status: 'ready',
+        websiteStatus: WEBSITE_AUTHORIZATION_REQUIRED,
+        expectedAttemptCount: claimedAttempt,
+        referenceId: reference.referenceId,
+      });
+    } catch (error) {
+      return failed(WEBSITE_TEMPLATE_ATTACH_FAILED, error);
+    }
     if (!completed)
-      throw new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管');
+      return failed(
+        WEBSITE_TEMPLATE_ATTACH_FAILED,
+        new WebsiteProvisioningError('PROVISIONING_FAILED', '模板应用已被其他任务接管'),
+      );
   }
-  if (!dependencies.template)
-    await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+  if (!dependencies.template) {
+    try {
+      await dependencies.store.updateWebsiteStatus(websiteId, WEBSITE_AUTHORIZATION_REQUIRED);
+    } catch (error) {
+      return failed(WEBSITE_INITIALIZATION_FAILED, error);
+    }
+  }
   return {
     website: { ...created, status: WEBSITE_AUTHORIZATION_REQUIRED },
     provisioned: true,
@@ -767,8 +869,8 @@ export function createProductionRuntime(websiteId: string, workspaceId: string):
       );
       return result.exitCode === 0;
     },
-    destroy: async () => {
-      await client.runtime.destroy({ idempotencyKey: `website-delete-${websiteId}` });
+    destroy: async (idempotencyKey = `website-delete-${websiteId}`) => {
+      await client.runtime.destroy({ idempotencyKey });
     },
     applyTemplateSnapshot: async (referenceId: string) => {
       const result = await exec('cloudcrane-apply-pboot-snapshot', [referenceId], 120_000);

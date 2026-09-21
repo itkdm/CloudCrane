@@ -177,7 +177,7 @@ export async function POST(request: Request) {
       });
       try {
         await finishAuditEvent(platform.db, auditId, {
-          status: result.provisioned ? 'SUCCESS' : 'UNKNOWN',
+          status: result.provisioned ? 'SUCCESS' : 'FAILED',
           durationMs: Date.now() - startedAt,
           resultSummary: { provisioned: result.provisioned, websiteId: result.website.id },
         });
@@ -193,8 +193,8 @@ export async function POST(request: Request) {
         );
         if (!result.provisioned)
           return NextResponse.json(
-            { error: { code: 'AUDIT_UNKNOWN', message: '操作失败，但审计结果暂时无法确认' } },
-            { status: 503 },
+            { error: { code: 'PROVISIONING_FAILED', message: '创建网站失败' } },
+            { status: 502 },
           );
       }
       return NextResponse.json(

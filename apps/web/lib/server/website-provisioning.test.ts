@@ -23,6 +23,7 @@ function store(overrides: Partial<Parameters<typeof createWebsite>[1]['store']> 
     persistDesiredState: vi.fn(async () => created),
     updateWebsiteStatus: vi.fn(async () => undefined),
     claimWebsiteAuthorization: vi.fn(async () => true),
+    deleteWebsite: vi.fn(async () => true),
     listWebsites: vi.fn(async () => [created]),
     ...overrides,
   };
@@ -39,6 +40,7 @@ describe('website provisioning foundation', () => {
     const persist = vi.fn(async () => {
       throw new Error('database unavailable');
     });
+    const deleteWebsite = vi.fn(async () => false);
     const runtime = vi.fn(() => ({
       create: vi.fn(),
       status: vi.fn(),
@@ -50,11 +52,12 @@ describe('website provisioning foundation', () => {
     await expect(
       createWebsite('站点', {
         ownerId: 'user-1',
-        store: store({ persistDesiredState: persist }),
+        store: store({ persistDesiredState: persist, deleteWebsite }),
         runtime,
       }),
     ).rejects.toThrow('database unavailable');
     expect(runtime).not.toHaveBeenCalled();
+    expect(deleteWebsite).toHaveBeenCalledOnce();
   });
 
   it('marks the website authorization_required after bootstrap', async () => {
@@ -329,11 +332,13 @@ describe('website provisioning foundation', () => {
     expect(updateWebsiteStatus).not.toHaveBeenCalled();
   });
 
-  it('retains records and marks a definite runtime failure', async () => {
+  it('cleans up the website and runtime after a definite runtime failure', async () => {
     const update = vi.fn(async () => undefined);
+    const destroy = vi.fn(async () => undefined);
+    const deleteWebsite = vi.fn(async () => true);
     const result = await createWebsite('站点', {
       ownerId: 'user-1',
-      store: store({ updateWebsiteStatus: update }),
+      store: store({ updateWebsiteStatus: update, deleteWebsite }),
       runtime: () => ({
         create: vi.fn(async () => {
           throw new WorkspaceClientError('RUNNER_UNAVAILABLE', 'runner unavailable');
@@ -343,10 +348,52 @@ describe('website provisioning foundation', () => {
         reconcileBootstrap: vi.fn(),
         configureAuthorization: vi.fn(),
         verifyAuthorization: vi.fn(),
+        destroy,
       }),
     });
     expect(result.website.status).toBe(WEBSITE_PROVISIONING_FAILED);
     expect(update).toHaveBeenCalledWith(expect.any(String), WEBSITE_PROVISIONING_FAILED);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(deleteWebsite).toHaveBeenCalledOnce();
+  });
+
+  it('deletes the website when runtime construction fails', async () => {
+    const deleteWebsite = vi.fn(async () => true);
+    await expect(
+      createWebsite('站点', {
+        ownerId: 'user-1',
+        store: store({ deleteWebsite }),
+        runtime: () => {
+          throw new Error('gateway configuration is required');
+        },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ provisioned: false }));
+    expect(deleteWebsite).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the failed record when runtime cleanup fails', async () => {
+    const deleteWebsite = vi.fn(async () => true);
+    const destroy = vi.fn(async () => {
+      throw new Error('runtime destroy unavailable');
+    });
+    await expect(
+      createWebsite('站点', {
+        ownerId: 'user-1',
+        store: store({ deleteWebsite }),
+        runtime: () => ({
+          create: vi.fn(async () => {
+            throw new WorkspaceClientError('RUNNER_UNAVAILABLE', 'runner unavailable');
+          }),
+          status: vi.fn(),
+          bootstrap: vi.fn(),
+          reconcileBootstrap: vi.fn(),
+          configureAuthorization: vi.fn(),
+          verifyAuthorization: vi.fn(),
+          destroy,
+        }),
+      }),
+    ).rejects.toThrow('runtime destroy unavailable');
+    expect(deleteWebsite).not.toHaveBeenCalled();
   });
 
   it('reconciles an unknown create result through runtime status', async () => {
