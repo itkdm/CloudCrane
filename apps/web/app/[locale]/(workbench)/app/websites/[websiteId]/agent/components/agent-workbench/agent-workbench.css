@@ -268,7 +268,7 @@
   min-height: 0;
   overflow: auto;
   padding: 28px clamp(22px, 4vw, 48px) 34px;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .empty-state {
@@ -1223,6 +1223,7 @@
 .message-viewport {
   min-height: 0;
   flex: 1 1 auto;
+  position: relative;
   overflow: auto;
   padding: 0 clamp(16px, 3vw, 30px);
   overscroll-behavior: contain;
@@ -1311,10 +1312,12 @@
 }
 
 .return-to-latest {
-  position: sticky;
+  position: absolute;
+  right: clamp(16px, 3vw, 30px);
   bottom: 12px;
+  z-index: 2;
   display: block;
-  margin: 0 0 0 auto;
+  margin: 0;
   border: 1px solid var(--cc-border);
   border-radius: 999px;
   padding: 7px 11px;

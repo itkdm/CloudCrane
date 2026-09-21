@@ -35,11 +35,29 @@ export function MessageList({
   const contentVersion = JSON.stringify({ turns, pendingPrompt, manualMaintenanceItems });
   const latestUserMessageId =
     turns.at(-1)?.userMessage.id ?? (pendingPrompt ? 'pending-initial-prompt' : undefined);
-  const { containerRef, endRef, onScroll, returnToLatest, showReturnToLatest } =
-    useConversationScroll(contentVersion, latestUserMessageId);
+  const {
+    containerRef,
+    endRef,
+    onScroll,
+    onWheel,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    returnToLatest,
+    showReturnToLatest,
+  } = useConversationScroll(contentVersion, latestUserMessageId);
 
   return (
-    <div ref={containerRef} className="message-viewport" onScroll={onScroll} aria-label={t('chat')}>
+    <div
+      ref={containerRef}
+      className="message-viewport"
+      onScroll={onScroll}
+      onWheel={(event) => onWheel(event.deltaY)}
+      onTouchStart={(event) => onTouchStart(event.touches[0]?.clientY ?? 0)}
+      onTouchMove={(event) => onTouchMove(event.touches[0]?.clientY ?? 0)}
+      onTouchEnd={onTouchEnd}
+      aria-label={t('chat')}
+    >
       <div className="message-list">
         {turns.length === 0 && pendingPrompt ? (
           <div className="conversation-turn pending-initial-turn">
