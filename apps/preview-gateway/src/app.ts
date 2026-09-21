@@ -123,7 +123,9 @@ export function buildPreviewGatewayApp(
             if (!isReadOnlyMethod(request.method) || isUnsafeSharedPath(request.url))
               return reply.code(403).send({ error: 'shared preview is read-only' });
             if (request.headers.upgrade?.toLowerCase() === 'websocket')
-              return reply.code(403).send({ error: 'shared preview does not support realtime access' });
+              return reply
+                .code(403)
+                .send({ error: 'shared preview does not support realtime access' });
           }
           reply.hijack();
           return proxyRequest(

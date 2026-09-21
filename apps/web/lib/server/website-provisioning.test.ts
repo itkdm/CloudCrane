@@ -22,6 +22,7 @@ function store(overrides: Partial<Parameters<typeof createWebsite>[1]['store']> 
   return {
     persistDesiredState: vi.fn(async () => created),
     updateWebsiteStatus: vi.fn(async () => undefined),
+    claimWebsiteAuthorization: vi.fn(async () => true),
     listWebsites: vi.fn(async () => [created]),
     ...overrides,
   };

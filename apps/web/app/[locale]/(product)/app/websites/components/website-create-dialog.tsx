@@ -41,7 +41,7 @@ export function WebsiteCreateDialog({
         body: JSON.stringify({ name, ...(template ? { templateId: template.id } : {}) }),
       });
       const payload = (await response.json()) as CreatedWebsite | { error?: { message?: string } };
-      if (!('id' in payload)) {
+      if (!response.ok || !('id' in payload)) {
         throw new Error(('error' in payload && payload.error?.message) || t('createError'));
       }
       setName('');

@@ -196,6 +196,7 @@
     "initializing": "正在初始化网站…",
     "initialization_failed": "网站初始化失败",
     "authorization_required": "PbootCMS 待授权",
+    "authorizing": "正在验证 PbootCMS 授权…",
     "template_attach_failed": "模板应用失败",
     "provisioning_failed": "创建失败",
     "deleting": "正在删除网站…",

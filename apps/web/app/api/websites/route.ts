@@ -19,10 +19,12 @@ import { auth } from '../../../lib/server/auth.js';
 import { attachTemplateReference } from '../../../lib/server/template-attachment.js';
 import { createTemplateCatalog, TEMPLATE_PUBLISHED } from '../../../lib/server/template-catalog.js';
 import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
-import { getActiveTraceContext } from '@cloudcrane/shared';
+import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../lib/server/observability.js';
 
 export const runtime = 'nodejs';
+
+const logger = createLogger('web.api.websites');
 
 export async function GET(request: Request) {
   return withWebRequestContext(request, 'GET /api/websites', async () => {
@@ -180,10 +182,20 @@ export async function POST(request: Request) {
           resultSummary: { provisioned: result.provisioned, websiteId: result.website.id },
         });
       } catch {
-        return NextResponse.json(
-          { error: { code: 'AUDIT_UNKNOWN', message: '网站已处理，但审计结果暂时无法确认' } },
-          { status: 503 },
+        logger.error(
+          {
+            event: 'audit.finalization.failed',
+            operation: 'website.create',
+            websiteId: result.website.id,
+            outcome: result.provisioned ? 'business_succeeded' : 'business_failed',
+          },
+          'website creation completed but audit finalization failed',
         );
+        if (!result.provisioned)
+          return NextResponse.json(
+            { error: { code: 'AUDIT_UNKNOWN', message: '操作失败，但审计结果暂时无法确认' } },
+            { status: 503 },
+          );
       }
       return NextResponse.json(
         {

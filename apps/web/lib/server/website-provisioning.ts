@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import {
   createPlatformDb,
   template,
@@ -18,6 +18,8 @@ export const WEBSITE_PROVISIONING_FAILED = 'provisioning_failed';
 export const WEBSITE_INITIALIZING = 'initializing';
 export const WEBSITE_INITIALIZATION_FAILED = 'initialization_failed';
 export const WEBSITE_AUTHORIZATION_REQUIRED = 'authorization_required';
+export const WEBSITE_AUTHORIZING = 'authorizing';
+export const WEBSITE_AUTHORIZING_STALE_AFTER_MS = 5 * 60 * 1000;
 export const WEBSITE_TEMPLATE_ATTACH_FAILED = 'template_attach_failed';
 export const TEMPLATE_ATTACHMENT_STALE_AFTER_MS = 10 * 60 * 1000;
 
@@ -43,6 +45,7 @@ type WebsiteStore = {
     };
   }): Promise<PublicWebsite>;
   updateWebsiteStatus(websiteId: string, status: string): Promise<void>;
+  claimWebsiteAuthorization(websiteId: string): Promise<boolean>;
   reconcileReadyTemplateAttachment?(websiteId: string): Promise<void>;
   finalizeTemplateAttachment?(input: {
     websiteId: string;
@@ -466,6 +469,29 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .update(website)
         .set({ status, updatedAt: new Date() })
         .where(eq(website.id as never, websiteId));
+    },
+    async claimWebsiteAuthorization(websiteId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const staleBefore = new Date(Date.now() - WEBSITE_AUTHORIZING_STALE_AFTER_MS);
+      const rows = await db
+        .update(website)
+        .set({ status: WEBSITE_AUTHORIZING, updatedAt: new Date() })
+        .where(
+          and(
+            eq(website.id as never, websiteId),
+            or(
+              eq(website.status as never, WEBSITE_AUTHORIZATION_REQUIRED),
+              and(
+                eq(website.status as never, WEBSITE_AUTHORIZING),
+                // A crashed request may leave the claim in authorizing; allow a later request to recover it.
+                lt(website.updatedAt as never, staleBefore),
+              ),
+            ),
+          ),
+        )
+        .returning({ id: website.id });
+      return rows.length > 0;
     },
     async listWebsites() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

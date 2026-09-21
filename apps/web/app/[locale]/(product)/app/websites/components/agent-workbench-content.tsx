@@ -121,6 +121,8 @@ export function AgentWorkbenchContent({
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
   const pendingInteractionRequestsRef = useRef(new Map<string, string>());
+  const pendingPromptRequestIdRef = useRef<string | undefined>(undefined);
+  const pendingPromptAckedRef = useRef(false);
   const initialPromptConsumedRef = useRef<string | undefined>(undefined);
   const [sessionSnapshotVersion, setSessionSnapshotVersion] = useState(0);
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
@@ -165,6 +167,20 @@ export function AgentWorkbenchContent({
     if (requestId) next.requestId = requestId;
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
   }, []);
+
+  const failPendingPrompt = useCallback(
+    (message: string, allowRecovery: boolean) => {
+      const requestId = pendingPromptRequestIdRef.current;
+      if (!requestId) return;
+      if (allowRecovery && pendingPromptAckedRef.current) return;
+      pendingPromptRequestIdRef.current = undefined;
+      pendingPromptAckedRef.current = false;
+      pendingSessionTitlesRef.current.delete(requestId);
+      queueConversation({ type: 'message.status', payload: { requestId, status: 'failed' } }, true);
+      setError(toWorkbenchError('connection', undefined, message));
+    },
+    [queueConversation],
+  );
 
   const respondInteraction = useCallback(
     (
@@ -500,6 +516,7 @@ export function AgentWorkbenchContent({
         empty: !text,
         missingSession: !currentSessionId,
         activeRun: Boolean(activeRunRef.current),
+        promptPending: Boolean(pendingPromptRequestIdRef.current),
         maintenance: hasRunningManualMaintenance(conversation),
       };
       if (Object.values(blocked).some(Boolean)) {
@@ -509,6 +526,8 @@ export function AgentWorkbenchContent({
       const sessionId = currentSessionId;
       setError(undefined);
       const requestId = crypto.randomUUID();
+      pendingPromptRequestIdRef.current = requestId;
+      pendingPromptAckedRef.current = false;
       queueConversation(
         {
           type: 'user.added',
@@ -535,6 +554,7 @@ export function AgentWorkbenchContent({
           }),
         );
       } else {
+        pendingPromptRequestIdRef.current = undefined;
         pendingSessionTitlesRef.current.delete(requestId);
         queueConversation(
           { type: 'message.status', payload: { requestId, status: 'failed' } },
@@ -652,8 +672,14 @@ export function AgentWorkbenchContent({
         registerPreviewClient();
       };
 
-      ws.onclose = () => {
-        if (disposed) return;
+      ws.onclose = (event) => {
+        if (disposed || socket.current !== ws) return;
+        socket.current = null;
+        failPendingPrompt(t('connectionInterrupted'), event.code !== 1008);
+        if (event.code === 1008) {
+          return;
+        }
+
         retryTimer = setTimeout(connect, 1500);
       };
 
@@ -667,6 +693,7 @@ export function AgentWorkbenchContent({
         const message = parseAgentMessage(String(event.data));
         const projected = message ? parseAgentEvent(message) : null;
         if (!projected) return;
+        let pendingPromptToFailAfterSnapshot: string | undefined;
 
         if (projected.envelope.websiteId && projected.envelope.websiteId !== websiteId) return;
         if (projected.envelope.sessionId && projected.envelope.sessionId !== currentSessionId)
@@ -753,6 +780,8 @@ export function AgentWorkbenchContent({
 
         // Handle command acknowledgment for session titles
         if (projected.event.type === 'command.ack') {
+          if (projected.envelope.requestId === pendingPromptRequestIdRef.current)
+            pendingPromptAckedRef.current = true;
           pendingInteractionRequestsRef.current.delete(projected.envelope.requestId);
           const pendingTitle = pendingSessionTitlesRef.current.get(projected.envelope.requestId);
           if (pendingTitle) {
@@ -765,6 +794,8 @@ export function AgentWorkbenchContent({
         }
 
         if (projected.event.type === 'command.error') {
+          if (projected.envelope.requestId === pendingPromptRequestIdRef.current)
+            pendingPromptRequestIdRef.current = undefined;
           const interactionId = pendingInteractionRequestsRef.current.get(
             projected.envelope.requestId,
           );
@@ -781,6 +812,19 @@ export function AgentWorkbenchContent({
           pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
         }
 
+        if (projected.event.type === 'run.started' || projected.event.type === 'run.settled') {
+          pendingPromptRequestIdRef.current = undefined;
+          pendingPromptAckedRef.current = false;
+        }
+
+        if (projected.event.type === 'session.snapshot') {
+          const pendingRequestId = pendingPromptRequestIdRef.current;
+          const activePromptRequestId = projected.event.payload.activeRun?.promptRequestId;
+          if (pendingRequestId && activePromptRequestId !== pendingRequestId) {
+            pendingPromptToFailAfterSnapshot = pendingRequestId;
+          }
+        }
+
         handleEvent(
           projected.event,
           projected.envelope,
@@ -791,6 +835,7 @@ export function AgentWorkbenchContent({
           schedulePreviewRefresh,
           markPreviewDirty,
         );
+        if (pendingPromptToFailAfterSnapshot) failPendingPrompt(t('connectionInterrupted'), false);
       };
     };
 
@@ -812,6 +857,7 @@ export function AgentWorkbenchContent({
     flushConversation,
     schedulePreviewRefresh,
     markPreviewDirty,
+    failPendingPrompt,
     setRunIdState,
     t,
   ]);

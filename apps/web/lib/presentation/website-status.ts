@@ -4,6 +4,7 @@ export const WEBSITE_STATUSES = [
   'initializing',
   'initialization_failed',
   'authorization_required',
+  'authorizing',
   'template_attach_failed',
   'provisioning_failed',
 ] as const;

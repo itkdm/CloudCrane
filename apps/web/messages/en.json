@@ -196,6 +196,7 @@
     "initializing": "Initializing website…",
     "initialization_failed": "Website initialization failed",
     "authorization_required": "PbootCMS authorization required",
+    "authorizing": "Verifying PbootCMS authorization…",
     "template_attach_failed": "Template application failed",
     "provisioning_failed": "Creation failed",
     "deleting": "Deleting website…",

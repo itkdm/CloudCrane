@@ -3,13 +3,18 @@ import { assertSameOrigin, AuthorizationError, requireWebsiteAccess } from '@clo
 import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
 import { auth, authDb } from '../../../../../lib/server/auth.js';
 import {
+  canConfigurePbootAuthorization,
   configurePbootAuthorization,
+  WEBSITE_AUTHORIZING,
+  WEBSITE_AUTHORIZING_STALE_AFTER_MS,
   PbootAuthorizationError,
 } from '../../../../../lib/server/pboot-authorization.js';
-import { getActiveTraceContext } from '@cloudcrane/shared';
+import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../../../lib/server/observability.js';
 
 export const runtime = 'nodejs';
+
+const logger = createLogger('web.api.pboot-authorization');
 
 export async function POST(
   request: Request,
@@ -44,6 +49,22 @@ export async function POST(
           { status: 401 },
         );
       }
+      const canReclaimStaleAuthorization =
+        access.website.status === WEBSITE_AUTHORIZING &&
+        access.website.updatedAt.getTime() < Date.now() - WEBSITE_AUTHORIZING_STALE_AFTER_MS;
+      if (!canConfigurePbootAuthorization(access.website.status) && !canReclaimStaleAuthorization)
+        return NextResponse.json(
+          {
+            error: {
+              code: 'INVALID_STATE',
+              message:
+                access.website.status === 'ready'
+                  ? '网站已经完成授权，无需重复配置'
+                  : `网站当前状态为 ${access.website.status}，暂时不能配置授权`,
+            },
+          },
+          { status: 409 },
+        );
       let payload: unknown;
       try {
         payload = await request.json();
@@ -86,11 +107,18 @@ export async function POST(
         });
         return NextResponse.json(result);
       } catch (error) {
-        if (operationCompleted)
-          return NextResponse.json(
-            { error: { code: 'AUDIT_UNKNOWN', message: '授权已处理，但审计结果暂时无法确认' } },
-            { status: 503 },
+        if (operationCompleted) {
+          logger.error(
+            {
+              event: 'audit.finalization.failed',
+              operation: 'pboot.authorization',
+              websiteId,
+              outcome: 'business_succeeded',
+            },
+            'Pboot authorization completed but audit finalization failed',
           );
+          return NextResponse.json({ status: 'ready' });
+        }
         try {
           await finishAuditEvent(authDb, auditId, {
             status: error instanceof PbootAuthorizationError ? 'FAILED' : 'UNKNOWN',
