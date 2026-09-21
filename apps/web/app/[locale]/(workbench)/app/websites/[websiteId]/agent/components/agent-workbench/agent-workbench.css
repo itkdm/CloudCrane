@@ -442,7 +442,24 @@
 .assistant-message-actions {
   display: flex;
   justify-content: flex-start;
+  align-items: center;
+  gap: 2px;
   margin-top: 4px;
+}
+
+.assistant-message-actions .message-time {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease;
+}
+
+.assistant-message:hover .assistant-message-actions .message-time,
+.assistant-message:focus-within .assistant-message-actions .message-time {
+  width: auto;
+  opacity: 1;
+  visibility: visible;
 }
 
 .markdown-body > :first-child {

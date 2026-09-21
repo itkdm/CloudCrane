@@ -95,11 +95,6 @@ export const AssistantMessage = memo(function AssistantMessage({
         )}
         {message.text ? (
           <div className="assistant-message-actions">
-            {formatMessageTime(message.timestamp) ? (
-              <time className="message-time" dateTime={new Date(message.timestamp!).toISOString()}>
-                {formatMessageTime(message.timestamp)}
-              </time>
-            ) : null}
             <button
               className="message-action-button"
               type="button"
@@ -113,6 +108,11 @@ export const AssistantMessage = memo(function AssistantMessage({
                 <Copy size={15} aria-hidden="true" />
               )}
             </button>
+            {formatMessageTime(message.timestamp) ? (
+              <time className="message-time" dateTime={new Date(message.timestamp!).toISOString()}>
+                {formatMessageTime(message.timestamp)}
+              </time>
+            ) : null}
           </div>
         ) : null}
       </div>
