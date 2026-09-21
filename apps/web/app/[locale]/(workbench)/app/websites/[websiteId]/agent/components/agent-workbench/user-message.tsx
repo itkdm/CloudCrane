@@ -7,7 +7,6 @@ export function UserMessage({ message }: { message: Message }) {
 
   return (
     <article className={`user-message ${message.status ?? ''}`}>
-      <div className="user-message-content">{message.text}</div>
       {message.status === 'failed' && (
         <span
           className="user-message-failed"
@@ -18,6 +17,7 @@ export function UserMessage({ message }: { message: Message }) {
           <CircleAlert size={15} aria-hidden="true" />
         </span>
       )}
+      <div className="user-message-content">{message.text}</div>
     </article>
   );
 }

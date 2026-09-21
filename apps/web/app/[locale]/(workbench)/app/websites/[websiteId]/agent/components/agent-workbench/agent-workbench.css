@@ -333,10 +333,8 @@
   align-items: flex-start;
   gap: 8px;
   margin: 0 0 22px auto;
-  border: 1px solid var(--cc-border-hover);
-  border-radius: 22px;
-  padding: 10px 16px;
-  background: var(--cc-surface-2);
+  padding: 0;
+  background: transparent;
   color: var(--cc-text);
   font-size: 13px;
   line-height: 1.55;
@@ -344,6 +342,11 @@
 
 .user-message-content {
   min-width: 0;
+  border: 1px solid var(--cc-border-hover);
+  border-radius: 22px;
+  padding: 10px 16px;
+  background: var(--cc-surface-2);
+  color: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -352,7 +355,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  margin-top: 2px;
+  margin-top: 12px;
   color: var(--cc-danger);
   white-space: nowrap;
 }
@@ -1731,12 +1734,6 @@
   margin-bottom: 9px;
 }
 
-/* Conversation presentation stays neutral; brand color remains for product actions. */
-.message-list .user-message {
-  border-color: var(--cc-border);
-  background: var(--cc-surface-2);
-}
-
 .message-list .markdown-body code {
   color: var(--cc-text);
 }
@@ -1806,9 +1803,9 @@
   color: var(--cc-conversation-muted);
 }
 
-.message-list .user-message {
-  background: var(--cc-conversation-surface-subtle);
+.message-list .user-message-content {
   border-color: var(--cc-conversation-border);
+  background: var(--cc-conversation-surface-subtle);
 }
 
 .message-list .execution-summary:hover,
