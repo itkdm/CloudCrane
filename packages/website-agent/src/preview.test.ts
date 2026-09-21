@@ -18,6 +18,16 @@ const observation: PreviewObservation = {
 };
 
 describe('Preview Agent tools', () => {
+  it('describes refresh as a user-facing batch operation', () => {
+    const tools = createPreviewTools(
+      { observe: vi.fn(), refresh: vi.fn(), navigate: vi.fn() },
+      () => undefined,
+    );
+    expect(tools.preview_refresh.description).toContain('coherent batch');
+    expect(tools.preview_refresh.description).toContain('visible to the user');
+    expect(tools.preview_refresh.description).toContain('Do not refresh after every');
+  });
+
   it('passes the active Run context to preview_refresh and returns observation', async () => {
     const refresh = vi.fn(async () => observation);
     const tools = createPreviewTools(

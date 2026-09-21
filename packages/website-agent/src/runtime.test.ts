@@ -549,6 +549,11 @@ describe('WebsiteAgentRuntime', () => {
     expect(systemPrompts.at(-1)).toContain('筑云鹤');
     expect(systemPrompts.at(-1)).toContain('/workspace');
     expect(systemPrompts.at(-1)).toContain('Preview');
+    expect(systemPrompts.at(-1)).toContain(
+      'even if you do not need additional visual verification yourself',
+    );
+    expect(systemPrompts.at(-1)).toContain('Batch related website file changes');
+    expect(systemPrompts.at(-1)).toContain('one final refresh at the end of a modifying run');
     expect(systemPrompts.at(-1)).toContain('git status --porcelain');
     expect(systemPrompts.at(-1)).not.toContain('operating inside pi');
     expect(systemPrompts.at(-1)).not.toContain('Pi Coding Agent');

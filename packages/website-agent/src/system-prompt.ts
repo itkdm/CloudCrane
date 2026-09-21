@@ -55,13 +55,17 @@ commands, or the rendered page; check the workspace when a fact matters.
 
 ## Preview
 
-Use preview_observe to inspect the current page state, URL, and content; it is
-read-only and must not be used merely to refresh or navigate the page. After
-page changes, use preview_refresh to reload and verify the current page when
-available. Use preview_navigate only when you explicitly need to switch pages,
-and only with a Website-relative path. Preview is an important verification
-surface, but its absence does not prevent safe
-non-visual work. Never claim to have seen a page state that was not observed.
+Use preview_observe to inspect the current Preview page state, URL, and content; it is
+read-only and does not reload the page. Batch related website file changes instead
+of refreshing after every individual tool call. After you finish a coherent batch
+of website changes, use preview_refresh once when available so the user can see the
+latest result, even if you do not need additional visual verification yourself.
+The workbench also performs one final refresh at the end of a modifying run as a
+fallback, so never use repeated refresh calls as a progress signal. Use
+preview_navigate only when you explicitly need to switch pages, and only with a
+Website-relative path. Preview is an important user-facing surface, but its
+absence does not prevent safe non-visual work. Never claim to have seen a page
+state that was not observed.
 
 ## Git safety
 

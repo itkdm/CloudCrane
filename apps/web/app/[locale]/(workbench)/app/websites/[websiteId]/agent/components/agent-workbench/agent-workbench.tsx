@@ -38,7 +38,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewStateWebsiteIdRef = useRef(websiteId);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const activeRunRef = useRef<string | undefined>(undefined);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const conversationRafRef = useRef<number | undefined>(undefined);
   const pendingConversationActionsRef = useRef<ConversationEvent[]>([]);
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
@@ -49,6 +48,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewEpochRef = useRef(0);
   const previewRefreshRunRef = useRef<string | undefined>(undefined);
   const previewRefreshGenerationRef = useRef<number | undefined>(undefined);
+  const previewSettledRefreshRunsRef = useRef(new Set<string>());
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string>();
@@ -143,31 +143,29 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const markPreviewDirty = useCallback(() => {
     previewDirtyRef.current = true;
     previewDirtyGenerationRef.current += 1;
-    if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    const generation = previewDirtyGenerationRef.current;
-    refreshTimer.current = setTimeout(() => {
-      refreshTimer.current = undefined;
-      if (!previewDirtyRef.current || previewRefreshGenerationRef.current === generation) return;
-      void refreshPreview('background', previewDirtyGenerationRef.current);
-    }, 500);
-  }, [refreshPreview]);
+  }, []);
 
   const schedulePreviewRefresh = useCallback(
     (runId?: string) => {
       if (!previewDirtyRef.current) return;
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => {
-        refreshTimer.current = undefined;
-        const currentGeneration = previewDirtyGenerationRef.current;
-        if (
-          runId &&
-          previewRefreshRunRef.current === runId &&
-          previewRefreshGenerationRef.current === currentGeneration
-        )
-          return;
-        if (previewRefreshGenerationRef.current === currentGeneration) return;
-        void refreshPreview('background', currentGeneration, runId);
-      }, 500);
+      if (runId && activeRunRef.current && activeRunRef.current !== runId) return;
+      if (runId && previewSettledRefreshRunsRef.current.has(runId)) return;
+      const currentGeneration = previewDirtyGenerationRef.current;
+      if (
+        runId &&
+        previewRefreshRunRef.current === runId &&
+        previewRefreshGenerationRef.current === currentGeneration
+      )
+        return;
+      if (previewRefreshGenerationRef.current === currentGeneration) return;
+      if (runId) {
+        previewSettledRefreshRunsRef.current.add(runId);
+        if (previewSettledRefreshRunsRef.current.size > 32) {
+          const oldest = previewSettledRefreshRunsRef.current.values().next().value;
+          if (oldest) previewSettledRefreshRunsRef.current.delete(oldest);
+        }
+      }
+      void refreshPreview('background', currentGeneration, runId);
     },
     [refreshPreview],
   );
@@ -234,10 +232,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     setBridgeStatus('waiting');
     previewCapabilitiesRef.current = undefined;
     previewUrlPromiseRef.current = null;
-    if (refreshTimer.current) {
-      clearTimeout(refreshTimer.current);
-      refreshTimer.current = undefined;
-    }
     previewDirtyRef.current = false;
     previewDirtyGenerationRef.current += 1;
     previewRefreshRunRef.current = undefined;
@@ -255,7 +249,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   useEffect(
     () => () => {
       previewEpochRef.current += 1;
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
     },
     [],
   );
@@ -419,10 +412,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           const isExplicitRefresh =
             'operation' in projected.event.payload &&
             projected.event.payload.operation === 'refresh';
-          if (isExplicitRefresh && refreshTimer.current) {
-            clearTimeout(refreshTimer.current);
-            refreshTimer.current = undefined;
-          }
           void requestPreview(projected.event.payload)
             .then((payload) => {
               if (previewEpochRef.current !== previewEpoch) return;
@@ -443,7 +432,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
                 previewRefreshRunRef.current = undefined;
               if (isExplicitRefresh && previewRefreshRunRef.current === undefined)
                 previewRefreshGenerationRef.current = undefined;
-              if (isExplicitRefresh) schedulePreviewRefresh();
               sendCommand(
                 {
                   type: 'preview.response',

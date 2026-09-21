@@ -111,12 +111,12 @@ export function AgentWorkbenchContent({
   const pendingConversationQueue = useRef<ConversationEvent[]>([]);
   const activeRunRef = useRef<string | undefined>(undefined);
   const conversationRafRef = useRef<number | undefined>(undefined);
-  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const previewDirtyRef = useRef(false);
   const previewDirtyGenerationRef = useRef(0);
   const previewEpochRef = useRef(0);
   const previewRefreshRunRef = useRef<string | undefined>(undefined);
   const previewRefreshGenerationRef = useRef<number | undefined>(undefined);
+  const previewSettledRefreshRunsRef = useRef(new Set<string>());
   const previewOperationRef = useRef<Promise<unknown>>(Promise.resolve());
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
   const pendingSessionTitlesRef = useRef(new Map<string, { sessionId: string; title: string }>());
@@ -270,10 +270,6 @@ export function AgentWorkbenchContent({
     setPreview({ status: 'loading' });
     setBridgeStatus('waiting');
     previewCapabilitiesRef.current = undefined;
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = undefined;
-    }
     previewDirtyRef.current = false;
     previewDirtyGenerationRef.current += 1;
     previewRefreshRunRef.current = undefined;
@@ -291,7 +287,6 @@ export function AgentWorkbenchContent({
   useEffect(
     () => () => {
       previewEpochRef.current += 1;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     },
     [],
   );
@@ -351,31 +346,29 @@ export function AgentWorkbenchContent({
   const markPreviewDirty = useCallback(() => {
     previewDirtyRef.current = true;
     previewDirtyGenerationRef.current += 1;
-    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-    const generation = previewDirtyGenerationRef.current;
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = undefined;
-      if (!previewDirtyRef.current || previewRefreshGenerationRef.current === generation) return;
-      void refreshPreview('background', previewDirtyGenerationRef.current);
-    }, 500);
-  }, [refreshPreview]);
+  }, []);
 
   const schedulePreviewRefresh = useCallback(
     (runId?: string) => {
       if (!previewDirtyRef.current) return;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = setTimeout(() => {
-        refreshTimerRef.current = undefined;
-        const currentGeneration = previewDirtyGenerationRef.current;
-        if (
-          runId &&
-          previewRefreshRunRef.current === runId &&
-          previewRefreshGenerationRef.current === currentGeneration
-        )
-          return;
-        if (previewRefreshGenerationRef.current === currentGeneration) return;
-        void refreshPreview('background', currentGeneration, runId);
-      }, 500);
+      if (runId && activeRunRef.current && activeRunRef.current !== runId) return;
+      if (runId && previewSettledRefreshRunsRef.current.has(runId)) return;
+      const currentGeneration = previewDirtyGenerationRef.current;
+      if (
+        runId &&
+        previewRefreshRunRef.current === runId &&
+        previewRefreshGenerationRef.current === currentGeneration
+      )
+        return;
+      if (previewRefreshGenerationRef.current === currentGeneration) return;
+      if (runId) {
+        previewSettledRefreshRunsRef.current.add(runId);
+        if (previewSettledRefreshRunsRef.current.size > 32) {
+          const oldest = previewSettledRefreshRunsRef.current.values().next().value;
+          if (oldest) previewSettledRefreshRunsRef.current.delete(oldest);
+        }
+      }
+      void refreshPreview('background', currentGeneration, runId);
     },
     [refreshPreview],
   );
@@ -768,10 +761,6 @@ export function AgentWorkbenchContent({
           const isExplicitRefresh =
             'operation' in projected.event.payload &&
             projected.event.payload.operation === 'refresh';
-          if (isExplicitRefresh && refreshTimerRef.current) {
-            clearTimeout(refreshTimerRef.current);
-            refreshTimerRef.current = undefined;
-          }
           void requestPreview(projected.event.payload)
             .then((payload) => {
               if (previewEpochRef.current !== previewEpoch) return;
@@ -792,7 +781,6 @@ export function AgentWorkbenchContent({
                 previewRefreshRunRef.current = undefined;
               if (isExplicitRefresh && previewRefreshRunRef.current === undefined)
                 previewRefreshGenerationRef.current = undefined;
-              if (isExplicitRefresh) schedulePreviewRefresh();
               sendCommand(
                 {
                   type: 'preview.response',

@@ -50,7 +50,7 @@ export function createPreviewTools(
   const refresh = createPreviewTool(
     'preview_refresh',
     'Refresh the current user development Preview and observe it.',
-    'After changing page files, refresh Preview and use the returned observation to verify the result.',
+    'After completing a coherent batch of website changes, refresh the current user Preview once. This makes the latest website state visible to the user and returns an observation for verification. Do not refresh after every individual edit, write, or shell command. If no website files changed, use preview_observe instead. If Preview is unavailable or refresh fails, do not retry repeatedly or invent an observation.',
     Type.Object({}),
     async () => provider.refresh(requireContext(contextProvider)),
   );
