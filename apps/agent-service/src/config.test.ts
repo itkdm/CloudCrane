@@ -28,4 +28,25 @@ describe('agent service production configuration', () => {
     expect(config.referenceRoot).toContain('srv');
     expect(config.templateArtifactMaxBytes).toBe(524288000);
   });
+
+  it('requires complete OSS configuration when the OSS driver is selected', () => {
+    expect(() =>
+      loadAgentServiceConfig({
+        ATTACHMENT_STORAGE_DRIVER: 'oss',
+      }),
+    ).toThrow('ATTACHMENT_OSS_BUCKET is required when ATTACHMENT_STORAGE_DRIVER=oss');
+  });
+
+  it('parses the OSS internal endpoint flag without treating "false" as true', () => {
+    const config = loadAgentServiceConfig({
+      ATTACHMENT_STORAGE_DRIVER: 'oss',
+      ATTACHMENT_OSS_BUCKET: 'cloudcrane-test',
+      ATTACHMENT_OSS_REGION: 'oss-cn-hangzhou',
+      ATTACHMENT_OSS_ACCESS_KEY_ID: 'test-id',
+      ATTACHMENT_OSS_ACCESS_KEY_SECRET: 'test-secret',
+      ATTACHMENT_OSS_INTERNAL: 'false',
+    });
+
+    expect(config.attachmentOssInternal).toBe(false);
+  });
 });

@@ -10,5 +10,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude dist/** --exclude .next/**"
   },
-  "dependencies": {}
+  "dependencies": {
+    "ali-oss": "^6.23.0"
+  },
+  "devDependencies": {
+    "@types/ali-oss": "^6.23.3"
+  }
 }

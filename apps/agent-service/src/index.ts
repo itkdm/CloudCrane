@@ -46,6 +46,20 @@ const templatePublisher = new TemplatePublishingService(
 const attachmentStorage = createAttachmentStorage({
   driver: config.attachmentStorageDriver ?? 'local',
   root: config.attachmentStorageRoot ?? path.join(config.agentDataRoot, 'attachments'),
+  ...((config.attachmentStorageDriver ?? 'local') === 'oss'
+    ? {
+        oss: {
+          bucket: config.attachmentOssBucket!,
+          region: config.attachmentOssRegion!,
+          accessKeyId: config.attachmentOssAccessKeyId!,
+          accessKeySecret: config.attachmentOssAccessKeySecret!,
+          ...(config.attachmentOssStsToken ? { stsToken: config.attachmentOssStsToken } : {}),
+          ...(config.attachmentOssEndpoint ? { endpoint: config.attachmentOssEndpoint } : {}),
+          internal: config.attachmentOssInternal,
+          timeoutMs: config.attachmentOssTimeoutMs,
+        },
+      }
+    : {}),
 });
 const attachmentService = new ConversationAttachmentService(
   platform.db,

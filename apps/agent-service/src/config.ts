@@ -12,6 +12,17 @@ const configSchema = z.object({
   attachmentStorageDriver: z.enum(['local', 'oss']).default('local'),
   attachmentStorageRoot: z.string().min(1).optional(),
   attachmentMaxBytes: z.coerce.number().int().positive().default(20 * 1024 * 1024),
+  attachmentOssBucket: z.string().min(3).optional(),
+  attachmentOssRegion: z.string().min(1).optional(),
+  attachmentOssEndpoint: z.string().url().optional(),
+  attachmentOssInternal: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  attachmentOssAccessKeyId: z.string().min(1).optional(),
+  attachmentOssAccessKeySecret: z.string().min(1).optional(),
+  attachmentOssStsToken: z.string().min(1).optional(),
+  attachmentOssTimeoutMs: z.coerce.number().int().positive().default(60_000),
   modelProvider: z.string().min(1).optional(),
   modelId: z.string().min(1).optional(),
   modelAuthPath: z.string().min(1).optional(),
@@ -39,6 +50,8 @@ export type AgentServiceConfig = Omit<
   | 'attachmentStorageDriver'
   | 'attachmentStorageRoot'
   | 'attachmentMaxBytes'
+  | 'attachmentOssInternal'
+  | 'attachmentOssTimeoutMs'
   | 'templateArtifactRoot'
   | 'templateArtifactMaxBytes'
 > & {
@@ -46,6 +59,14 @@ export type AgentServiceConfig = Omit<
   attachmentStorageDriver?: 'local' | 'oss';
   attachmentStorageRoot?: string;
   attachmentMaxBytes?: number;
+  attachmentOssBucket?: string;
+  attachmentOssRegion?: string;
+  attachmentOssEndpoint?: string;
+  attachmentOssInternal?: boolean;
+  attachmentOssAccessKeyId?: string;
+  attachmentOssAccessKeySecret?: string;
+  attachmentOssStsToken?: string;
+  attachmentOssTimeoutMs?: number;
   templateArtifactRoot?: string;
   internalServiceToken?: string;
   templateArtifactMaxBytes?: number;
@@ -57,6 +78,16 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     throw new Error('AGENT_SERVICE_INTERNAL_TOKEN is required in production');
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
     throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
+  if (env.ATTACHMENT_STORAGE_DRIVER === 'oss') {
+    for (const [name, value] of [
+      ['ATTACHMENT_OSS_BUCKET', env.ATTACHMENT_OSS_BUCKET],
+      ['ATTACHMENT_OSS_REGION', env.ATTACHMENT_OSS_REGION],
+      ['ATTACHMENT_OSS_ACCESS_KEY_ID', env.ATTACHMENT_OSS_ACCESS_KEY_ID],
+      ['ATTACHMENT_OSS_ACCESS_KEY_SECRET', env.ATTACHMENT_OSS_ACCESS_KEY_SECRET],
+    ] as const) {
+      if (!value) throw new Error(`${name} is required when ATTACHMENT_STORAGE_DRIVER=oss`);
+    }
+  }
   const parsed = configSchema.parse({
     port: env.AGENT_SERVICE_PORT,
     webOrigin: env.WEB_ORIGIN ?? env.NEXT_PUBLIC_WEB_ORIGIN,
@@ -66,6 +97,14 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     attachmentStorageDriver: env.ATTACHMENT_STORAGE_DRIVER,
     attachmentStorageRoot: env.ATTACHMENT_STORAGE_ROOT,
     attachmentMaxBytes: env.ATTACHMENT_MAX_BYTES,
+    attachmentOssBucket: env.ATTACHMENT_OSS_BUCKET,
+    attachmentOssRegion: env.ATTACHMENT_OSS_REGION,
+    attachmentOssEndpoint: env.ATTACHMENT_OSS_ENDPOINT,
+    attachmentOssInternal: env.ATTACHMENT_OSS_INTERNAL,
+    attachmentOssAccessKeyId: env.ATTACHMENT_OSS_ACCESS_KEY_ID,
+    attachmentOssAccessKeySecret: env.ATTACHMENT_OSS_ACCESS_KEY_SECRET,
+    attachmentOssStsToken: env.ATTACHMENT_OSS_STS_TOKEN,
+    attachmentOssTimeoutMs: env.ATTACHMENT_OSS_TIMEOUT_MS,
     modelProvider: env.AGENT_MODEL_PROVIDER,
     modelId: env.AGENT_MODEL_ID,
     modelAuthPath: env.AGENT_MODEL_AUTH_PATH,
