@@ -105,3 +105,35 @@
 | CC-DATA-004 | Session lifecycle | Pi 文件与 DB 创建非原子 | 已完成补偿清理和故障测试 | 已修复并部署 |
 | CC-DATA-005 | Runtime recovery | stale AgentRun recovery 未启动 | 已接入首次 runtime 加载 | 全量启动恢复仍是后续候选 |
 | CC-DATA-003 | Attachment quota | 并发上传 TOCTOU | 两次 quota 查询与插入无锁 | 等待独立审查确认影响与可接受修复边界 |
+
+## Per-bug delivery evidence
+
+| ID | Severity | Fix commit | Regression test | Deployment / runtime evidence | DEVTOOLS MCP evidence | Independent review |
+| --- | --- | --- | --- | --- | --- | --- |
+| CC-SEC-001 | P1 | `c15fa39` | Preview config tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Security reviewer + batch fix reviewer |
+| CC-SEC-002 | P1 | `c15fa39` | Gateway config tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Security reviewer + batch fix reviewer |
+| CC-SEC-003 | P1 | `c15fa39` | Agent config/socket tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Security reviewer + batch fix reviewer |
+| CC-SEC-004 | P1 | `c15fa39` | Snapshot error-mapping tests | ECS build/restart; health 200 | Session requests inspected after deploy | Session-chain reviewer + batch fix reviewer |
+| CC-DATA-004 | P1 | `47b6e0b` | `packages/website-agent/src/runtime.test.ts` | ECS build/restart; health 200 | Website page and screenshot after deploy | Data/runtime reviewer |
+| CC-AGENT-001 | P1 | `47b6e0b` | Runtime-registry recovery tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Agent lifecycle reviewer |
+| CC-AGENT-002 | P1 | `47b6e0b` | Runtime shutdown-on-recovery-failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Agent lifecycle reviewer |
+| CC-DATA-002 | P1 | `c17ad17` | Attachment remove failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
+| CC-DATA-006 | P1 | `c17ad17` | Attachment cleanup CAS tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
+| CC-WEB-001 | P2 | `9f78be3` | `apps/web/lib/website-session-loading.test.ts` | ECS HEAD `9f78be3`; services 4101/4102/4103 = 200; Nginx test passed | Before: `template_attach_failed` website sessions request 404; after reload: only ready website request 200, no 404; screenshot captured | Independent final review requested; prior Web/session reviewers corroborated status boundary |
+
+## Final independent review record
+
+- Final Reviewer A: independent architecture/security/concurrency review dispatched to Codex task `01a0c241-44b2-7040-a986-5c78de3cce43`; no implementation changes were permitted.
+- Final Reviewer B: independent bug-count/evidence review dispatched to Codex task `01a0c241-45ad-7ae2-aa15-d313411babaa`; it is kept separate from the implementer path.
+- Audit-document reviewer: dispatched to Codex task `01a0c240-effb-7f53-b881-526a0cd5a1c0`; checked classification and evidence completeness.
+- The reviewers also surfaced additional creation-state/idempotency concerns. Those remain candidates or product/architecture decisions and are not counted as fixed bugs in the ten-item matrix above.
+
+## Final regression evidence
+
+- Local `pnpm exec turbo test --concurrency=1`: 21 package tasks / 36 Turbo tasks passed; Web: 15 test files / 92 tests passed.
+- Local `pnpm lint`: passed.
+- Local `pnpm typecheck`: passed.
+- Local targeted formatting for all changed files and audit documents: passed. Full repository `format:check` still reports 13 pre-existing files from earlier commits; none are changed by the final fix.
+- ECS production `pnpm build`: passed; all 21 build tasks passed.
+- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: `9f78be3`.
+- Final workspace: clean; no secrets or test artifacts were added.
