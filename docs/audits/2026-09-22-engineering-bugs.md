@@ -126,7 +126,7 @@
 | CC-DATA-002 | P1 | `c17ad17` | Attachment remove failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
 | CC-DATA-006 | P1 | `c17ad17` | Attachment cleanup CAS tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
 | CC-WEB-001 | P2 | `9f78be3` | `apps/web/lib/website-session-loading.test.ts` | ECS deployed at final audit revision; services 4101/4102/4103 = 200; Nginx test passed | Before: `template_attach_failed` website sessions request 404; after reload: only ready website request 200, no 404; screenshot captured | Independent final review requested; prior Web/session reviewers corroborated status boundary |
-| CC-WEB-002 | P1 | `978680f` | `apps/web/lib/website-creation-response.test.ts` | ECS HEAD `a827117`; services 4101/4102/4103 = 200; Nginx test passed | DEVTOOLS page reloaded with no new console errors; failure response contract covered by regression test | Final creation-flow reviewer identified the response-contract defect; fix adds a dedicated regression contract |
+| CC-WEB-002 | P1 | `978680f` | `apps/web/lib/website-creation-response.test.ts` | ECS final audit deployment; services 4101/4102/4103 = 200; Nginx test passed | DEVTOOLS page reloaded with no new console errors; failure response contract covered by regression test | Final creation-flow reviewer identified the response-contract defect; fix adds a dedicated regression contract |
 
 ## Final independent review record
 
@@ -142,5 +142,5 @@
 - Local `pnpm typecheck`: passed.
 - Local targeted formatting for all changed files and audit documents: passed. Full repository `format:check` still reports 13 pre-existing files from earlier commits; none are changed by the final fix.
 - ECS production `pnpm build`: passed; all 21 build tasks passed.
-- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: `a827117`.
-- Final workspace before deployment: contains only this audit-document update; no secrets or test artifacts were added.
+- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` were verified at the same revision after deployment.
+- Final workspace contains only tracked source and audit documentation; no secrets or test artifacts were added.
