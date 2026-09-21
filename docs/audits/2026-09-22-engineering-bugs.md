@@ -4,7 +4,7 @@
 
 ## 审计基线
 
-- Base: `23fa66d` (`main` 与 `origin/main` 对齐)
+- Base: `23fa66d`（审计开始时 `main` 与 `origin/main` 对齐）；当前审计 HEAD 见下方提交记录
 - 审计范围：Web、Agent Service、Workspace Gateway、Runner、Preview、附件、数据库与部署运行路径
 - 规则：先复现/证明，再修复；产品取舍不计入本表
 
@@ -21,6 +21,7 @@
 | CC-AGENT-002 | stale-run 恢复失败泄漏 runtime | E2E_VERIFIED | runtime-registry failure cleanup test; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
 | CC-DATA-002 | Attachment 删除失败后错误标记 deleted | E2E_VERIFIED | `apps/agent-service/src/infrastructure/attachment-service.test.ts`; commit `c17ad17`; ECS deploy and DEVTOOLS page/screenshot verified |
 | CC-DATA-006 | Expired attachment cleanup 竞争覆盖状态 | E2E_VERIFIED | `apps/agent-service/src/infrastructure/attachment-service.test.ts`; commit `c17ad17`; ECS deploy and DEVTOOLS page/screenshot verified |
+| CC-WEB-001 | 非 ready 网站仍请求 Agent sessions | E2E_VERIFIED | ECS `/api/websites` showed `template_attach_failed`; DEVTOOLS captured the resulting 404; `website-session-loading.test.ts`; deployed regression reload had no such request |
 
 ## Confirmed Bugs
 
@@ -87,6 +88,13 @@
 - Fix：抢占使用受影响行数 CAS；成功和失败回写都限定当前状态为 `deleting`，失败恢复为 `ready` 并记录可重试错误码。
 - Test：抢占失败时不删对象；成功和失败路径均覆盖两阶段更新。
 
+### CC-WEB-001 — 非 ready 网站仍请求 Agent sessions
+
+- Root cause：网站列表加载完成后，`UnifiedApp.loadWebsites` 对所有网站无条件调用 `listAgentSessions`；但 Agent sessions API 只对可进入工作区的 `ready` 网站提供服务。
+- Evidence：线上 `/api/websites` 返回 `e79c27f4-a331-424a-b58a-955a3340c79b` 状态为 `template_attach_failed`，随后 DEVTOOLS Network 捕获 `GET /agent/v1/websites/e79c27f4-a331-424a-b58a-955a3340c79b/sessions` 为 404，Console 同步出现 404 错误。
+- Fix：复用统一的 `canEnterWorkspace` 状态边界，只为 `ready` 网站加载 sessions；将状态判断抽为可测试的纯逻辑。
+- Test/Review：`apps/web/lib/website-session-loading.test.ts` 覆盖 `ready`、授权中、初始化和模板失败状态；独立子智能体审查修改；部署后 DEVTOOLS 重载确认非 ready 网站不再发起该请求，并保存页面截图。
+
 ## Candidates / Needs More Evidence
 
 | ID | 领域 | 候选问题 | 当前证据 | 下一步 |
@@ -96,3 +104,4 @@
 | CC-DATA-003 | Attachment quota | 并发上传 TOCTOU | 两次 quota 查询与插入无锁 | 设计事务/预留记录并补并发测试 |
 | CC-DATA-004 | Session lifecycle | Pi 文件与 DB 创建非原子 | 已完成补偿清理和故障测试 | 已修复并部署 |
 | CC-DATA-005 | Runtime recovery | stale AgentRun recovery 未启动 | 已接入首次 runtime 加载 | 全量启动恢复仍是后续候选 |
+| CC-DATA-003 | Attachment quota | 并发上传 TOCTOU | 两次 quota 查询与插入无锁 | 等待独立审查确认影响与可接受修复边界 |

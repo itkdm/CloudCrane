@@ -19,6 +19,7 @@ import { WorkspaceStart } from './components/workspace-start';
 import './websites.css';
 import { compareSessionsByActivity } from '@/lib/session-sorting';
 import { buildWorkspacePath } from '@/lib/workspace-route';
+import { canEnterWorkspace } from '@/lib/website-session-loading';
 
 export type WorkspaceView = 'websites' | 'templates';
 
@@ -70,10 +71,6 @@ function writeSidebarCollapsedPreference(collapsed: boolean): void {
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
   }
-}
-
-function canEnterWorkspace(website: Website | undefined): website is Website {
-  return website?.status === 'ready';
 }
 
 type GroupedSessions = {
@@ -143,7 +140,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       setWebsiteLoadState('success');
 
       const sessionResults = await Promise.allSettled(
-        websitesData.map(async (website) => {
+        websitesData.filter(canEnterWorkspace).map(async (website) => {
           const result = await listAgentSessions(website.id);
           return result.sessions.map((session) => ({
             ...session,
