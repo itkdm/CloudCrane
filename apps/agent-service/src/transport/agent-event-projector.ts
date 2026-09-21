@@ -135,7 +135,13 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
       return createAgentEnvelope({
         ...base,
         type: 'assistant.started',
-        payload: { messageId: startAssistantMessage(event, value.message), ...turnFields },
+        payload: {
+          messageId: startAssistantMessage(event, value.message),
+          ...(messageTimestamp(value.message) !== undefined
+            ? { timestamp: messageTimestamp(value.message) }
+            : {}),
+          ...turnFields,
+        },
       });
     case 'message_update': {
       if (!isAssistantMessage(value.message)) return null;
@@ -147,6 +153,9 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
             payload: {
               messageId: activeAssistantMessage(event, value.message),
               text: delta,
+              ...(messageTimestamp(value.message) !== undefined
+                ? { timestamp: messageTimestamp(value.message) }
+                : {}),
               ...turnFields,
             },
           })
@@ -160,6 +169,9 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
         payload: {
           messageId: activeAssistantMessage(event, value.message),
           text: extractText(value.message),
+          ...(messageTimestamp(value.message) !== undefined
+            ? { timestamp: messageTimestamp(value.message) }
+            : {}),
           ...turnFields,
         },
       });
@@ -261,6 +273,12 @@ function stableMessageId(message: unknown): string | undefined {
   if (typeof value.timestamp === 'number' && Number.isFinite(value.timestamp))
     return `pi:${stringValue(value.role) ?? 'message'}:${value.timestamp}`;
   return undefined;
+}
+
+function messageTimestamp(message: unknown): number | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const timestamp = (message as { timestamp?: unknown }).timestamp;
+  return typeof timestamp === 'number' && Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 function extractDelta(value: unknown): string {

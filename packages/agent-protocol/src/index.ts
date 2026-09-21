@@ -104,6 +104,7 @@ export const snapshotMessageSchema = z.object({
   id: z.string(),
   role: z.enum(['user', 'assistant', 'tool']),
   text: z.string(),
+  timestamp: z.number().finite().optional(),
   toolCallId: z.string().optional(),
   toolName: z.string().optional(),
   input: z.string().optional(),
@@ -233,6 +234,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     type: z.literal('assistant.started'),
     payload: z.object({
       messageId: z.string(),
+      timestamp: z.number().finite().optional(),
       turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
       turnId: z.string().optional(),
     }),
@@ -242,6 +244,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({
       messageId: z.string(),
       text: z.string(),
+      timestamp: z.number().finite().optional(),
       turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
       turnId: z.string().optional(),
     }),
@@ -251,6 +254,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({
       messageId: z.string(),
       text: z.string(),
+      timestamp: z.number().finite().optional(),
       turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
       turnId: z.string().optional(),
     }),

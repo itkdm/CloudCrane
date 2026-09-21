@@ -2,6 +2,7 @@ export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   text?: string;
+  timestamp?: number;
   toolCallId?: string;
   toolName?: string;
   toolInput?: string;
@@ -17,6 +18,7 @@ export type AssistantNarrativeStep = {
   kind: 'assistant';
   id: string;
   text: string;
+  timestamp?: number;
   status: 'streaming' | 'completed';
 };
 

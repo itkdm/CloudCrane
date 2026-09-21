@@ -4,6 +4,20 @@ import { useEffect, useState } from 'react';
 import { copyTextWithFallback } from '@/lib/website-authorization';
 import type { Message } from './types';
 
+function formatMessageTime(timestamp?: number): string | null {
+  if (timestamp === undefined) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return new Intl.DateTimeFormat(
+    undefined,
+    sameDay
+      ? { hour: '2-digit', minute: '2-digit' }
+      : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' },
+  ).format(date);
+}
+
 export function UserMessage({ message }: { message: Message }) {
   const t = useTranslations('workbench');
   const common = useTranslations('common');
@@ -36,6 +50,11 @@ export function UserMessage({ message }: { message: Message }) {
         <div className="user-message-content">{message.text}</div>
         {message.text ? (
           <div className="user-message-actions">
+            {formatMessageTime(message.timestamp) ? (
+              <time className="message-time" dateTime={new Date(message.timestamp!).toISOString()}>
+                {formatMessageTime(message.timestamp)}
+              </time>
+            ) : null}
             <button
               className="message-action-button"
               type="button"

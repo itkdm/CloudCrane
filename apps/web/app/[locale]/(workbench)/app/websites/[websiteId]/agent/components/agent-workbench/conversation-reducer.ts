@@ -92,9 +92,12 @@ export type ConversationEvent =
         traceId?: string;
       };
     }
-  | { type: 'assistant.started'; payload: { messageId: string } }
-  | { type: 'assistant.delta'; payload: { messageId: string; text: string } }
-  | { type: 'assistant.completed'; payload: { messageId: string; text: string } }
+  | { type: 'assistant.started'; payload: { messageId: string; timestamp?: number } }
+  | { type: 'assistant.delta'; payload: { messageId: string; text: string; timestamp?: number } }
+  | {
+      type: 'assistant.completed';
+      payload: { messageId: string; text: string; timestamp?: number };
+    }
   | { type: 'tool.started'; payload: { toolCallId: string; toolName: string; input?: string } }
   | { type: 'tool.updated'; payload: { toolCallId: string; toolName?: string; output?: string } }
   | {
@@ -230,6 +233,11 @@ export function conversationReducer(
       kind: 'assistant',
       id: event.payload.messageId,
       text: step?.text ?? '',
+      ...(event.payload.timestamp !== undefined
+        ? { timestamp: event.payload.timestamp }
+        : step?.timestamp !== undefined
+          ? { timestamp: step.timestamp }
+          : {}),
       status: step?.status === 'completed' ? 'completed' : 'streaming',
     }));
   if (event.type === 'assistant.delta')
@@ -240,6 +248,11 @@ export function conversationReducer(
             kind: 'assistant',
             id: event.payload.messageId,
             text: appendText(step?.text, boundText(event.payload.text)),
+            ...(event.payload.timestamp !== undefined
+              ? { timestamp: event.payload.timestamp }
+              : step?.timestamp !== undefined
+                ? { timestamp: step.timestamp }
+                : {}),
             status: 'streaming',
           },
     );
@@ -248,6 +261,7 @@ export function conversationReducer(
       kind: 'assistant',
       id: event.payload.messageId,
       text: boundText(event.payload.text),
+      ...(event.payload.timestamp !== undefined ? { timestamp: event.payload.timestamp } : {}),
       status: 'completed',
     }));
 
@@ -595,6 +609,7 @@ function snapshotTurn(
           kind: 'assistant',
           id: message.id,
           text: boundText(message.text),
+          ...(message.timestamp !== undefined ? { timestamp: message.timestamp } : {}),
           status: message.status === 'running' || active ? 'streaming' : 'completed',
         });
       continue;
@@ -851,7 +866,13 @@ function finalCandidate(
 }
 
 function assistantMessage(step: AssistantNarrativeStep): Message {
-  return { id: step.id, role: 'assistant', text: step.text, status: 'completed' };
+  return {
+    id: step.id,
+    role: 'assistant',
+    text: step.text,
+    ...(step.timestamp !== undefined ? { timestamp: step.timestamp } : {}),
+    status: 'completed',
+  };
 }
 
 function projectSnapshotMessage(message: SnapshotMessage): Message {

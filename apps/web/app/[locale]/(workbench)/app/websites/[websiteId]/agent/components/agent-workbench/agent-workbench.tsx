@@ -557,7 +557,16 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     queueConversation(
       {
         type: 'user.added',
-        payload: { message: { id: requestId, requestId, role: 'user', text, status: 'pending' } },
+        payload: {
+          message: {
+            id: requestId,
+            requestId,
+            role: 'user',
+            text,
+            timestamp: Date.now(),
+            status: 'pending',
+          },
+        },
       },
       true,
     );

@@ -190,6 +190,7 @@ export type WebsiteAgentMessage = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   text: string;
+  timestamp?: number;
   toolCallId?: string;
   toolName?: string;
   input?: string;
@@ -1848,6 +1849,9 @@ export function projectMessages(messages: readonly unknown[]): WebsiteAgentMessa
         id: stableMessageId(value, messageIndex),
         role,
         text,
+        ...(typeof value.timestamp === 'number' && Number.isFinite(value.timestamp)
+          ? { timestamp: value.timestamp }
+          : {}),
         turnId: messageTurnId,
         kind: readString(value.kind) ?? 'message',
       });

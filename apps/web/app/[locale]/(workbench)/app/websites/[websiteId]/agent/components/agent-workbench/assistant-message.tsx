@@ -8,6 +8,20 @@ import type { Message } from './types';
 
 type AssistantMessageProps = { message: Message; variant?: 'final' | 'narrative' };
 
+function formatMessageTime(timestamp?: number): string | null {
+  if (timestamp === undefined) return null;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  return new Intl.DateTimeFormat(
+    undefined,
+    sameDay
+      ? { hour: '2-digit', minute: '2-digit' }
+      : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' },
+  ).format(date);
+}
+
 type MarkdownTableProps = ComponentProps<'table'> & ExtraProps;
 
 const MarkdownTable = ({ children, node, ...props }: MarkdownTableProps) => {
@@ -81,6 +95,11 @@ export const AssistantMessage = memo(function AssistantMessage({
         )}
         {message.text ? (
           <div className="assistant-message-actions">
+            {formatMessageTime(message.timestamp) ? (
+              <time className="message-time" dateTime={new Date(message.timestamp!).toISOString()}>
+                {formatMessageTime(message.timestamp)}
+              </time>
+            ) : null}
             <button
               className="message-action-button"
               type="button"
