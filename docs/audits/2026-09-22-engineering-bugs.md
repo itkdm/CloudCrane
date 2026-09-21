@@ -19,8 +19,8 @@
 | CC-DATA-004 | Session metadata 创建失败留下 Pi 文件 | E2E_VERIFIED | `packages/website-agent/src/runtime.test.ts`; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
 | CC-AGENT-001 | Runtime 首次加载未恢复 stale AgentRun | E2E_VERIFIED | `apps/agent-service/src/application/runtime-registry.test.ts`; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
 | CC-AGENT-002 | stale-run 恢复失败泄漏 runtime | E2E_VERIFIED | runtime-registry failure cleanup test; commit `47b6e0b`; ECS deploy and DEVTOOLS page/screenshot verified |
-| CC-DATA-002 | Attachment 删除失败后错误标记 deleted | FIXED_PENDING_DEPLOY | `apps/agent-service/src/infrastructure/attachment-service.test.ts` |
-| CC-DATA-006 | Expired attachment cleanup 竞争覆盖状态 | FIXED_PENDING_DEPLOY | `apps/agent-service/src/infrastructure/attachment-service.test.ts` |
+| CC-DATA-002 | Attachment 删除失败后错误标记 deleted | E2E_VERIFIED | `apps/agent-service/src/infrastructure/attachment-service.test.ts`; commit `c17ad17`; ECS deploy and DEVTOOLS page/screenshot verified |
+| CC-DATA-006 | Expired attachment cleanup 竞争覆盖状态 | E2E_VERIFIED | `apps/agent-service/src/infrastructure/attachment-service.test.ts`; commit `c17ad17`; ECS deploy and DEVTOOLS page/screenshot verified |
 
 ## Confirmed Bugs
 
@@ -92,7 +92,7 @@
 | ID | 领域 | 候选问题 | 当前证据 | 下一步 |
 | --- | --- | --- | --- | --- |
 | CC-DATA-001 | Attachment lifecycle | Session/Website 删除后对象存储孤儿 | 静态链路已确认；需按本地/OSS 实际对象补偿策略设计 | 设计可追踪的删除任务或先清对象再删元数据 |
-| CC-DATA-002 | Attachment lifecycle | 删除失败后错误标记 deleted | 已有 storage failure 复现和回归测试 | 已修复，待提交部署后完成 E2E |
+| CC-DATA-002 | Attachment lifecycle | 删除失败后错误标记 deleted | 已有 storage failure 复现和回归测试 | 已修复并完成线上部署验证 |
 | CC-DATA-003 | Attachment quota | 并发上传 TOCTOU | 两次 quota 查询与插入无锁 | 设计事务/预留记录并补并发测试 |
 | CC-DATA-004 | Session lifecycle | Pi 文件与 DB 创建非原子 | 已完成补偿清理和故障测试 | 已修复并部署 |
 | CC-DATA-005 | Runtime recovery | stale AgentRun recovery 未启动 | 已接入首次 runtime 加载 | 全量启动恢复仍是后续候选 |
