@@ -4,11 +4,9 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { createHash } from 'node:crypto';
-import { DeleteObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
-import { NodeHttpHandler } from '@smithy/node-http-handler';
+import OSS from 'ali-oss';
 
-export type AttachmentStorageDriver = 'local' | 'r2';
+export type AttachmentStorageDriver = 'local' | 'oss';
 
 export type AttachmentObject = {
   key: string;
@@ -28,12 +26,14 @@ export type AttachmentStorage = {
   delete(key: string): Promise<void>;
 };
 
-export type R2AttachmentStorageOptions = {
+export type OssAttachmentStorageOptions = {
   bucket: string;
-  accountId: string;
+  region: string;
   accessKeyId: string;
-  secretAccessKey: string;
+  accessKeySecret: string;
+  stsToken?: string;
   endpoint?: string;
+  internal?: boolean;
   timeoutMs?: number;
 };
 
@@ -50,12 +50,7 @@ function safeKey(key: string): string {
 export class LocalAttachmentStorage implements AttachmentStorage {
   constructor(private readonly root: string) {}
 
-  async put(input: {
-    key: string;
-    source: NodeJS.ReadableStream;
-    contentType: string;
-    maxBytes?: number;
-  }): Promise<AttachmentObject> {
+  async put(input: { key: string; source: NodeJS.ReadableStream; contentType: string; maxBytes?: number }): Promise<AttachmentObject> {
     const key = safeKey(input.key);
     const target = path.resolve(this.root, key);
     if (!target.startsWith(`${path.resolve(this.root)}${path.sep}`))
@@ -76,11 +71,7 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       },
     });
     try {
-      await pipeline(
-        input.source,
-        counted,
-        createWriteStream(temporary, { mode: 0o600, flags: 'wx' }),
-      );
+      await pipeline(input.source, counted, createWriteStream(temporary, { mode: 0o600, flags: 'wx' }));
       await rename(temporary, target);
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined);
@@ -104,35 +95,27 @@ export class LocalAttachmentStorage implements AttachmentStorage {
   }
 }
 
-export class R2AttachmentStorage implements AttachmentStorage {
-  private readonly client: S3Client;
-  private readonly bucket: string;
+export class OssAttachmentStorage implements AttachmentStorage {
+  private readonly client: OSS;
   private readonly timeout: number;
 
-  constructor(options: R2AttachmentStorageOptions) {
+  constructor(options: OssAttachmentStorageOptions) {
     this.timeout = options.timeoutMs ?? 60_000;
-    this.bucket = options.bucket;
-    this.client = new S3Client({
-      region: 'auto',
-      endpoint: options.endpoint ?? `https://${options.accountId}.r2.cloudflarestorage.com`,
-      credentials: {
-        accessKeyId: options.accessKeyId,
-        secretAccessKey: options.secretAccessKey,
-      },
-      maxAttempts: 3,
-      requestHandler: new NodeHttpHandler({
-        connectionTimeout: 10_000,
-        socketTimeout: this.timeout,
-      }),
+    this.client = new OSS({
+      bucket: options.bucket,
+      region: options.region,
+      accessKeyId: options.accessKeyId,
+      accessKeySecret: options.accessKeySecret,
+      ...(options.stsToken ? { stsToken: options.stsToken } : {}),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+      ...(options.internal !== undefined ? { internal: options.internal } : {}),
+      secure: true,
+      authorizationV4: true,
+      timeout: this.timeout,
     });
   }
 
-  async put(input: {
-    key: string;
-    source: NodeJS.ReadableStream;
-    contentType: string;
-    maxBytes?: number;
-  }): Promise<AttachmentObject> {
+  async put(input: { key: string; source: NodeJS.ReadableStream; contentType: string; maxBytes?: number }): Promise<AttachmentObject> {
     const key = safeKey(input.key);
     const hash = createHash('sha256');
     let size = 0;
@@ -148,49 +131,36 @@ export class R2AttachmentStorage implements AttachmentStorage {
       },
     });
     try {
-      const upload = new Upload({
-        client: this.client,
-        params: {
-          Bucket: this.bucket,
-          Key: key,
-          Body: input.source.pipe(counted),
-          ContentType: input.contentType,
-          Metadata: { uid: 'cloudcrane', pid: 'attachment' },
-        },
-        partSize: 5 * 1024 * 1024,
-        queueSize: 2,
-        leavePartsOnError: false,
-      });
-      await upload.done();
+      const putOptions = {
+        timeout: this.timeout,
+        mime: input.contentType,
+        meta: { uid: 'cloudcrane', pid: 'attachment' },
+      } as unknown as OSS.PutStreamOptions;
+      await this.client.putStream(key, input.source.pipe(counted), putOptions);
     } catch (error) {
-      await this.client
-        .send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
-        .catch(() => undefined);
+      await this.client.delete(key).catch(() => undefined);
       throw error;
     }
     return { key, size, sha256: hash.digest('hex'), contentType: input.contentType };
   }
 
   async open(key: string): Promise<NodeJS.ReadableStream> {
-    const result = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }),
-    );
-    if (!result.Body || typeof (result.Body as { pipe?: unknown }).pipe !== 'function')
-      throw new Error('attachment object stream is unavailable');
-    return result.Body as unknown as NodeJS.ReadableStream;
+    const result = await this.client.getStream(safeKey(key), { timeout: this.timeout });
+    if (!result.stream) throw new Error('attachment object stream is unavailable');
+    return result.stream as NodeJS.ReadableStream;
   }
 
   async delete(key: string): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
+    await this.client.delete(safeKey(key), { timeout: this.timeout });
   }
 }
 
 export function createAttachmentStorage(input: {
   driver: AttachmentStorageDriver;
   root: string;
-  r2?: R2AttachmentStorageOptions;
+  oss?: OssAttachmentStorageOptions;
 }): AttachmentStorage {
   if (input.driver === 'local') return new LocalAttachmentStorage(input.root);
-  if (!input.r2) throw new Error('R2 attachment storage configuration is required');
-  return new R2AttachmentStorage(input.r2);
+  if (!input.oss) throw new Error('OSS attachment storage configuration is required');
+  return new OssAttachmentStorage(input.oss);
 }
