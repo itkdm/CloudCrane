@@ -404,18 +404,57 @@
   margin: 0.65em 0;
 }
 
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 1.15em 0 0.5em;
+  color: var(--cc-text);
+  line-height: 1.35;
+}
+
+.markdown-body h1 {
+  font-size: 1.45em;
+}
+
+.markdown-body h2 {
+  font-size: 1.3em;
+}
+
+.markdown-body h3 {
+  font-size: 1.15em;
+}
+
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: 1em;
+}
+
 .markdown-body ul,
 .markdown-body ol {
   padding-left: 1.4em;
 }
 
+.markdown-body li + li {
+  margin-top: 0.28em;
+}
+
 .markdown-body code {
-  border-radius: 4px;
-  padding: 2px 4px;
-  background: var(--cc-surface-3);
-  color: var(--cc-brand);
+  border: 1px solid var(--cc-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  background: var(--cc-surface-2);
+  color: var(--cc-text);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 0.9em;
+}
+
+.markdown-body :not(pre) > code {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .markdown-body pre {
@@ -427,10 +466,64 @@
 }
 
 .markdown-body pre code {
+  border: 0;
   padding: 0;
   background: transparent;
   color: var(--cc-text);
   font-size: 12px;
+}
+
+.markdown-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 1em 0;
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+}
+
+.markdown-table-wrap table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 0.95em;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+  border-bottom: 1px solid var(--cc-border);
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  vertical-align: top;
+  text-align: left;
+}
+
+.markdown-table-wrap th {
+  background: var(--cc-surface-2);
+  color: var(--cc-text);
+  font-weight: 650;
+}
+
+.markdown-table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-table-wrap tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--cc-surface-2) 42%, transparent);
+}
+
+.markdown-body hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--cc-border);
+}
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 7px;
 }
 
 .markdown-body a {
@@ -1729,12 +1822,13 @@
 
 .execution-content {
   border-top: 0;
-  padding: 6px 0 0;
+  padding: 10px 0 2px;
 }
 
 .execution-content > .assistant-narrative {
-  margin-top: 8px;
-  margin-bottom: 9px;
+  margin: 1px 0 14px;
+  padding: 0 8px 0 26px;
+  line-height: 1.7;
 }
 
 .message-list .markdown-body code {

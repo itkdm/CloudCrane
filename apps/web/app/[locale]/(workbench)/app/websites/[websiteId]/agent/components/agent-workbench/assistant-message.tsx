@@ -1,11 +1,24 @@
-import { memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { memo, type ComponentProps } from 'react';
+import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { LoaderCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import type { Message } from './types';
 
 type AssistantMessageProps = { message: Message; variant?: 'final' | 'narrative' };
+
+type MarkdownTableProps = ComponentProps<'table'> & ExtraProps;
+
+const MarkdownTable = ({ children, node, ...props }: MarkdownTableProps) => {
+  void node;
+  return (
+    <div className="markdown-table-wrap">
+      <table {...props}>{children}</table>
+    </div>
+  );
+};
+
+const markdownComponents = { table: MarkdownTable } satisfies Components;
 
 export const AssistantMessage = memo(function AssistantMessage({
   message,
@@ -23,7 +36,9 @@ export const AssistantMessage = memo(function AssistantMessage({
       >
         {message.text ? (
           <div className="markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+              {message.text}
+            </ReactMarkdown>
           </div>
         ) : (
           <div className="message-streaming" aria-label={t('streamingNarrative')}>
@@ -41,7 +56,9 @@ export const AssistantMessage = memo(function AssistantMessage({
         {...(isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
       >
         {message.text ? (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+          <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+            {message.text}
+          </ReactMarkdown>
         ) : (
           <div className="message-streaming" aria-label={t('streamingReply')}>
             <LoaderCircle className="spin" size={16} aria-hidden="true" />
