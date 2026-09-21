@@ -220,15 +220,29 @@ function resolvePreviewPath(
   currentPath?: string,
   currentUrl?: string,
 ): string {
-  if (currentPath ?? preview.path) return currentPath ?? preview.path ?? '/';
+  if (currentPath ?? preview.path) return sanitizePreviewPath(currentPath ?? preview.path ?? '/');
 
   const url = currentUrl ?? preview.url;
   if (!url) return '/';
 
   try {
-    return new URL(url).pathname || '/';
+    const parsed = new URL(url);
+    parsed.searchParams.delete('token');
+    parsed.searchParams.delete('share');
+    return `${parsed.pathname || '/'}${parsed.search}${parsed.hash}`;
   } catch {
     return url.startsWith('/') ? url : '/';
+  }
+}
+
+function sanitizePreviewPath(value: string): string {
+  try {
+    const parsed = new URL(value, 'https://preview.invalid');
+    parsed.searchParams.delete('token');
+    parsed.searchParams.delete('share');
+    return `${parsed.pathname || '/'}${parsed.search}${parsed.hash}`;
+  } catch {
+    return value.startsWith('/') ? value : '/';
   }
 }
 
