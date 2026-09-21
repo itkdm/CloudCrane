@@ -95,6 +95,12 @@
 - Fix：复用统一的 `canEnterWorkspace` 状态边界，只为 `ready` 网站加载 sessions；将状态判断抽为可测试的纯逻辑。
 - Test/Review：`apps/web/lib/website-session-loading.test.ts` 覆盖 `ready`、授权中、初始化和模板失败状态；独立子智能体审查修改；部署后 DEVTOOLS 重载确认非 ready 网站不再发起该请求，并保存页面截图。
 
+### CC-WEB-002 — 创建失败响应携带网站对象
+
+- Root cause：`createWebsite()` 在基础创建失败且补偿清理成功时返回 `{ website, provisioned: false }`；API 之前直接把该对象作为 HTTP 502 的 JSON body 返回。调用方如果只检查对象结构，可能把已清理的网站误认为创建成功。
+- Fix：将网站创建响应收敛到独立的响应契约；只有 `provisioned === true` 才返回 201 和网站对象，失败统一返回 502 的错误 payload，不再暴露失败网站对象。
+- Test/Review：`apps/web/lib/website-creation-response.test.ts` 覆盖成功响应和 502 失败响应；前端已有 `response.ok` 检查，失败时保留弹窗错误反馈。
+
 ## Candidates / Needs More Evidence
 
 | ID | 领域 | 候选问题 | 当前证据 | 下一步 |
@@ -120,20 +126,21 @@
 | CC-DATA-002 | P1 | `c17ad17` | Attachment remove failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
 | CC-DATA-006 | P1 | `c17ad17` | Attachment cleanup CAS tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
 | CC-WEB-001 | P2 | `9f78be3` | `apps/web/lib/website-session-loading.test.ts` | ECS deployed at final audit revision; services 4101/4102/4103 = 200; Nginx test passed | Before: `template_attach_failed` website sessions request 404; after reload: only ready website request 200, no 404; screenshot captured | Independent final review requested; prior Web/session reviewers corroborated status boundary |
+| CC-WEB-002 | P1 | `978680f` | `apps/web/lib/website-creation-response.test.ts` | Pending deployment of this fix | Pending DEVTOOLS error-path verification | Final creation-flow reviewer identified the response-contract defect; fix adds a dedicated regression contract |
 
 ## Final independent review record
 
 - Final Reviewer A: independent architecture/security/concurrency review dispatched to Codex task `01a0c241-44b2-7040-a986-5c78de3cce43`; no implementation changes were permitted.
 - Final Reviewer B: independent bug-count/evidence review dispatched to Codex task `01a0c241-45ad-7ae2-aa15-d313411babaa`; it is kept separate from the implementer path.
 - Audit-document reviewer: dispatched to Codex task `01a0c240-effb-7f53-b881-526a0cd5a1c0`; checked classification and evidence completeness.
-- The reviewers also surfaced additional creation-state/idempotency concerns. Those remain candidates or product/architecture decisions and are not counted as fixed bugs in the ten-item matrix above.
+- The reviewers also surfaced creation-state polling/idempotency concerns. Those remain candidates or product/architecture decisions and are not counted as fixed bugs in the original ten-item matrix.
 
 ## Final regression evidence
 
-- Local `pnpm exec turbo test --concurrency=1`: 21 package tasks / 36 Turbo tasks passed; Web: 15 test files / 92 tests passed.
+- Local `pnpm exec turbo test --concurrency=1`: the prior full run passed 21 package tasks / 36 Turbo tasks; targeted Web regression and current Web suite passed with 94 tests.
 - Local `pnpm lint`: passed.
 - Local `pnpm typecheck`: passed.
 - Local targeted formatting for all changed files and audit documents: passed. Full repository `format:check` still reports 13 pre-existing files from earlier commits; none are changed by the final fix.
 - ECS production `pnpm build`: passed; all 21 build tasks passed.
-- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: `ba3ad01`.
-- Final workspace: clean; no secrets or test artifacts were added.
+- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: pending this fix's deployment.
+- Final workspace before deployment: contains only this audit-document update; no secrets or test artifacts were added.
