@@ -14,6 +14,12 @@ export type PreviewGatewayConfig = z.infer<typeof configSchema>;
 export function loadPreviewGatewayConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): PreviewGatewayConfig {
+  if (env.NODE_ENV === 'production') {
+    if (!env.PREVIEW_SIGNING_SECRET)
+      throw new Error('PREVIEW_SIGNING_SECRET is required in production');
+    if (env.PREVIEW_SIGNING_SECRET === 'cloudcrane-preview-dev-secret')
+      throw new Error('PREVIEW_SIGNING_SECRET must not use the development default in production');
+  }
   return configSchema.parse({
     port: env.PREVIEW_GATEWAY_PORT,
     webOrigin: env.CLOUDCRANE_WEB_ORIGIN ?? env.WEB_ORIGIN,

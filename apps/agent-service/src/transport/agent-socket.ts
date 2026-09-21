@@ -66,6 +66,11 @@ export class AgentSocketTransport {
     head: Buffer,
   ) {
     if (!this.options.auth || !this.options.db) {
+      if (process.env.NODE_ENV === 'production') {
+        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       this.server.handleUpgrade(request, socket, head, (ws) => {
         const connection = new AgentSocketConnection(
           ws,

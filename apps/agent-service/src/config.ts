@@ -78,6 +78,14 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     throw new Error('AGENT_SERVICE_INTERNAL_TOKEN is required in production');
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_REFERENCE_ROOT)
     throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
+  if (env.NODE_ENV === 'production' && !env.PREVIEW_SIGNING_SECRET)
+    throw new Error('PREVIEW_SIGNING_SECRET is required in production');
+  if (env.NODE_ENV === 'production' && env.PREVIEW_SIGNING_SECRET === 'cloudcrane-preview-dev-secret')
+    throw new Error('PREVIEW_SIGNING_SECRET must not use the development default in production');
+  if (env.NODE_ENV === 'production' && !env.WORKSPACE_GATEWAY_CLIENT_TOKEN)
+    throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN is required in production');
+  if (env.NODE_ENV === 'production' && env.WORKSPACE_GATEWAY_CLIENT_TOKEN === 'dev-client-token')
+    throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production');
   if (env.ATTACHMENT_STORAGE_DRIVER === 'oss') {
     for (const [name, value] of [
       ['ATTACHMENT_OSS_BUCKET', env.ATTACHMENT_OSS_BUCKET],

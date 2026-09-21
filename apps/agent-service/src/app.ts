@@ -34,7 +34,7 @@ import {
 } from '@cloudcrane/shared';
 import { signPreviewToken } from '@cloudcrane/preview-access';
 import type { AttachmentStorage } from '@cloudcrane/attachment-storage';
-import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
+import { WebsiteAgentRuntimeError, type WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 import type { AgentServiceConfig } from './config.js';
@@ -129,7 +129,13 @@ export function buildAgentServiceApp(
       return reply
         .code(403)
         .send({ error: { code: 'ORIGIN_NOT_ALLOWED', message: 'origin is not allowed' } });
-    if (!options.auth || !options.db) return;
+    if (!options.auth || !options.db) {
+      if (process.env.NODE_ENV === 'production')
+        return reply.code(503).send({
+          error: { code: 'SERVICE_NOT_CONFIGURED', message: 'agent service is not configured' },
+        });
+      return;
+    }
     try {
       const session = await requireSession(options.auth, headersFromNode(request.headers));
       enterLogContext({
@@ -533,8 +539,11 @@ async function getSnapshot(runtime: WebsiteAgentRuntime, sessionId: string) {
     throw new AgentServiceError('INVALID_ARGUMENT', 'sessionId must be a UUID', 400);
   try {
     return await runtime.getSessionSnapshot(sessionId);
-  } catch {
-    throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
+  } catch (error) {
+    if (error instanceof AgentServiceError) throw error;
+    if (error instanceof WebsiteAgentRuntimeError && error.code === 'SESSION_NOT_FOUND')
+      throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
+    throw error;
   }
 }
 

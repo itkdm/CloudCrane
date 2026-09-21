@@ -17,11 +17,36 @@ describe('agent service production configuration', () => {
     ).toThrow('WORKSPACE_REFERENCE_ROOT is required in production');
   });
 
+  it('requires a non-default preview secret in production', () => {
+    expect(() =>
+      loadAgentServiceConfig({
+        NODE_ENV: 'production',
+        AGENT_SERVICE_INTERNAL_TOKEN: 'production-test-token',
+        WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
+        WORKSPACE_GATEWAY_CLIENT_TOKEN: 'production-gateway-client-token',
+      }),
+    ).toThrow('PREVIEW_SIGNING_SECRET is required in production');
+  });
+
+  it('accepts complete production secrets', () => {
+    expect(() =>
+      loadAgentServiceConfig({
+        NODE_ENV: 'production',
+        AGENT_SERVICE_INTERNAL_TOKEN: 'production-test-token',
+        WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
+        PREVIEW_SIGNING_SECRET: 'production-preview-signing-secret',
+        WORKSPACE_GATEWAY_CLIENT_TOKEN: 'production-gateway-client-token',
+      }),
+    ).not.toThrow();
+  });
+
   it('loads the shared reference root and template artifact limit', () => {
     const config = loadAgentServiceConfig({
       NODE_ENV: 'production',
       AGENT_SERVICE_INTERNAL_TOKEN: 'production-test-token',
       WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
+      PREVIEW_SIGNING_SECRET: 'production-preview-signing-secret',
+      WORKSPACE_GATEWAY_CLIENT_TOKEN: 'production-gateway-client-token',
       TEMPLATE_ARTIFACT_MAX_BYTES: '524288000',
     });
 

@@ -12,6 +12,15 @@ const configSchema = z.object({
 export type GatewayConfig = z.infer<typeof configSchema>;
 
 export function loadGatewayConfig(env = process.env): GatewayConfig {
+  if (env.NODE_ENV === 'production') {
+    if (!env.WORKSPACE_GATEWAY_CLIENT_TOKEN)
+      throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN is required in production');
+    if (!env.RUNNER_AUTH_TOKEN) throw new Error('RUNNER_AUTH_TOKEN is required in production');
+    if (env.WORKSPACE_GATEWAY_CLIENT_TOKEN === 'dev-client-token')
+      throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production');
+    if (env.RUNNER_AUTH_TOKEN === 'dev-runner-token')
+      throw new Error('RUNNER_AUTH_TOKEN must not use the development default in production');
+  }
   return configSchema.parse({
     port: env.WORKSPACE_GATEWAY_PORT,
     clientToken: env.WORKSPACE_GATEWAY_CLIENT_TOKEN ?? 'dev-client-token',
