@@ -41,7 +41,7 @@ function Overview({ websiteId }: { websiteId: string }) {
         <p>{t('overviewStatus')}: —</p>
         <p>{t('overviewPreview')}: —</p>
       </div>
-      <Link className="cc-button cc-button-primary" href={`/app/websites/${websiteId}/agent`}>
+      <Link className="cc-button cc-button-primary" href={`/app/websites/${websiteId}/sessions`}>
         {t('continueBuilding')}
       </Link>
     </section>

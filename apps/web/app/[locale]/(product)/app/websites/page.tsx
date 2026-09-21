@@ -5,7 +5,6 @@ import { auth } from '@/lib/server/auth';
 
 function parseView(value: string | undefined): 'websites' | 'templates' | undefined {
   if (value === 'templates') return 'templates';
-  // Legacy conversation URLs now open the selected website directly.
   if (value === 'conversations' || value === 'websites') return 'websites';
   return undefined;
 }
@@ -15,7 +14,7 @@ export default async function WebsitesPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ view?: string; websiteId?: string; sessionId?: string }>;
+  searchParams: Promise<{ view?: string }>;
 }) {
   const { locale } = await params;
   const query = await searchParams;
@@ -28,8 +27,6 @@ export default async function WebsitesPage({
     <UnifiedApp
       initialState={{
         view: parseView(query.view),
-        websiteId: query.websiteId ?? null,
-        sessionId: query.sessionId ?? null,
       }}
     />
   );

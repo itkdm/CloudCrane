@@ -18,6 +18,7 @@ import { WebsiteSettingsDialog } from './components/website-settings-dialog';
 import { WorkspaceStart } from './components/workspace-start';
 import './websites.css';
 import { compareSessionsByActivity } from '@/lib/session-sorting';
+import { buildWorkspacePath } from '@/lib/workspace-route';
 
 export type WorkspaceView = 'websites' | 'templates';
 
@@ -190,11 +191,12 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }, [loadWebsites]);
 
   useEffect(() => {
-    const query = new URLSearchParams();
-    if (view !== 'websites') query.set('view', view);
-    if (selectedWebsite) query.set('websiteId', selectedWebsite);
-    if (selectedSession) query.set('sessionId', selectedSession);
-    const nextUrl = `${window.location.pathname}${query.toString() ? `?${query}` : ''}`;
+    const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'zh';
+    const nextUrl = buildWorkspacePath(locale, {
+      view,
+      websiteId: selectedWebsite,
+      sessionId: selectedSession,
+    });
     window.history.replaceState(null, '', nextUrl);
   }, [view, selectedWebsite, selectedSession]);
 
