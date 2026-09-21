@@ -94,7 +94,14 @@ export class WebsiteRuntimeRegistry {
 
   private async create(websiteId: string): Promise<WebsiteAgentRuntime> {
     const binding = await this.resolve(websiteId);
-    return this.options.createRuntime(binding);
+    const runtime = await this.options.createRuntime(binding);
+    try {
+      await runtime.recoverStaleRuns();
+      return runtime;
+    } catch (error) {
+      await runtime.shutdown().catch(() => undefined);
+      throw error;
+    }
   }
 
   private validateBinding(

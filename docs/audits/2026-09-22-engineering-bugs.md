@@ -12,10 +12,13 @@
 
 | ID | 真实路径 | 状态 | 回归证据 |
 | --- | --- | --- | --- |
-| CC-SEC-001 | Preview Gateway / Agent Service 生产配置 | FIXED_PENDING_DEPLOY | `apps/preview-gateway/src/config.test.ts`, `apps/agent-service/src/config.test.ts` |
-| CC-SEC-002 | Workspace Gateway 生产配置 | FIXED_PENDING_DEPLOY | `apps/workspace-gateway/src/config.test.ts` |
-| CC-SEC-003 | Agent Service HTTP/WebSocket 鉴权 | FIXED_PENDING_DEPLOY | `apps/agent-service/src/transport/agent-socket.test.ts`; production fail-closed path added |
-| CC-SEC-004 | Agent session snapshot 错误映射 | FIXED_PENDING_DEPLOY | targeted Agent Service tests; runtime error code now required |
+| CC-SEC-001 | Preview Gateway / Agent Service 生产配置 | E2E_VERIFIED | targeted config tests; commit `c15fa39`; ECS health 200; DEVTOOLS page/screenshot verified |
+| CC-SEC-002 | Workspace Gateway 生产配置 | E2E_VERIFIED | targeted config tests; commit `c15fa39`; ECS health 200; DEVTOOLS page/screenshot verified |
+| CC-SEC-003 | Agent Service HTTP/WebSocket 鉴权 | E2E_VERIFIED | Agent socket/config tests; commit `c15fa39`; ECS health 200; DEVTOOLS page/screenshot verified |
+| CC-SEC-004 | Agent session snapshot 错误映射 | E2E_VERIFIED | targeted Agent Service tests; commit `c15fa39`; DEVTOOLS website list/session requests verified |
+| CC-DATA-004 | Session metadata 创建失败留下 Pi 文件 | FIXED_PENDING_DEPLOY | `packages/website-agent/src/runtime.test.ts` |
+| CC-AGENT-001 | Runtime 首次加载未恢复 stale AgentRun | FIXED_PENDING_DEPLOY | `apps/agent-service/src/application/runtime-registry.test.ts` |
+| CC-AGENT-002 | stale-run 恢复失败泄漏 runtime | FIXED_PENDING_DEPLOY | runtime-registry failure cleanup test |
 
 ## Confirmed Bugs
 
@@ -48,6 +51,25 @@
 - Evidence：`apps/agent-service/src/app.ts` 原 `getSnapshot` 实现。
 - Fix：仅接受 `WebsiteAgentRuntimeError.code === 'SESSION_NOT_FOUND'`，其他错误保留为统一内部错误路径。
 - Review：独立子智能体确认原实现不可靠；当前仍需补专门错误映射测试后再标记 E2E_VERIFIED。
+
+### CC-DATA-004 — Session metadata 创建失败留下 Pi 文件
+
+- Root cause：Pi 先分配持久化 session 文件路径，数据库 metadata 插入失败时没有补偿清理。
+- Evidence：`packages/website-agent/src/runtime.ts` `createSession` 的文件分配与 metadata 插入顺序。
+- Fix：metadata 创建失败时删除已分配的 session 文件；删除失败仍保留原始数据库错误并由后续扫描策略处理。
+- Test：使用真实临时目录和受控 SessionManager 文件，验证 DB 失败后目录为空。
+
+### CC-AGENT-001 — Runtime 首次加载未恢复 stale AgentRun
+
+- Root cause：`recoverStaleRuns()` 只有实现，没有接入 runtime registry 的真实创建路径。
+- Fix：每个 Website runtime 首次加载后先执行 stale-run recovery，再对外提供 runtime。
+- Scope：按需恢复首次访问的网站；全量启动恢复仍记录为后续运维/架构候选，不在本条重复计数。
+
+### CC-AGENT-002 — stale-run 恢复失败泄漏 runtime
+
+- Root cause：runtime 已创建后恢复失败，registry 只移除 Promise，不调用 runtime shutdown。
+- Fix：恢复失败时关闭 runtime 后再向调用方抛错。
+- Test：恢复抛错时断言 shutdown 一次且 registry 不保留失败 runtime。
 
 ## Candidates / Needs More Evidence
 

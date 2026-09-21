@@ -564,16 +564,22 @@ export class WebsiteAgentRuntime {
     );
     const sessionFile = sessionManager.getSessionFile();
     if (!sessionFile) throw new Error('Pi did not allocate a persistent session file');
-    const record = await this.options.store.createSession({
-      websiteId: this.options.websiteId,
-      piSessionId: sessionManager.getSessionId(),
-      sessionFile: this.layout.relativeSessionFile(this.options.websiteId, sessionFile),
-      title: null,
-      status: 'NEW',
-      lastActiveAt: null,
-      pinnedAt: null,
-      clonedFromSessionId: null,
-    });
+    let record: WebsiteSessionIndex;
+    try {
+      record = await this.options.store.createSession({
+        websiteId: this.options.websiteId,
+        piSessionId: sessionManager.getSessionId(),
+        sessionFile: this.layout.relativeSessionFile(this.options.websiteId, sessionFile),
+        title: null,
+        status: 'NEW',
+        lastActiveAt: null,
+        pinnedAt: null,
+        clonedFromSessionId: null,
+      });
+    } catch (error) {
+      await rm(sessionFile, { force: true }).catch(() => undefined);
+      throw error;
+    }
     try {
       await this.sessions.getOrLoad(record.id, () => this.loadManaged(record, sessionManager));
       return record;

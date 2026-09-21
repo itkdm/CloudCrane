@@ -55,6 +55,15 @@ function createRuntime() {
       clonedFromSessionId: sessionId,
     })),
     deleteSession: vi.fn(async () => undefined),
+    getSessionSnapshot: vi.fn(async () => ({
+      session,
+      messages: [],
+      contextUsage: null,
+      contextMaintenance: null,
+      activeRun: null,
+      pendingInteractions: [],
+    })),
+    recoverStaleRuns: vi.fn(async () => undefined),
     shutdown: vi.fn(async () => undefined),
   } as unknown as WebsiteAgentRuntime;
 }
@@ -108,6 +117,23 @@ describe('session management REST endpoints', () => {
     const deleted = await app.inject({ method: 'DELETE', url: base });
     expect(deleted.statusCode).toBe(204);
     expect(runtime.deleteSession).toHaveBeenCalledWith(sessionId);
+    await app.close();
+  });
+
+  it('does not turn internal snapshot failures into a false 404', async () => {
+    const runtime = createRuntime();
+    runtime.getSessionSnapshot = vi.fn(async () => {
+      throw new Error('session store database unavailable');
+    }) as never;
+    const app = createApp(runtime);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/websites/${websiteId}/sessions/${sessionId}/snapshot`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json().error.code).toBe('INTERNAL_ERROR');
     await app.close();
   });
 });

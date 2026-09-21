@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -37,6 +37,50 @@ async function missingReferenceStat({ path: remotePath }: { path: string }) {
 }
 
 describe('WebsiteAgentRuntime', () => {
+  it('removes the Pi session file when metadata creation fails', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-session-create-failure-'));
+    const sessionFile = path.join(
+      dataRoot,
+      websiteId,
+      'agent',
+      'sessions',
+      'session.jsonl',
+    );
+    await mkdir(path.dirname(sessionFile), { recursive: true });
+    await writeFile(sessionFile, 'session metadata');
+    const create = vi
+      .spyOn(SessionManager, 'create')
+      .mockReturnValue({
+        getSessionFile: () => sessionFile,
+        getSessionId: () => 'pi-session-failure',
+      } as never);
+    const modelRuntime = await ModelRuntime.create({
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
+    const store = createInMemoryWebsiteAgentStore();
+    const createSession = store.createSession;
+    store.createSession = vi.fn(async () => {
+      throw new Error('database unavailable');
+    });
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store,
+      modelRuntime,
+    });
+
+    await expect(runtime.createSession()).rejects.toThrow('database unavailable');
+    await expect(readdir(path.join(dataRoot, websiteId, 'agent', 'sessions'))).resolves.toEqual([]);
+    create.mockRestore();
+    store.createSession = createSession;
+    await runtime.shutdown();
+  });
+
   it('publishes only the current Website through the guarded template tool', async () => {
     const publish = vi.fn(
       async (request: { name: string; description: string; category: string }) => ({
