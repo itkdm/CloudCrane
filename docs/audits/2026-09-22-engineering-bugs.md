@@ -119,7 +119,7 @@
 | CC-AGENT-002 | P1 | `47b6e0b` | Runtime shutdown-on-recovery-failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Agent lifecycle reviewer |
 | CC-DATA-002 | P1 | `c17ad17` | Attachment remove failure test | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
 | CC-DATA-006 | P1 | `c17ad17` | Attachment cleanup CAS tests | ECS build/restart; health 200 | Website page and screenshot after deploy | Attachment lifecycle reviewer |
-| CC-WEB-001 | P2 | `9f78be3` | `apps/web/lib/website-session-loading.test.ts` | ECS HEAD `9f78be3`; services 4101/4102/4103 = 200; Nginx test passed | Before: `template_attach_failed` website sessions request 404; after reload: only ready website request 200, no 404; screenshot captured | Independent final review requested; prior Web/session reviewers corroborated status boundary |
+| CC-WEB-001 | P2 | `9f78be3` | `apps/web/lib/website-session-loading.test.ts` | ECS deployed at final audit revision; services 4101/4102/4103 = 200; Nginx test passed | Before: `template_attach_failed` website sessions request 404; after reload: only ready website request 200, no 404; screenshot captured | Independent final review requested; prior Web/session reviewers corroborated status boundary |
 
 ## Final independent review record
 
@@ -135,5 +135,5 @@
 - Local `pnpm typecheck`: passed.
 - Local targeted formatting for all changed files and audit documents: passed. Full repository `format:check` still reports 13 pre-existing files from earlier commits; none are changed by the final fix.
 - ECS production `pnpm build`: passed; all 21 build tasks passed.
-- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: `9f78be3`.
+- Final local `HEAD`, `origin/main`, and ECS `/opt/cloudcrane` HEAD: `ba3ad01`.
 - Final workspace: clean; no secrets or test artifacts were added.
