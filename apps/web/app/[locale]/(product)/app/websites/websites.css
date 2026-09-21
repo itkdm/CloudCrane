@@ -946,13 +946,111 @@
   font-size: 12px;
 }
 .website-settings-preview .secondary-button {
-  grid-column: 3;
-  grid-row: 1;
   justify-self: start;
   align-self: center;
   min-height: 34px;
   padding: 0 12px;
   font-size: 13px;
+}
+.website-settings-preview-actions {
+  display: flex;
+  grid-column: 3;
+  grid-row: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.website-settings-share {
+  display: grid;
+  gap: 16px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  background: var(--cc-surface-2);
+}
+.website-settings-share-heading h4,
+.website-settings-share-list h4 {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+.website-settings-share-heading p,
+.website-settings-share-empty {
+  margin: 5px 0 0;
+  color: var(--cc-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.website-settings-share-create {
+  display: grid;
+  gap: 8px;
+}
+.website-settings-share-create label {
+  color: var(--cc-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.website-settings-share-create-row {
+  display: flex;
+  gap: 8px;
+}
+.website-settings-share-create-row select {
+  min-width: 0;
+  flex: 1;
+  min-height: 38px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  padding: 0 10px;
+  background: var(--cc-surface-0);
+  color: var(--cc-text);
+  font: inherit;
+}
+.website-settings-share-create-row .primary-button {
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.website-settings-share-list {
+  display: grid;
+  gap: 9px;
+}
+.website-settings-share-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  padding: 10px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  background: var(--cc-surface-0);
+}
+.website-settings-share-item code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cc-text);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+.website-settings-share-item > span {
+  color: var(--cc-text-secondary);
+  font-size: 11px;
+  text-align: right;
+}
+.website-settings-share-item.is-expired,
+.website-settings-share-item.is-revoked {
+  opacity: 0.7;
+}
+.website-settings-share-item-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 7px;
+}
+.website-settings-share-item-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 .website-settings-authorization {
   margin-top: 14px;

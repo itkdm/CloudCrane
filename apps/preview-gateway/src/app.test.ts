@@ -1,7 +1,8 @@
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { signPreviewToken } from '@cloudcrane/preview-access';
-import { buildPreviewGatewayApp } from './app.js';
+import { buildPreviewGatewayApp, PREVIEW_SHARE_COOKIE } from './app.js';
 import type { PreviewGatewayConfig } from './config.js';
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
@@ -141,6 +142,100 @@ describe('Preview Gateway', () => {
     });
     expect(response.headers['set-cookie']).toContain('Secure');
     expect(response.headers['set-cookie']).toContain('SameSite=None');
+    await app.close();
+  });
+
+  it('exchanges a share credential for a read-only cookie and removes it from the URL', async () => {
+    const shareToken = 'share-token';
+    const shareId = '00000000-0000-4000-8000-000000000002';
+    let lookedUpHash = '';
+    let recorded = 0;
+    const app = buildPreviewGatewayApp(config, {
+      findByPreviewSlug: async () => ({
+        websiteId,
+        websiteStatus: 'active',
+        workspaceStatus: 'running',
+        previewPort: 1,
+      }),
+      findShareByTokenHash: async (tokenHash) => {
+        lookedUpHash = tokenHash;
+        return { id: shareId, websiteId, expiresAt: new Date(Date.now() + 60_000) };
+      },
+      recordShareAccess: async (id) => {
+        if (id !== shareId) return null;
+        recorded += 1;
+        return { id: shareId, websiteId, expiresAt: new Date(Date.now() + 60_000) };
+      },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/products?share=' + shareToken,
+      headers: { host: 'abc123def456.localhost:4103' },
+    });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/products');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['cache-control']).toBe('no-store');
+    const setCookie = response.headers['set-cookie'];
+    const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    expect(cookieHeader).toContain(`${PREVIEW_SHARE_COOKIE}=`);
+    expect(lookedUpHash).toBe(createHash('sha256').update(shareToken).digest('hex'));
+    expect(recorded).toBe(1);
+    await app.close();
+  });
+
+  it('blocks mutations through a shared preview while preserving the workspace token path', async () => {
+    const shareToken = 'share-token';
+    const app = buildPreviewGatewayApp(config, {
+      findByPreviewSlug: async () => ({
+        websiteId,
+        websiteStatus: 'active',
+        workspaceStatus: 'running',
+        previewPort: 1,
+      }),
+      findShareByTokenHash: async () => ({
+        id: '00000000-0000-4000-8000-000000000002',
+        websiteId,
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+      recordShareAccess: async () => ({
+        id: '00000000-0000-4000-8000-000000000002',
+        websiteId,
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin?share=' + shareToken,
+      headers: { host: 'abc123def456.localhost:4103' },
+    });
+    expect(response.statusCode).toBe(302);
+    const setCookie = response.headers['set-cookie'];
+    const cookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    const cookie = cookieHeader?.split(';')[0];
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/admin',
+      headers: { host: 'abc123def456.localhost:4103', cookie },
+    });
+    expect(blocked.statusCode).toBe(403);
+    expect(blocked.json()).toEqual({ error: 'shared preview is read-only' });
+    const getAdmin = await app.inject({
+      method: 'GET',
+      url: '/admin',
+      headers: { host: 'abc123def456.localhost:4103', cookie },
+    });
+    expect(getAdmin.statusCode).toBe(403);
+    const websocket = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: {
+        host: 'abc123def456.localhost:4103',
+        cookie,
+        upgrade: 'websocket',
+      },
+    });
+    expect(websocket.statusCode).toBe(403);
     await app.close();
   });
 

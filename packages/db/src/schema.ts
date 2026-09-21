@@ -160,6 +160,28 @@ export const workspace = pgTable(
   (table) => [index('workspace_website_id_idx').on(table.websiteId)],
 );
 
+export const websiteShare = pgTable(
+  'website_share',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    websiteId: uuid('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    lastAccessAt: timestamp('last_access_at', { withTimezone: true }),
+    accessCount: integer('access_count').notNull().default(0),
+  },
+  (table) => [
+    index('website_share_website_id_idx').on(table.websiteId),
+    index('website_share_expires_at_idx').on(table.expiresAt),
+    check('website_share_token_hash_check', sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+    check('website_share_access_count_check', sql`${table.accessCount} >= 0`),
+  ],
+);
+
 export const websiteTemplateAttachment = pgTable(
   'website_template_attachment',
   {
@@ -303,6 +325,7 @@ export type Template = typeof template.$inferSelect;
 export type WebsiteTemplateAttachment = typeof websiteTemplateAttachment.$inferSelect;
 export type User = typeof user.$inferSelect;
 export type Workspace = typeof workspace.$inferSelect;
+export type WebsiteShare = typeof websiteShare.$inferSelect;
 export type WebsiteSession = typeof websiteSession.$inferSelect;
 export type AgentRun = typeof agentRun.$inferSelect;
 export type Runner = typeof runner.$inferSelect;

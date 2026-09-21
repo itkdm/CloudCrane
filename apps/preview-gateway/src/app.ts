@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { URL } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { verifyPreviewToken } from '@cloudcrane/preview-access';
@@ -17,6 +18,7 @@ import { previewBridgeScript } from './bridge-asset.js';
 import type { PreviewBinding, PreviewBindingStore } from './store.js';
 
 export const PREVIEW_AUTH_COOKIE = '__cloudcrane_preview';
+export const PREVIEW_SHARE_COOKIE = '__cloudcrane_preview_share';
 const MAX_HTML_INJECTION_BYTES = 2 * 1024 * 1024;
 const allowedWebsiteStatuses = new Set([
   'active',
@@ -72,10 +74,17 @@ export function buildPreviewGatewayApp(
       (async () => {
         const auth = await authenticate(request, config, store);
         if ('redirect' in auth) {
-          reply.header('set-cookie', auth.cookie);
+          reply
+            .header('set-cookie', auth.cookie)
+            .header('referrer-policy', 'no-referrer')
+            .header('cache-control', 'no-store')
+            .header('x-robots-tag', 'noindex, nofollow');
           return reply.redirect(auth.redirect, 302);
         }
         if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
+        if (auth.readOnly && !isReadOnlyMethod(request.method))
+          return reply.code(403).send({ error: 'shared preview is read-only' });
+        if (auth.readOnly) return reply.code(404).send({ error: 'preview bridge is unavailable' });
         const script = await previewBridgeScript();
         reply
           .type('application/javascript; charset=utf-8')
@@ -93,12 +102,39 @@ export function buildPreviewGatewayApp(
         (async () => {
           const auth = await authenticate(request, config, store);
           if ('redirect' in auth) {
-            reply.header('set-cookie', auth.cookie);
+            reply
+              .header('set-cookie', auth.cookie)
+              .header('referrer-policy', 'no-referrer')
+              .header('cache-control', 'no-store')
+              .header('x-robots-tag', 'noindex, nofollow');
             return reply.redirect(auth.redirect, 302);
           }
           if (!auth.binding) return reply.code(auth.status).send({ error: auth.message });
+          if (auth.readOnly) {
+            logger.info(
+              {
+                event: 'preview.share.access',
+                websiteId: auth.binding.websiteId,
+                shareId: auth.shareId,
+                outcome: 'succeeded',
+              },
+              'shared preview access granted',
+            );
+            if (!isReadOnlyMethod(request.method) || isUnsafeSharedPath(request.url))
+              return reply.code(403).send({ error: 'shared preview is read-only' });
+            if (request.headers.upgrade?.toLowerCase() === 'websocket')
+              return reply.code(403).send({ error: 'shared preview does not support realtime access' });
+          }
           reply.hijack();
-          return proxyRequest(request, reply, auth.publicHost, auth.previewPort, config, logger);
+          return proxyRequest(
+            request,
+            reply,
+            auth.publicHost,
+            auth.previewPort,
+            config,
+            logger,
+            auth.readOnly,
+          );
         })(),
       ),
   });
@@ -129,6 +165,16 @@ async function authenticate(
       publicHost: string;
       upstreamHost: string;
       previewPort: number;
+      readOnly: false;
+      shareId?: undefined;
+    }
+  | {
+      binding: PreviewBinding & { previewPort: number };
+      publicHost: string;
+      upstreamHost: string;
+      previewPort: number;
+      readOnly: true;
+      shareId: string;
     }
   | { binding?: undefined; status: 401 | 404; message: string }
   | { binding?: undefined; redirect: string; cookie: string }
@@ -140,10 +186,9 @@ async function authenticate(
 
   const queryToken = tokenFromQuery(request);
   const cookieToken = tokenFromCookie(request);
-  const token = queryToken ?? cookieToken;
-  const claims = verifyPreviewToken(token ?? '', config.signingSecret);
-  if (!claims || claims.websiteId !== binding.websiteId)
-    return { status: 401, message: 'preview authorization is required' };
+  const claims = verifyPreviewToken(queryToken ?? cookieToken ?? '', config.signingSecret);
+  if (claims?.websiteId !== binding.websiteId)
+    return authenticateShare(request, host.publicHost, binding, store, config);
   if (!cookieToken && queryToken) {
     const target = new URL(request.url, `http://${host.publicHost}`);
     target.searchParams.delete('token');
@@ -157,6 +202,48 @@ async function authenticate(
     publicHost: host.publicHost,
     upstreamHost: host.publicHost,
     previewPort: binding.previewPort,
+    readOnly: false,
+  };
+}
+
+async function authenticateShare(
+  request: FastifyRequest,
+  publicHost: string,
+  binding: PreviewBinding & { previewPort: number },
+  store: PreviewBindingStore,
+  config: PreviewGatewayConfig,
+): Promise<Awaited<ReturnType<typeof authenticate>>> {
+  const queryShare = shareFromQuery(request);
+  const cookieShare = shareFromCookie(request);
+  const shareToken = queryShare ?? cookieShare;
+  if (!shareToken || !store.findShareByTokenHash || !store.recordShareAccess)
+    return { status: 401, message: 'preview authorization is required' };
+  const share = await store.findShareByTokenHash(hashShareToken(shareToken));
+  if (!share || share.websiteId !== binding.websiteId) {
+    return { status: 401, message: 'preview authorization is required' };
+  }
+  const accessed = await store.recordShareAccess(share.id);
+  if (!accessed) return { status: 401, message: 'preview authorization is required' };
+  if (queryShare) {
+    const target = new URL(request.url, `http://${publicHost}`);
+    target.searchParams.delete('share');
+    return {
+      redirect: target.pathname + target.search,
+      cookie: serializeCookie(
+        PREVIEW_SHARE_COOKIE,
+        queryShare,
+        accessed.expiresAt,
+        config.cookieSecure,
+      ),
+    };
+  }
+  return {
+    binding,
+    publicHost,
+    upstreamHost: publicHost,
+    previewPort: binding.previewPort,
+    readOnly: true,
+    shareId: share.id,
   };
 }
 
@@ -202,6 +289,10 @@ function tokenFromQuery(request: FastifyRequest): string | undefined {
   return new URL(request.url, 'http://preview.invalid').searchParams.get('token') ?? undefined;
 }
 
+function shareFromQuery(request: FastifyRequest): string | undefined {
+  return new URL(request.url, 'http://preview.invalid').searchParams.get('share') ?? undefined;
+}
+
 function tokenFromCookie(request: FastifyRequest): string | undefined {
   const cookie = request.headers.cookie
     ?.split(';')
@@ -215,9 +306,43 @@ function tokenFromCookie(request: FastifyRequest): string | undefined {
   }
 }
 
+function shareFromCookie(request: FastifyRequest): string | undefined {
+  const cookie = request.headers.cookie
+    ?.split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${PREVIEW_SHARE_COOKIE}=`));
+  if (!cookie) return undefined;
+  try {
+    return decodeURIComponent(cookie.slice(PREVIEW_SHARE_COOKIE.length + 1));
+  } catch {
+    return undefined;
+  }
+}
+
 function serializePreviewCookie(token: string, expiresAt: number, secure: boolean): string {
+  return serializeCookie(PREVIEW_AUTH_COOKIE, token, new Date(expiresAt * 1000), secure);
+}
+
+function serializeCookie(name: string, token: string, expiresAt: Date, secure: boolean): string {
   const sameSite = secure ? 'None' : 'Lax';
-  return `${PREVIEW_AUTH_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=${sameSite}; Path=/; Max-Age=${Math.max(1, expiresAt - Math.floor(Date.now() / 1000))}${secure ? '; Secure' : ''}`;
+  return `${name}=${encodeURIComponent(token)}; HttpOnly; SameSite=${sameSite}; Path=/; Max-Age=${Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000))}${secure ? '; Secure' : ''}`;
+}
+
+function hashShareToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function isReadOnlyMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+}
+
+function isUnsafeSharedPath(requestUrl: string): boolean {
+  const pathname = new URL(requestUrl, 'http://preview.invalid').pathname
+    .replace(/\/+/g, '/')
+    .toLowerCase();
+  return ['/admin', '/api', '/install', '/login', '/config', '/__cloudcrane'].some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }
 
 function proxyRequest(
@@ -233,6 +358,7 @@ function proxyRequest(
   port: number,
   config: PreviewGatewayConfig,
   logger: ServiceLogger,
+  readOnly = false,
 ): Promise<void> {
   return new Promise((resolve) => {
     const upstream = http.request(
@@ -243,7 +369,8 @@ function proxyRequest(
         path: upstreamPath(request.url, publicHost),
         headers: forwardedHeaders(request, publicHost, config.publicProtocol),
       },
-      (response) => void handleUpstreamResponse(response, reply, publicHost, config, resolve),
+      (response) =>
+        void handleUpstreamResponse(response, reply, publicHost, config, resolve, readOnly),
     );
     upstream.on('error', (error) => {
       logger.warn(
@@ -283,7 +410,8 @@ function forwardWebsiteCookie(value: string | undefined): string | undefined {
     ?.split(';')
     .map((part) => part.trim())
     .filter((part) => part && !part.startsWith(`${PREVIEW_AUTH_COOKIE}=`));
-  return cookies?.length ? cookies.join('; ') : undefined;
+  const filtered = cookies?.filter((part) => !part.startsWith(`${PREVIEW_SHARE_COOKIE}=`));
+  return filtered?.length ? filtered.join('; ') : undefined;
 }
 
 function publicPort(publicHost: string, protocol: PreviewGatewayConfig['publicProtocol']): string {
@@ -303,6 +431,7 @@ function handleUpstreamResponse(
   publicHost: string,
   config: PreviewGatewayConfig,
   resolve: () => void,
+  readOnly: boolean,
 ): void {
   const baseHeaders = responseHeaders(response.headers, publicHost, config.publicProtocol);
   const contentType = String(response.headers['content-type'] ?? '').toLowerCase();
@@ -335,7 +464,7 @@ function handleUpstreamResponse(
       return;
     }
     const original = Buffer.concat(chunks);
-    const injected = injectBridge(original, config.webOrigin);
+    const injected = readOnly ? null : injectBridge(original, config.webOrigin);
     if (!injected) {
       reply.raw.writeHead(response.statusCode ?? 502, baseHeaders);
       reply.raw.end(original);
@@ -358,6 +487,8 @@ function responseHeaders(
   publicProtocol: PreviewGatewayConfig['publicProtocol'],
 ): http.OutgoingHttpHeaders {
   const result: http.OutgoingHttpHeaders = { ...headers, 'x-robots-tag': 'noindex, nofollow' };
+  result['referrer-policy'] = 'no-referrer';
+  result['cache-control'] = 'no-store';
   const setCookies = headers['set-cookie']?.filter((value) => !isReservedSetCookie(value));
   if (setCookies?.length) result['set-cookie'] = setCookies;
   else delete result['set-cookie'];
@@ -367,7 +498,11 @@ function responseHeaders(
 }
 
 function isReservedSetCookie(value: string): boolean {
-  return value.trim().toLowerCase().startsWith(`${PREVIEW_AUTH_COOKIE.toLowerCase()}=`);
+  const cookieName = value.trim().split('=', 1)[0]?.toLowerCase();
+  return (
+    cookieName === PREVIEW_AUTH_COOKIE.toLowerCase() ||
+    cookieName === PREVIEW_SHARE_COOKIE.toLowerCase()
+  );
 }
 
 function injectBridge(body: Buffer, parentOrigin: string): Buffer | null {
@@ -417,5 +552,6 @@ function rewriteInternalLocation(
 function upstreamPath(requestUrl: string, publicHost: string): string {
   const url = new URL(requestUrl, `http://${publicHost}`);
   url.searchParams.delete('token');
+  url.searchParams.delete('share');
   return url.pathname + url.search;
 }
