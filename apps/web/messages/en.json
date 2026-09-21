@@ -303,6 +303,7 @@
     "executionComplete": "Execution complete",
     "executionStopped": "Execution stopped",
     "executionFailed": "Execution failed",
+    "imageAttachmentsUnsupported": "The configured model does not support image attachments yet. Please use a text or Markdown file instead.",
     "steps": "{count, plural, =1 {# step} other {# steps}}",
     "collapseDetails": "Collapse execution details",
     "expandDetails": "View execution details",

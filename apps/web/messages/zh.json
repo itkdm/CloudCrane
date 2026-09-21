@@ -303,6 +303,7 @@
     "executionComplete": "执行完成",
     "executionStopped": "已停止",
     "executionFailed": "执行失败",
+    "imageAttachmentsUnsupported": "当前配置的模型暂不支持图片附件，请改用文本或 Markdown 文件。",
     "steps": "{count, plural, =1 {# 个步骤} other {# 个步骤}}",
     "collapseDetails": "收起执行详情",
     "expandDetails": "查看执行详情",

@@ -271,6 +271,8 @@ function friendlyError(error: string | WorkbenchError, t: (key: string) => strin
   const code = error.code ?? '';
   const message = error.message;
   if (code === 'CONTEXT_COMPACTION_NOT_NEEDED') return t('compactContextNotNeeded');
+  if (/configured model does not support image attachments/i.test(message))
+    return t('imageAttachmentsUnsupported');
   if (error.source === 'preview-explicit') return t('errorPreview');
   if (error.source === 'connection') return t('connectionInterrupted');
   if (/CLIENT_UNAVAILABLE|Preview Client|preview client/i.test(message)) return t('errorPreview');
