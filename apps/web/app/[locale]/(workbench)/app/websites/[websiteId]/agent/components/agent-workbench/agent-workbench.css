@@ -340,6 +340,10 @@
   line-height: 1.55;
 }
 
+.user-message-main {
+  min-width: 0;
+}
+
 .user-message-content {
   min-width: 0;
   border: 1px solid var(--cc-border-hover);
@@ -349,6 +353,37 @@
   color: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.user-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 3px;
+  padding-right: 5px;
+}
+
+.message-action-button {
+  display: inline-grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cc-text-muted);
+  cursor: pointer;
+}
+
+.message-action-button:hover {
+  background: var(--cc-surface-2);
+  color: var(--cc-text-secondary);
+}
+
+.message-action-button:focus-visible {
+  outline: 2px solid var(--cc-brand);
+  outline-offset: 1px;
 }
 
 .user-message-failed {
@@ -386,6 +421,12 @@
   color: var(--cc-text);
   font-size: 13px;
   line-height: 1.7;
+}
+
+.assistant-message-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
 }
 
 .markdown-body > :first-child {
