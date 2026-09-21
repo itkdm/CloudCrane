@@ -12,12 +12,13 @@ import {
   type SetStateAction,
 } from 'react';
 import { useTranslations } from 'next-intl';
-import type { AgentEnvelope, AgentEvent, PreviewCapability } from '@cloudcrane/agent-protocol';
+import type { AgentEnvelope, AgentEvent, AttachmentRef, PreviewCapability } from '@cloudcrane/agent-protocol';
 import { deriveSessionTitle } from '@cloudcrane/shared/session-title';
 import {
   agentWebSocketUrl,
   command,
   uploadReference,
+  uploadAttachment,
   parseAgentEvent,
   parseAgentMessage,
 } from '@/lib/agent-client';
@@ -86,6 +87,8 @@ export function AgentWorkbenchContent({
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
   const [runId, setRunId] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
+  const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
+  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [error, setError] = useState<WorkbenchError | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
@@ -539,7 +542,7 @@ export function AgentWorkbenchContent({
       queueConversation(
         {
           type: 'user.added',
-          payload: { message: { id: requestId, requestId, role: 'user', text, status: 'pending' } },
+          payload: { message: { id: requestId, requestId, role: 'user', text, attachments, status: 'pending' } },
         },
         true,
       );
@@ -556,7 +559,7 @@ export function AgentWorkbenchContent({
               type: 'agent.prompt',
               websiteId,
               sessionId,
-              payload: { text, promptRequestId: requestId },
+              payload: { text, promptRequestId: requestId, attachments },
             }),
             requestId,
           }),
@@ -572,10 +575,25 @@ export function AgentWorkbenchContent({
         return false;
       }
       setDraft('');
+      setAttachments([]);
       return true;
     },
-    [conversation, currentSessionId, queueConversation, sessionMetadata, t, websiteId],
+    [attachments, conversation, currentSessionId, queueConversation, sessionMetadata, t, websiteId],
   );
+
+  function selectAttachments(files: File[]) {
+    if (!currentSessionId) return;
+    setAttachmentsUploading(true);
+    const uploads = files.slice(0, 8 - attachments.length).map((file) =>
+      uploadAttachment(websiteId, currentSessionId, file),
+    );
+    void Promise.allSettled(uploads).then((results) => {
+      const uploaded = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+      if (uploaded.length) setAttachments((current) => [...current, ...uploaded]);
+      if (results.some((result) => result.status === 'rejected'))
+        setError(toWorkbenchError('command', undefined, t('operationIncomplete')));
+    }).finally(() => setAttachmentsUploading(false));
+  }
 
   useEffect(() => {
     if (
@@ -932,7 +950,7 @@ export function AgentWorkbenchContent({
           draft={draft}
           running={Boolean(runId)}
           error={error}
-          disabled={!currentSessionId}
+          disabled={!currentSessionId || attachmentsUploading}
           manualMaintenanceItems={conversation.manualMaintenanceItems}
           manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
           manualMaintenancePending={manualMaintenancePending}
@@ -949,6 +967,9 @@ export function AgentWorkbenchContent({
           onInteractionRespond={respondInteraction}
           onInteractionCancel={cancelInteraction}
           onReferenceUpload={uploadReferenceFile}
+          attachments={attachments}
+          onAttachmentSelect={selectAttachments}
+          onAttachmentRemove={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
         />
         {previewOpen ? (
           <WorkspaceResizeHandle

@@ -9,6 +9,9 @@ const configSchema = z.object({
   workspaceGatewayEndpoint: z.string().url().default('http://127.0.0.1:4102'),
   workspaceGatewayClientToken: z.string().min(1).default('dev-client-token'),
   agentDataRoot: z.string().min(1).default('.cloudcrane-data'),
+  attachmentStorageDriver: z.enum(['local', 'oss']).default('local'),
+  attachmentStorageRoot: z.string().min(1).optional(),
+  attachmentMaxBytes: z.coerce.number().int().positive().default(20 * 1024 * 1024),
   modelProvider: z.string().min(1).optional(),
   modelId: z.string().min(1).optional(),
   modelAuthPath: z.string().min(1).optional(),
@@ -32,9 +35,17 @@ const configSchema = z.object({
 
 export type AgentServiceConfig = Omit<
   z.infer<typeof configSchema>,
-  'agentDataRoot' | 'templateArtifactRoot' | 'templateArtifactMaxBytes'
+  | 'agentDataRoot'
+  | 'attachmentStorageDriver'
+  | 'attachmentStorageRoot'
+  | 'attachmentMaxBytes'
+  | 'templateArtifactRoot'
+  | 'templateArtifactMaxBytes'
 > & {
   agentDataRoot: string;
+  attachmentStorageDriver?: 'local' | 'oss';
+  attachmentStorageRoot?: string;
+  attachmentMaxBytes?: number;
   templateArtifactRoot?: string;
   internalServiceToken?: string;
   templateArtifactMaxBytes?: number;
@@ -52,6 +63,9 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     workspaceGatewayEndpoint: env.WORKSPACE_GATEWAY_ENDPOINT,
     workspaceGatewayClientToken: env.WORKSPACE_GATEWAY_CLIENT_TOKEN,
     agentDataRoot: env.AGENT_DATA_ROOT,
+    attachmentStorageDriver: env.ATTACHMENT_STORAGE_DRIVER,
+    attachmentStorageRoot: env.ATTACHMENT_STORAGE_ROOT,
+    attachmentMaxBytes: env.ATTACHMENT_MAX_BYTES,
     modelProvider: env.AGENT_MODEL_PROVIDER,
     modelId: env.AGENT_MODEL_ID,
     modelAuthPath: env.AGENT_MODEL_AUTH_PATH,
@@ -67,6 +81,9 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
   return {
     ...parsed,
     agentDataRoot: path.resolve(parsed.agentDataRoot),
+    attachmentStorageRoot: path.resolve(
+      parsed.attachmentStorageRoot ?? path.join(parsed.agentDataRoot, 'attachments'),
+    ),
     referenceRoot: path.resolve(parsed.referenceRoot),
     templateArtifactRoot: path.resolve(parsed.templateArtifactRoot),
     modelConfigured: Boolean(parsed.modelProvider && parsed.modelId),

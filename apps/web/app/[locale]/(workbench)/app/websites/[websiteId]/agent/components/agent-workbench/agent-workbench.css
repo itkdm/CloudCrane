@@ -764,6 +764,65 @@
   box-shadow: var(--cc-shadow-sm);
 }
 
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.user-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.user-message-attachment {
+  padding: 3px 6px;
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  color: var(--cc-text-secondary);
+  font-size: 11px;
+}
+
+.composer-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 4px 7px;
+  border: 1px solid var(--cc-border);
+  border-radius: 8px;
+  color: var(--cc-text-secondary);
+  font-size: 11px;
+}
+
+.composer-attachment span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-attachment button,
+.composer-attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--cc-text-secondary);
+  cursor: pointer;
+}
+
+.composer-attach input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .composer-box:focus-within {
   border-color: var(--cc-border);
   box-shadow: var(--cc-shadow-sm);

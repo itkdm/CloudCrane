@@ -1,4 +1,5 @@
 import { AlertTriangle, Eye, Settings } from 'lucide-react';
+import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './composer';
@@ -37,6 +38,9 @@ type ChatPanelProps = {
   manualMaintenancePending?: boolean;
   onCompact?: () => void;
   contextUsage?: ContextUsage | null;
+  attachments?: AttachmentRef[];
+  onAttachmentSelect?: (files: File[]) => void;
+  onAttachmentRemove?: (id: string) => void;
 };
 
 export function ChatPanel({
@@ -63,6 +67,9 @@ export function ChatPanel({
   manualMaintenancePending = false,
   onCompact,
   contextUsage,
+  attachments = [],
+  onAttachmentSelect,
+  onAttachmentRemove,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   const onDismissErrorRef = useRef(onDismissError);
@@ -150,6 +157,9 @@ export function ChatPanel({
         onDraftChange={onDraftChange}
         onSubmit={onSubmit}
         onStop={onStop}
+        attachments={attachments}
+        onAttachmentSelect={onAttachmentSelect}
+        onAttachmentRemove={onAttachmentRemove}
       />
     </section>
   );

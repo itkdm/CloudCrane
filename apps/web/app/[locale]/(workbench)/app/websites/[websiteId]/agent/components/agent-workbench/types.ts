@@ -9,6 +9,7 @@ export type Message = {
   toolOutput?: string;
   status?: string;
   requestId?: string;
+  attachments?: Array<{ id: string; kind: 'image' | 'document'; name: string; mimeType: string; size: number }>;
 };
 
 export type ConversationTurnStatus =

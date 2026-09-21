@@ -402,6 +402,8 @@ class AgentSocketConnection {
             accepted = true;
             this.ack(command);
           },
+          command.payload.attachments,
+          this.userId,
         )
         .catch((error) => {
           if (!accepted) this.sendError(command.requestId, asAgentServiceError(error), command);

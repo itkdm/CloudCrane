@@ -36,6 +36,15 @@ const commandBase = z.object({
   timestamp: z.coerce.date(),
 });
 
+const attachmentRefSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['image', 'document']),
+  name: z.string().min(1).max(255),
+  mimeType: z.string().min(1).max(127),
+  size: z.number().int().positive(),
+});
+export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
+
 export const agentCommandSchema = z.discriminatedUnion('type', [
   commandBase.extend({
     type: z.literal('session.attach'),
@@ -46,6 +55,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     payload: z.object({
       text: z.string().min(1).max(32_000),
       promptRequestId: z.string().min(1).max(256).optional(),
+      attachments: z.array(attachmentRefSchema).max(8).optional(),
     }),
   }),
   commandBase.extend({ type: z.literal('agent.abort'), payload: z.object({}) }),
@@ -113,6 +123,7 @@ export const snapshotMessageSchema = z.object({
   turnId: z.string().optional(),
   kind: z.string().optional(),
   status: z.enum(['running', 'completed', 'error']).optional(),
+  attachments: z.array(attachmentRefSchema).max(8).optional(),
 });
 export type SnapshotMessage = z.infer<typeof snapshotMessageSchema>;
 

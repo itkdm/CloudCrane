@@ -33,6 +33,7 @@ import {
   type ServiceLogger,
 } from '@cloudcrane/shared';
 import { signPreviewToken } from '@cloudcrane/preview-access';
+import type { AttachmentStorage } from '@cloudcrane/attachment-storage';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from './application/errors.js';
 import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
@@ -46,6 +47,7 @@ import {
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
 import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
+import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 
 export type AgentServiceAppOptions = {
   config: AgentServiceConfig;
@@ -54,6 +56,7 @@ export type AgentServiceAppOptions = {
   db?: PlatformDb['db'];
   previewClientRegistry?: PreviewClientRegistry;
   logger?: ServiceLogger;
+  attachmentStorage?: AttachmentStorage;
 };
 
 const auditLogger = createLogger('agent-service.audit');
@@ -63,9 +66,31 @@ export function buildAgentServiceApp(
 ): FastifyInstance & { agentSocket: AgentSocketTransport } {
   const app = Fastify({ bodyLimit: 256 * 1024 });
   const logger = options.logger ?? createLogger('agent-service.http');
+  const attachmentService =
+    options.db && options.attachmentStorage
+      ? new ConversationAttachmentService(
+          options.db,
+          options.attachmentStorage,
+          options.config.attachmentStorageDriver ?? 'local',
+          options.config.attachmentMaxBytes ?? 20 * 1024 * 1024,
+        )
+      : undefined;
+  const attachmentCleanupTimer = attachmentService
+    ? setInterval(() => {
+        void attachmentService.cleanupExpired().catch((error) => {
+          logger.warn({ ...serializeError(error) }, 'attachment cleanup failed');
+        });
+      }, 60 * 60 * 1000)
+    : undefined;
   const requestStarts = new WeakMap<object, number>();
   void app.register(multipart, {
-    limits: { files: 1, fileSize: options.config.referenceUploadMaxBytes },
+    limits: {
+      files: 1,
+      fileSize: Math.max(
+        options.config.referenceUploadMaxBytes,
+        options.config.attachmentMaxBytes ?? 20 * 1024 * 1024,
+      ),
+    },
   });
   const previewClients = options.previewClientRegistry ?? new PreviewClientRegistry();
   const sockets = new AgentSocketTransport({
@@ -154,6 +179,34 @@ export function buildAgentServiceApp(
   });
   app.options('/*', async (_request, reply) => reply.code(204).send());
   app.get('/health', async () => ({ service: 'agent-service', status: 'ok' }));
+  app.post<{
+    Params: { websiteId: string; sessionId: string };
+  }>(
+    '/v1/websites/:websiteId/sessions/:sessionId/attachments',
+    { bodyLimit: (options.config.attachmentMaxBytes ?? 20 * 1024 * 1024) + 1024 * 1024 },
+    async (request, reply) => {
+      if (!attachmentService || !options.auth)
+        throw new AgentServiceError('INTERNAL_ERROR', 'attachment storage is unavailable', 503);
+      if (!isUuid(request.params.websiteId) || !isUuid(request.params.sessionId))
+        throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment parameters', 400);
+      const session = await requireSession(options.auth, headersFromNode(request.headers));
+      let result: Awaited<ReturnType<ConversationAttachmentService['upload']>> | undefined;
+      for await (const part of request.parts()) {
+        if (part.type !== 'file' || part.fieldname !== 'file' || result) {
+          if (result) await attachmentService.remove(result.id, session.user.id);
+          throw new AgentServiceError('INVALID_ARGUMENT', 'exactly one file field is required', 400);
+        }
+        result = await attachmentService.upload({
+          userId: session.user.id,
+          websiteId: request.params.websiteId,
+          sessionId: request.params.sessionId,
+          part,
+        });
+      }
+      if (!result) throw new AgentServiceError('INVALID_ARGUMENT', 'file field is required', 400);
+      return reply.code(201).send(result);
+    },
+  );
   app.post<{
     Params: { websiteId: string };
     Body: {
@@ -458,6 +511,7 @@ export function buildAgentServiceApp(
       .send({ error: { code: mapped.code, message: mapped.message } });
   });
   app.addHook('onClose', async () => {
+    if (attachmentCleanupTimer) clearInterval(attachmentCleanupTimer);
     await sockets.close();
     previewClients.close();
     await options.registry.shutdown();

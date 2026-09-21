@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cloudcrane/auth": "workspace:*",
+    "@cloudcrane/attachment-storage": "workspace:*",
     "@cloudcrane/agent-protocol": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-access": "workspace:*",

@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests --exclude dist/** --exclude .next/**"
   },
   "dependencies": {
+    "@cloudcrane/agent-protocol": "workspace:*",
     "@cloudcrane/pi-adapter": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",

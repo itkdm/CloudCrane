@@ -12,6 +12,7 @@ export type AgentServiceErrorCode =
   | 'WEBSITE_DELETING'
   | 'CONTEXT_COMPACTION_NOT_NEEDED'
   | 'INTERACTION_NOT_FOUND'
+  | 'ATTACHMENT_INVALID'
   | 'MODEL_NOT_CONFIGURED'
   | 'AUDIT_UNAVAILABLE'
   | 'INTERNAL_ERROR';
@@ -48,7 +49,8 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
       (error as { code?: unknown }).code === 'SESSION_TITLE_INVALID' ||
       (error as { code?: unknown }).code === 'WEBSITE_MUTATION_BUSY' ||
       (error as { code?: unknown }).code === 'CONTEXT_COMPACTION_NOT_NEEDED' ||
-      (error as { code?: unknown }).code === 'INTERACTION_NOT_FOUND')
+      (error as { code?: unknown }).code === 'INTERACTION_NOT_FOUND' ||
+      (error as { code?: unknown }).code === 'ATTACHMENT_INVALID')
   ) {
     const code = (
       error as {
@@ -59,7 +61,8 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
           | 'SESSION_TITLE_INVALID'
           | 'WEBSITE_MUTATION_BUSY'
           | 'CONTEXT_COMPACTION_NOT_NEEDED'
-          | 'INTERACTION_NOT_FOUND';
+          | 'INTERACTION_NOT_FOUND'
+          | 'ATTACHMENT_INVALID';
       }
     ).code;
     return new AgentServiceError(code, error instanceof Error ? error.message : 'session is busy');

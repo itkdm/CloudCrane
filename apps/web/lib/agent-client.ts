@@ -98,6 +98,24 @@ export async function uploadReference(
   };
 }
 
+export async function uploadAttachment(websiteId: string, sessionId: string, file: File) {
+  const body = new FormData();
+  body.append('file', file, file.name);
+  const response = await fetch(
+    agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/attachments`),
+    { method: 'POST', body, credentials: 'include' },
+  );
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as {
+    id: string;
+    kind: 'image' | 'document';
+    name: string;
+    mimeType: string;
+    size: number;
+    sha256: string;
+  };
+}
+
 export function agentWebSocketUrl(): string {
   if (/^https?:\/\//.test(serviceUrl)) {
     return `${serviceUrl.replace(/^http/, 'ws').replace(/\/$/, '')}/v1/agent/connect`;

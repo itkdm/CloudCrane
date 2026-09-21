@@ -48,6 +48,15 @@ export function UserMessage({ message }: { message: Message }) {
       )}
       <div className="user-message-main">
         <div className="user-message-content">{message.text}</div>
+        {message.attachments?.length ? (
+          <div className="user-message-attachments">
+            {message.attachments.map((attachment) => (
+              <span className="user-message-attachment" key={attachment.id}>
+                {attachment.kind === 'image' ? '图片' : '文档'} · {attachment.name}
+              </span>
+            ))}
+          </div>
+        ) : null}
         {message.text ? (
           <div className="user-message-actions">
             {formatMessageTime(message.timestamp) ? (

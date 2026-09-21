@@ -19,6 +19,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
+import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
 import { createLogger, runWithLogContext, serializeError, withSpan } from '@cloudcrane/shared';
 import {
@@ -177,6 +178,12 @@ export type WebsiteAgentRuntimeOptions = {
   previewObservationProvider?: PreviewObservationProvider;
   referenceUploadMaxBytes?: number;
   templatePublisher?: (request: TemplatePublishRequest) => Promise<TemplatePublishResult>;
+  attachmentResolver?: (input: {
+    ownerId?: string;
+    websiteId: string;
+    sessionId: string;
+    attachments: AttachmentRef[];
+  }) => Promise<Array<AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }>>;
 };
 
 export type AgentRunResult = {
@@ -199,6 +206,7 @@ export type WebsiteAgentMessage = {
   turnId?: string;
   kind?: string;
   status?: 'running' | 'completed' | 'error';
+  attachments?: AttachmentRef[];
 };
 
 export type ContextMaintenanceState = {
@@ -293,7 +301,8 @@ export class WebsiteAgentRuntimeError extends Error {
       | 'SESSION_TITLE_INVALID'
       | 'WEBSITE_MUTATION_BUSY'
       | 'CONTEXT_COMPACTION_NOT_NEEDED'
-      | 'INTERACTION_NOT_FOUND',
+      | 'INTERACTION_NOT_FOUND'
+      | 'ATTACHMENT_INVALID',
     message: string,
   ) {
     super(message);
@@ -647,6 +656,8 @@ export class WebsiteAgentRuntime {
     previewClientId?: string,
     promptRequestId?: string,
     onAccepted?: () => void,
+    attachments: AttachmentRef[] = [],
+    ownerId?: string,
   ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
     if (!managed.tryReservePrimaryOperation('run'))
@@ -734,6 +745,31 @@ export class WebsiteAgentRuntime {
       };
       const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
       try {
+        if (attachments.length > 0 && !this.options.attachmentResolver)
+          throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'attachment service is unavailable');
+        const resolvedAttachments = this.options.attachmentResolver
+          ? await this.options.attachmentResolver({
+              ownerId,
+              websiteId: this.options.websiteId,
+              sessionId: websiteSessionId,
+              attachments,
+            })
+          : [];
+        const images: Array<{ type: 'image'; data: string; mimeType: string }> = [];
+        let promptText = text;
+        for (const attachment of resolvedAttachments) {
+          if (attachment.kind === 'image') {
+            images.push({
+              type: 'image',
+              data: await streamToBase64(attachment.stream),
+              mimeType: attachment.contentType,
+            });
+          } else {
+            promptText += `\n\n[附件：${attachment.name}]\n${await streamToUtf8(attachment.stream, 512_000)}`;
+          }
+        }
+        if (images.length > 0 && this.options.model && !this.options.model.input.includes('image'))
+          throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'the configured model does not support image attachments');
         await this.runContext.run(activeRun, () =>
           withSpan(
             'agent.run',
@@ -743,7 +779,7 @@ export class WebsiteAgentRuntime {
               'cloudcrane.agent_run_id': run.id,
               'cloudcrane.run_correlation_id': traceId,
             },
-            () => managed.piRuntime.session.prompt(text),
+            () => managed.piRuntime.session.prompt(promptText, images.length ? { images } : undefined),
           ),
         );
         if (!settled) await settledPromise;
@@ -1888,6 +1924,25 @@ function projectSessionHistory(entries: readonly unknown[]): WebsiteAgentMessage
     return message ? [message] : [];
   });
   return projectMessages(messages);
+}
+
+async function streamToBase64(stream: NodeJS.ReadableStream): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('base64');
+}
+
+async function streamToUtf8(stream: NodeJS.ReadableStream, maxBytes: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maxBytes)
+      throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'attachment document is too large');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 const questionParameters = Type.Object({

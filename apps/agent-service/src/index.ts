@@ -17,6 +17,8 @@ import { DrizzleWebsiteAgentStore } from './infrastructure/website-agent-store.j
 import { DrizzleWebsiteBindingStore } from './infrastructure/website-binding-store.js';
 import { ClientPreviewProvider } from './infrastructure/client-preview-provider.js';
 import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
+import { createAttachmentStorage } from '@cloudcrane/attachment-storage';
+import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
@@ -41,6 +43,16 @@ const templatePublisher = new TemplatePublishingService(
   config.workspaceGatewayClientToken,
   config.templateArtifactRoot!,
 );
+const attachmentStorage = createAttachmentStorage({
+  driver: config.attachmentStorageDriver ?? 'local',
+  root: config.attachmentStorageRoot ?? path.join(config.agentDataRoot, 'attachments'),
+});
+const attachmentService = new ConversationAttachmentService(
+  platform.db,
+  attachmentStorage,
+  config.attachmentStorageDriver ?? 'local',
+  config.attachmentMaxBytes ?? 20 * 1024 * 1024,
+);
 
 const registry = new WebsiteRuntimeRegistry({
   bindingStore: new DrizzleWebsiteBindingStore(platform),
@@ -62,6 +74,7 @@ const registry = new WebsiteRuntimeRegistry({
           websiteId: binding.websiteId,
           workspaceId: binding.workspaceId,
         }),
+      attachmentResolver: (input) => attachmentService.resolve(input),
     }),
 });
 const app = buildAgentServiceApp({
@@ -69,6 +82,7 @@ const app = buildAgentServiceApp({
   registry,
   auth,
   db: platform.db,
+  attachmentStorage,
   previewClientRegistry: previewClients,
   logger,
 });

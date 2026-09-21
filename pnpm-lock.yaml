@@ -47,6 +47,9 @@ importers:
       '@cloudcrane/agent-protocol':
         specifier: workspace:*
         version: link:../../packages/agent-protocol
+      '@cloudcrane/attachment-storage':
+        specifier: workspace:*
+        version: link:../../packages/attachment-storage
       '@cloudcrane/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -283,6 +286,8 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
+  packages/attachment-storage: {}
+
   packages/auth:
     dependencies:
       '@better-auth/drizzle-adapter':
@@ -407,6 +412,9 @@ importers:
 
   packages/website-agent:
     dependencies:
+      '@cloudcrane/agent-protocol':
+        specifier: workspace:*
+        version: link:../agent-protocol
       '@cloudcrane/pi-adapter':
         specifier: workspace:*
         version: link:../pi-adapter

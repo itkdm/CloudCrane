@@ -3,6 +3,7 @@ import {
   index,
   integer,
   boolean,
+  bigint,
   check,
   jsonb,
   pgTable,
@@ -238,6 +239,46 @@ export const websiteSession = pgTable(
   ],
 );
 
+export const conversationAttachment = pgTable(
+  'conversation_attachment',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    websiteId: uuid('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' }),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => websiteSession.id, { onDelete: 'cascade' }),
+    originalFilename: varchar('original_filename', { length: 255 }).notNull(),
+    contentType: varchar('content_type', { length: 127 }).notNull(),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    storageDriver: varchar('storage_driver', { length: 16 }).notNull(),
+    storageKey: text('storage_key').notNull().unique(),
+    status: varchar('status', { length: 32 }).notNull(),
+    errorCode: varchar('error_code', { length: 128 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('conversation_attachment_owner_session_idx').on(table.ownerId, table.sessionId),
+    index('conversation_attachment_website_status_idx').on(table.websiteId, table.status),
+    index('conversation_attachment_expiry_idx').on(table.status, table.expiresAt),
+    check('conversation_attachment_kind_check', sql`${table.kind} in ('image', 'document')`),
+    check(
+      'conversation_attachment_status_check',
+      sql`${table.status} in ('ready', 'failed', 'deleting', 'deleted')`,
+    ),
+    check('conversation_attachment_size_check', sql`${table.sizeBytes} > 0`),
+    check('conversation_attachment_sha256_check', sql`${table.sha256} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
 export const agentRun = pgTable(
   'agent_run',
   {
@@ -327,6 +368,7 @@ export type User = typeof user.$inferSelect;
 export type Workspace = typeof workspace.$inferSelect;
 export type WebsiteShare = typeof websiteShare.$inferSelect;
 export type WebsiteSession = typeof websiteSession.$inferSelect;
+export type ConversationAttachment = typeof conversationAttachment.$inferSelect;
 export type AgentRun = typeof agentRun.$inferSelect;
 export type Runner = typeof runner.$inferSelect;
 export type AuditEvent = typeof auditEvent.$inferSelect;
