@@ -182,7 +182,8 @@ function ConversationTurnView({
       ) : null}
       {turn.error && !turn.execution?.length ? (
         <p className="turn-status-message" role="status">
-          {turn.status === 'aborted' ? t('aborted') : t('failed')}：{turn.error}
+          {turn.status === 'aborted' ? t('aborted') : t('failed')}：
+          {friendlyTurnError(turn.error, t)}
         </p>
       ) : null}
       {turn.finalAnswer ? (
@@ -199,4 +200,10 @@ function ConversationTurnView({
       ) : null}
     </article>
   );
+}
+
+function friendlyTurnError(error: string, t: (key: string) => string): string {
+  if (/configured model does not support image attachments/i.test(error))
+    return t('imageAttachmentsUnsupported');
+  return error;
 }
