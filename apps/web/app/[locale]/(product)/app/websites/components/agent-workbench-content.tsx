@@ -123,8 +123,12 @@ export function AgentWorkbenchContent({
   const pendingInteractionRequestsRef = useRef(new Map<string, string>());
   const pendingPromptRequestIdRef = useRef<string | undefined>(undefined);
   const pendingPromptAckedRef = useRef(false);
+  const pendingCompactionRequestIdRef = useRef<string | undefined>(undefined);
+  const compactionStartedRef = useRef(false);
+  const compactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const initialPromptConsumedRef = useRef<string | undefined>(undefined);
   const [sessionSnapshotVersion, setSessionSnapshotVersion] = useState(0);
+  const [manualMaintenancePending, setManualMaintenancePending] = useState(false);
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
   const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
 
@@ -166,6 +170,16 @@ export function AgentWorkbenchContent({
     const next = command(input);
     if (requestId) next.requestId = requestId;
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
+  }, []);
+
+  const clearManualMaintenancePending = useCallback(() => {
+    if (compactionTimeoutRef.current) {
+      clearTimeout(compactionTimeoutRef.current);
+      compactionTimeoutRef.current = undefined;
+    }
+    pendingCompactionRequestIdRef.current = undefined;
+    compactionStartedRef.current = false;
+    setManualMaintenancePending(false);
   }, []);
 
   const failPendingPrompt = useCallback(
@@ -518,6 +532,7 @@ export function AgentWorkbenchContent({
         activeRun: Boolean(activeRunRef.current),
         promptPending: Boolean(pendingPromptRequestIdRef.current),
         maintenance: hasRunningManualMaintenance(conversation),
+        maintenancePending: Boolean(pendingCompactionRequestIdRef.current),
       };
       if (Object.values(blocked).some(Boolean)) {
         return false;
@@ -600,15 +615,33 @@ export function AgentWorkbenchContent({
   };
 
   const compactContext = useCallback(() => {
-    if (!currentSessionId || activeRunRef.current || hasRunningManualMaintenance(conversation))
+    if (
+      !currentSessionId ||
+      activeRunRef.current ||
+      hasRunningManualMaintenance(conversation) ||
+      pendingCompactionRequestIdRef.current ||
+      socket.current?.readyState !== WebSocket.OPEN
+    )
       return;
-    sendCommand({
-      type: 'session.compact',
-      websiteId,
-      sessionId: currentSessionId,
-      payload: {},
-    });
-  }, [conversation, currentSessionId, sendCommand, websiteId]);
+    const requestId = crypto.randomUUID();
+    pendingCompactionRequestIdRef.current = requestId;
+    compactionStartedRef.current = false;
+    setManualMaintenancePending(true);
+    compactionTimeoutRef.current = setTimeout(() => {
+      if (pendingCompactionRequestIdRef.current !== requestId) return;
+      clearManualMaintenancePending();
+      setError(toWorkbenchError('command', undefined, t('operationIncomplete')));
+    }, 15_000);
+    sendCommand(
+      {
+        type: 'session.compact',
+        websiteId,
+        sessionId: currentSessionId,
+        payload: {},
+      },
+      requestId,
+    );
+  }, [conversation, currentSessionId, clearManualMaintenancePending, sendCommand, t, websiteId]);
 
   const requestPreview = useCallback(
     (payload: Extract<AgentEvent, { type: 'preview.request' }>['payload']) => {
@@ -675,6 +708,7 @@ export function AgentWorkbenchContent({
       ws.onclose = (event) => {
         if (disposed || socket.current !== ws) return;
         socket.current = null;
+        clearManualMaintenancePending();
         failPendingPrompt(t('connectionInterrupted'), event.code !== 1008);
         if (event.code === 1008) {
           return;
@@ -794,6 +828,8 @@ export function AgentWorkbenchContent({
         }
 
         if (projected.event.type === 'command.error') {
+          if (projected.envelope.requestId === pendingCompactionRequestIdRef.current)
+            clearManualMaintenancePending();
           if (projected.envelope.requestId === pendingPromptRequestIdRef.current)
             pendingPromptRequestIdRef.current = undefined;
           const interactionId = pendingInteractionRequestsRef.current.get(
@@ -810,6 +846,22 @@ export function AgentWorkbenchContent({
             );
           }
           pendingSessionTitlesRef.current.delete(projected.envelope.requestId);
+        }
+
+        if (
+          projected.event.type === 'context.compaction.started' &&
+          pendingCompactionRequestIdRef.current
+        ) {
+          compactionStartedRef.current = true;
+        }
+
+        if (
+          compactionStartedRef.current &&
+          (projected.event.type === 'context.compaction.completed' ||
+            projected.event.type === 'context.compaction.failed' ||
+            projected.event.type === 'context.compaction.not_needed')
+        ) {
+          clearManualMaintenancePending();
         }
 
         if (projected.event.type === 'run.started' || projected.event.type === 'run.settled') {
@@ -843,6 +895,7 @@ export function AgentWorkbenchContent({
 
     return () => {
       disposed = true;
+      clearManualMaintenancePending();
       if (retryTimer) clearTimeout(retryTimer);
       socket.current?.close();
       socket.current = null;
@@ -858,6 +911,7 @@ export function AgentWorkbenchContent({
     schedulePreviewRefresh,
     markPreviewDirty,
     failPendingPrompt,
+    clearManualMaintenancePending,
     setRunIdState,
     t,
   ]);
@@ -893,6 +947,7 @@ export function AgentWorkbenchContent({
           disabled={!currentSessionId}
           manualMaintenanceItems={conversation.manualMaintenanceItems}
           manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
+          manualMaintenancePending={manualMaintenancePending}
           contextUsage={conversation.contextUsage}
           onCompact={compactContext}
           onDraftChange={setDraft}

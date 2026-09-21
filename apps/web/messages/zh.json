@@ -327,6 +327,8 @@
     "compactContextNotNeeded": "当前对话暂时无需整理",
     "contextUsageLabel": "上下文 {used} / {max} · 已使用 {percent}%",
     "contextUsageLoading": "正在读取上下文用量",
+    "contextUsageUnknownLabel": "上下文 {used} / {max} · 使用率暂不可用",
+    "contextUsageUnavailable": "上下文用量暂不可用",
     "questionOther": "其他",
     "questionCustomPlaceholder": "输入你的答案",
     "questionCancel": "取消",

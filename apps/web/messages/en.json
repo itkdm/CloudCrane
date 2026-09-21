@@ -327,6 +327,8 @@
     "compactContextNotNeeded": "This conversation does not need organizing yet",
     "contextUsageLabel": "Context {used} / {max} · {percent}% used",
     "contextUsageLoading": "Loading context usage",
+    "contextUsageUnknownLabel": "Context {used} / {max} · usage unavailable",
+    "contextUsageUnavailable": "Context usage unavailable",
     "questionOther": "Other",
     "questionCustomPlaceholder": "Enter your answer",
     "questionCancel": "Cancel",

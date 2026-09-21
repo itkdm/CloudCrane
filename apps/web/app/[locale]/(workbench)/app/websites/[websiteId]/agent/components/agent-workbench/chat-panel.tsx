@@ -1,5 +1,6 @@
 import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
 import type {
@@ -33,6 +34,7 @@ type ChatPanelProps = {
   onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
   manualMaintenanceItems?: ManualMaintenanceItem[];
   manualMaintenanceRunning?: boolean;
+  manualMaintenancePending?: boolean;
   onCompact?: () => void;
   contextUsage?: ContextUsage | null;
 };
@@ -58,6 +60,7 @@ export function ChatPanel({
   onReferenceUpload,
   manualMaintenanceItems = [],
   manualMaintenanceRunning = false,
+  manualMaintenancePending = false,
   onCompact,
   contextUsage,
 }: ChatPanelProps) {
@@ -84,7 +87,7 @@ export function ChatPanel({
               type="button"
               className="preview-toggle-button"
               onClick={onCompact}
-              disabled={running || manualMaintenanceRunning || disabled}
+              disabled={running || manualMaintenanceRunning || manualMaintenancePending || disabled}
               aria-label={t('compactContext')}
               title={t('compactContext')}
             >
@@ -132,7 +135,7 @@ export function ChatPanel({
       <Composer
         draft={draft}
         running={running}
-        disabled={disabled || manualMaintenanceRunning}
+        disabled={disabled || manualMaintenanceRunning || manualMaintenancePending}
         onDraftChange={onDraftChange}
         onSubmit={onSubmit}
         onStop={onStop}
@@ -143,6 +146,7 @@ export function ChatPanel({
 
 function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
   const t = useTranslations('workbench');
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const percent = usage?.percent;
   const displayPercent =
     percent === null || percent === undefined ? null : Math.max(0, Math.min(100, percent));
@@ -160,7 +164,16 @@ function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
     percent: Math.round(displayPercent ?? 0),
   });
 
-  if (displayPercent === null) {
+  useEffect(() => {
+    if (displayPercent !== null) {
+      setLoadingTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setLoadingTimedOut(true), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [displayPercent]);
+
+  if (displayPercent === null && !loadingTimedOut) {
     const loadingLabel = t('contextUsageLoading');
     return (
       <div
@@ -171,6 +184,28 @@ function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
         title={loadingLabel}
       >
         <span className="context-usage-loading" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  const unavailableLabel =
+    usage && (usage.tokens !== null || usage.contextWindow > 0)
+      ? t('contextUsageUnknownLabel', {
+          used: formatTokens(usage.tokens),
+          max: formatTokens(usage.contextWindow),
+        })
+      : t('contextUsageUnavailable');
+
+  if (displayPercent === null) {
+    return (
+      <div
+        className="context-usage unknown unavailable"
+        role="status"
+        aria-live="polite"
+        aria-label={unavailableLabel}
+        title={unavailableLabel}
+      >
+        <span className="context-usage-label">{unavailableLabel}</span>
       </div>
     );
   }

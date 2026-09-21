@@ -51,10 +51,14 @@
   font-size: 11px;
 }
 
-.context-usage.unknown {
+.context-usage.unknown:not(.unavailable) {
   width: 18px;
   min-width: 18px;
   height: 18px;
+}
+
+.context-usage.unavailable {
+  min-width: 190px;
 }
 
 .context-usage-loading {
@@ -108,9 +112,13 @@
     min-width: 0;
   }
 
-  .context-usage.unknown {
+  .context-usage.unknown:not(.unavailable) {
     width: 18px;
     min-width: 18px;
+  }
+
+  .context-usage.unavailable {
+    min-width: 0;
   }
 
   .context-usage-label {
