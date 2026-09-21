@@ -239,7 +239,8 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 12px 24px 0;
+  width: min(calc(100% - 48px), 640px);
+  margin: 12px auto 0;
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: 8px;
   padding: 9px 11px;
@@ -1212,7 +1213,8 @@
 /* Conversation presentation: the viewport owns scrolling; the composer stays in flow. */
 .error-banner {
   flex: 0 0 auto;
-  margin: 10px clamp(18px, 3vw, 30px) 0;
+  width: min(calc(100% - 36px), 640px);
+  margin: 10px auto 0;
 }
 
 .message-viewport {

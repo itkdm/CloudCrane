@@ -1,6 +1,6 @@
 import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
 import type {
@@ -65,6 +65,16 @@ export function ChatPanel({
   contextUsage,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
+  const onDismissErrorRef = useRef(onDismissError);
+  onDismissErrorRef.current = onDismissError;
+  const transientNotice = isTransientNotice(error);
+
+  useEffect(() => {
+    if (!transientNotice) return;
+    const timer = window.setTimeout(() => onDismissErrorRef.current(), 3500);
+    return () => window.clearTimeout(timer);
+  }, [transientNotice]);
+
   return (
     <section className="chat-panel" aria-label={t('chat')}>
       {onPreviewToggle || onSettingsOpen || onCompact ? (
@@ -112,8 +122,9 @@ export function ChatPanel({
       ) : null}
       {error ? (
         <div
-          className={`error-banner${error === 'CONTEXT_COMPACTION_NOT_NEEDED' || (typeof error !== 'string' && error.code === 'CONTEXT_COMPACTION_NOT_NEEDED') ? ' notice' : ''}`}
-          role="alert"
+          className={`error-banner${transientNotice ? ' notice' : ''}`}
+          role={transientNotice ? 'status' : 'alert'}
+          aria-live={transientNotice ? 'polite' : 'assertive'}
         >
           <AlertTriangle size={16} aria-hidden="true" />
           <span>{friendlyError(error, t)}</span>
@@ -141,6 +152,13 @@ export function ChatPanel({
         onStop={onStop}
       />
     </section>
+  );
+}
+
+function isTransientNotice(error?: string | WorkbenchError): boolean {
+  return (
+    error === 'CONTEXT_COMPACTION_NOT_NEEDED' ||
+    (typeof error !== 'string' && error?.code === 'CONTEXT_COMPACTION_NOT_NEEDED')
   );
 }
 
