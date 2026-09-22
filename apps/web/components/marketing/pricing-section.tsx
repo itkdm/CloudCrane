@@ -59,10 +59,8 @@ export function PricingSection() {
         <p className="marketing-eyebrow">{t('pricingLabel')}</p>
         <h2 id="pricing-title">{t('pricingTitle')}</h2>
         <p>{t('pricingDescription')}</p>
-        <span className="pricing-demo-note">{t('pricingDemoNote')}</span>
       </div>
-      <div className="pricing-toolbar" aria-label={t('pricingBillingLabel')}>
-        <span>{t('pricingBillingLabel')}</span>
+      <div className="pricing-toolbar">
         <div className="pricing-toggle" role="group" aria-label={t('pricingBillingLabel')}>
           <button
             type="button"

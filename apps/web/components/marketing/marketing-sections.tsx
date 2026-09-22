@@ -39,6 +39,7 @@ export function MarketingSections() {
         <div className="marketing-section-heading marketing-section-heading-centered">
           <p className="marketing-eyebrow">{t('workflowLabel')}</p>
           <h2 id="workflow-title">{t('workflowTitle')}</h2>
+          <p>{t('workflowDescription')}</p>
         </div>
         <ol className="workflow-grid">
           {steps.map(([title, description, Icon], index) => (
