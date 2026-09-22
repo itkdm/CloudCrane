@@ -166,6 +166,65 @@
     transform 180ms ease,
     border-color 180ms ease;
 }
+.marketing-header-account {
+  position: relative;
+}
+.marketing-header-account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  min-width: 190px;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--marketing-border);
+  border-radius: var(--cc-radius-md);
+  background: var(--marketing-surface);
+  box-shadow: 0 16px 36px rgb(15 23 42 / 12%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+.marketing-header-account:hover .marketing-header-account-menu,
+.marketing-header-account:focus-within .marketing-header-account-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.marketing-header-account-name {
+  overflow: hidden;
+  padding: 5px 8px 7px;
+  color: var(--marketing-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.marketing-header-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--marketing-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.marketing-header-logout:hover {
+  background: var(--cc-surface-2);
+  color: var(--marketing-brand);
+}
+.marketing-header-logout:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
 .marketing-header-avatar:hover {
   border-color: var(--marketing-brand);
   transform: translateY(-1px);

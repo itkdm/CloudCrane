@@ -1,7 +1,8 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { UserRound } from 'lucide-react';
+import { LogOut, UserRound } from 'lucide-react';
+import { useLocale } from 'next-intl';
 import { useEffect, useState } from 'react';
 import { Link } from '../../i18n/navigation';
 import { authClient } from '@/lib/auth-client';
@@ -12,8 +13,10 @@ import { ThemeSwitcher } from '../theme-switcher';
 export function MarketingHeader() {
   const t = useTranslations('navigation');
   const common = useTranslations('common');
+  const locale = useLocale();
   const { data: session, isPending } = authClient.useSession();
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     setAvatarFailed(false);
@@ -41,25 +44,48 @@ export function MarketingHeader() {
           <LanguageSwitcher />
           <ThemeSwitcher />
           {session && !isPending ? (
-            <Link
-              className="marketing-header-avatar"
-              href="/app/websites"
-              aria-label={t('workbench')}
-              title={`${userLabel} · ${t('workbench')}`}
-            >
-              {session.user.image && !avatarFailed ? (
-                <img
-                  src={session.user.image}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  onError={() => setAvatarFailed(true)}
-                />
-              ) : initials ? (
-                <span aria-hidden="true">{initials}</span>
-              ) : (
-                <UserRound size={18} aria-hidden="true" />
-              )}
-            </Link>
+            <div className="marketing-header-account">
+              <button
+                className="marketing-header-avatar"
+                type="button"
+                aria-label={userLabel}
+                aria-haspopup="menu"
+                title={userLabel}
+              >
+                {session.user.image && !avatarFailed ? (
+                  <img
+                    src={session.user.image}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarFailed(true)}
+                  />
+                ) : initials ? (
+                  <span aria-hidden="true">{initials}</span>
+                ) : (
+                  <UserRound size={18} aria-hidden="true" />
+                )}
+              </button>
+              <div className="marketing-header-account-menu" role="menu">
+                <span className="marketing-header-account-name">{userLabel}</span>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="marketing-header-logout"
+                  disabled={signingOut}
+                  onClick={() => {
+                    setSigningOut(true);
+                    void authClient.signOut({
+                      fetchOptions: {
+                        onSuccess: () => window.location.assign(`/${locale}`),
+                      },
+                    });
+                  }}
+                >
+                  <LogOut size={15} aria-hidden="true" />
+                  {signingOut ? common('loading') : t('logout')}
+                </button>
+              </div>
+            </div>
           ) : (
             <Link
               className="marketing-button marketing-button-primary marketing-button-small"
