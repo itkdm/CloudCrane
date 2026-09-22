@@ -859,6 +859,11 @@
 
 .composer-model {
   position: relative;
+  order: 2;
+}
+
+.composer-attach {
+  order: 1;
 }
 .composer-model-trigger {
   display: inline-flex;
@@ -963,6 +968,7 @@
 }
 
 .composer-send {
+  order: 3;
   display: inline-flex;
   align-items: center;
   gap: 6px;
