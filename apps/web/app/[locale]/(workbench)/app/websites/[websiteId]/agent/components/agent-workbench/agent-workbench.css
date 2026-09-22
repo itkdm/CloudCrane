@@ -909,18 +909,38 @@
   text-align: left;
 }
 .composer-model-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
   border: 0;
   background: transparent;
   color: var(--cc-brand);
   cursor: pointer;
   font-size: 11px;
+  line-height: 1;
+  padding: 0;
   white-space: nowrap;
+}
+.composer-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
 }
 .composer-model-delete {
   border: 0;
   background: transparent;
   color: var(--muted-foreground);
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
 }
 .composer-model-add {
   width: 100%;

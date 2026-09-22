@@ -155,40 +155,42 @@ export function Composer({
                     >
                       <span>{profile.modelId}</span>
                     </button>
-                    <button
-                      type="button"
-                      className="composer-model-edit"
-                      aria-label={t('editModel')}
-                      onClick={() => {
-                        setEditingProfileId(profile.id);
-                        setForm({
-                          providerId: profile.providerId,
-                          modelId: profile.modelId,
-                          baseUrl: profile.baseUrl ?? '',
-                          apiKey: '',
-                          displayName: profile.displayName,
-                        });
-                        setModelMenuOpen(false);
-                        setAddOpen(true);
-                        setModelError(undefined);
-                      }}
-                    >
-                      {t('editModel')}
-                    </button>
-                    <button
-                      type="button"
-                      className="composer-model-delete"
-                      aria-label={t('deleteModel')}
-                      onClick={async () => {
-                        await deleteModelProfile(profile.id);
-                        const next = modelProfiles.filter((item) => item.id !== profile.id);
-                        onModelProfileChange?.(next);
-                        if (selectedModelProfileId === profile.id)
-                          onModelProfileSelect?.(next[0]?.id ?? '');
-                      }}
-                    >
-                      ×
-                    </button>
+                    <div className="composer-model-actions">
+                      <button
+                        type="button"
+                        className="composer-model-edit"
+                        aria-label={t('editModel')}
+                        onClick={() => {
+                          setEditingProfileId(profile.id);
+                          setForm({
+                            providerId: profile.providerId,
+                            modelId: profile.modelId,
+                            baseUrl: profile.baseUrl ?? '',
+                            apiKey: '',
+                            displayName: profile.displayName,
+                          });
+                          setModelMenuOpen(false);
+                          setAddOpen(true);
+                          setModelError(undefined);
+                        }}
+                      >
+                        {t('editModel')}
+                      </button>
+                      <button
+                        type="button"
+                        className="composer-model-delete"
+                        aria-label={t('deleteModel')}
+                        onClick={async () => {
+                          await deleteModelProfile(profile.id);
+                          const next = modelProfiles.filter((item) => item.id !== profile.id);
+                          onModelProfileChange?.(next);
+                          if (selectedModelProfileId === profile.id)
+                            onModelProfileSelect?.(next[0]?.id ?? '');
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {modelProfiles.length === 0 ? (
