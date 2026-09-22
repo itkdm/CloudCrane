@@ -859,6 +859,7 @@
 }
 
 .composer-model {
+  position: relative;
   margin-left: auto;
   order: 2;
 }
