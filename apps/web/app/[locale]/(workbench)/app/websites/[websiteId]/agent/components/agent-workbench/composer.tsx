@@ -283,7 +283,7 @@ export function Composer({
                   onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                 />
                 <input
-                  required
+                  required={!editingProfileId}
                   type="password"
                   name="apiKey"
                   autoComplete="new-password"
