@@ -16,6 +16,7 @@ import { TemplatesView, type TemplateSummary } from './components/templates-view
 import { WebsiteCreateDialog, type CreatedWebsite } from './components/website-create-dialog';
 import { WebsiteSettingsDialog } from './components/website-settings-dialog';
 import { WorkspaceStart } from './components/workspace-start';
+import { WorkspaceLoadingState } from './components/workspace-loading-state';
 import './websites.css';
 import { compareSessionsByActivity } from '@/lib/session-sorting';
 import { buildWorkspacePath } from '@/lib/workspace-route';
@@ -566,21 +567,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
             onPreviewOpenChange={handlePreviewOpenChange}
           />
         ) : websiteLoadState === 'loading' ? (
-          <main className="workspace-loading-state" aria-busy="true" aria-live="polite">
-            <div className="workspace-loading-card">
-              <div className="workspace-loading-copy">
-                <h1>{t('loading')}</h1>
-              </div>
-              <div className="workspace-loading-progress" aria-hidden="true">
-                <span />
-              </div>
-              <div className="workspace-loading-dots" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-            </div>
-          </main>
+          <WorkspaceLoadingState />
         ) : websiteLoadState === 'error' ? (
           <main className="workspace-empty-state">
             <div className="workspace-empty-state-inner">

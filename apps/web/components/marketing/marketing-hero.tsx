@@ -1,8 +1,9 @@
 import { useTranslations } from 'next-intl';
-import { Link } from '../../i18n/navigation';
+import { StartBuildingLink } from '../layout/start-building-link';
 
 export function MarketingHero() {
   const t = useTranslations('marketing');
+  const common = useTranslations('common');
   return (
     <section className="marketing-hero" aria-labelledby="marketing-title">
       <div className="marketing-hero-copy">
@@ -13,9 +14,12 @@ export function MarketingHero() {
         </h1>
         <p className="marketing-hero-lede">{t('lede')}</p>
         <div className="marketing-hero-actions">
-          <Link className="marketing-button marketing-button-primary" href="/app/websites">
+          <StartBuildingLink
+            className="marketing-button marketing-button-primary"
+            pendingLabel={common('loading')}
+          >
             {t('cta')}
-          </Link>
+          </StartBuildingLink>
         </div>
       </div>
     </section>

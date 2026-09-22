@@ -146,6 +146,23 @@
   font-size: 14px;
 }
 
+.marketing-button-loading {
+  width: 16px;
+  margin-left: 8px;
+  opacity: 0;
+}
+
+.marketing-button-loading[data-pending='true'] {
+  opacity: 0.9;
+  animation: marketing-button-spin 900ms linear infinite;
+}
+
+@keyframes marketing-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .landing {
   padding-bottom: 56px;
 }
