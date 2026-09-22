@@ -379,24 +379,103 @@
   line-height: 1.65;
 }
 .marketing-capabilities {
-  padding-bottom: 30px;
+  padding-bottom: 86px;
 }
 .capability-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1.25fr 1fr 1fr;
   gap: 16px;
   margin-top: 48px;
 }
-.capability-grid article {
-  padding: 24px;
+.capability-card {
+  position: relative;
+  display: flex;
+  min-height: 254px;
+  flex-direction: column;
+  padding: 26px;
+  overflow: hidden;
   border: 1px solid var(--marketing-border);
   border-radius: var(--cc-radius-lg);
   background: var(--cc-surface-1);
-  transition: all 180ms ease;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
 }
-.capability-grid article:hover {
+.capability-card::after {
+  position: absolute;
+  right: -28px;
+  bottom: -42px;
+  width: 130px;
+  height: 130px;
+  border: 1px solid color-mix(in srgb, var(--marketing-brand) 22%, transparent);
+  border-radius: 50%;
+  content: '';
+  opacity: 0.6;
+}
+.capability-card:hover {
   border-color: var(--cc-border-hover);
   background: var(--cc-surface-2);
+  transform: translateY(-3px);
+}
+.capability-card-featured {
+  border-color: color-mix(in srgb, var(--marketing-brand) 55%, var(--marketing-border));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--marketing-brand) 15%, var(--marketing-surface)),
+      var(--marketing-surface) 62%
+    ),
+    var(--marketing-surface);
+}
+.capability-card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.capability-icon {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--marketing-brand) 30%, var(--marketing-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--marketing-brand) 12%, transparent);
+  color: var(--marketing-brand);
+}
+.capability-index {
+  color: var(--marketing-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.capability-tag {
+  margin-top: 28px;
+  color: var(--marketing-brand);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.capability-card h3 {
+  margin: 9px 0 10px;
+  font-size: 20px;
+}
+.capability-card p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--marketing-text-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.capability-card-arrow {
+  position: relative;
+  z-index: 1;
+  align-self: flex-end;
+  margin-top: auto;
+  color: var(--marketing-brand);
+  font-size: 22px;
 }
 
 .marketing-section[id] {
