@@ -91,6 +91,7 @@
     "capabilityWorkspaceTag": "上下文不断线",
     "capabilityBrowserTag": "结果可验证",
     "capabilityMaintenanceTag": "持续可迭代",
+    "capabilityLearnMore": "了解更多",
     "capabilityWorkspace": "长期工作区",
     "capabilityWorkspaceDescription": "每个网站拥有独立工作区，代码与上下文不会随单次会话消失。",
     "capabilityBrowser": "真实浏览器验收",

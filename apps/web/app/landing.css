@@ -360,27 +360,59 @@
   list-style: none;
 }
 .workflow-grid li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  text-align: center;
+}
+.workflow-node {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+}
+.workflow-icon {
+  display: inline-flex;
+  width: 68px;
+  height: 68px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--marketing-brand) 16%, var(--marketing-border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--marketing-brand) 8%, var(--marketing-surface));
+  box-shadow: 0 0 0 10px color-mix(in srgb, var(--marketing-brand) 4%, transparent);
+  color: var(--marketing-brand);
+}
+.workflow-grid li {
   padding-top: 18px;
-  border-top: 2px solid var(--marketing-brand);
 }
 .workflow-step {
+  margin-top: 18px;
   color: var(--marketing-brand);
   font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .workflow-grid h3,
 .capability-grid h3 {
-  margin: 22px 0 10px;
+  margin: 14px 0 10px;
   font-size: 19px;
   letter-spacing: -0.02em;
   color: var(--marketing-text);
 }
 .workflow-grid p,
 .capability-grid p {
+  max-width: 30ch;
   margin: 0;
   color: var(--marketing-text-muted);
   font-size: 14px;
   line-height: 1.65;
+}
+.workflow-connector {
+  position: absolute;
+  top: 47px;
+  right: -43px;
+  color: color-mix(in srgb, var(--marketing-brand) 55%, var(--marketing-border));
 }
 .marketing-capabilities {
   padding-bottom: 86px;
@@ -473,13 +505,38 @@
   font-size: 14px;
   line-height: 1.7;
 }
-.capability-card-arrow {
+.capability-card-link {
   position: relative;
   z-index: 1;
-  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 7px;
   margin-top: auto;
   color: var(--marketing-brand);
-  font-size: 22px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.capability-card-link:hover {
+  color: var(--marketing-brand-hover);
+}
+.pricing-card-header {
+  position: relative;
+  padding-left: 48px;
+}
+.pricing-card-icon {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--marketing-brand) 10%, transparent);
+  color: var(--marketing-brand);
 }
 
 .marketing-section[id] {
@@ -812,6 +869,9 @@
   .pricing-grid {
     grid-template-columns: 1fr;
     gap: 28px;
+  }
+  .workflow-connector {
+    display: none;
   }
   .marketing-footer {
     margin-top: 80px;

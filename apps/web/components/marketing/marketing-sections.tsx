@@ -1,13 +1,22 @@
 import { useTranslations } from 'next-intl';
-import { Eye, PanelsTopLeft, RefreshCw } from 'lucide-react';
+import {
+  ArrowRight,
+  ArrowUpRight,
+  CircleCheck,
+  Eye,
+  FileText,
+  Link2,
+  PanelsTopLeft,
+  RefreshCw,
+} from 'lucide-react';
 import { PricingSection } from './pricing-section';
 
 export function MarketingSections() {
   const t = useTranslations('marketing');
   const steps = [
-    ['stepConnect', 'stepConnectDescription'],
-    ['stepDescribe', 'stepDescribeDescription'],
-    ['stepVerify', 'stepVerifyDescription'],
+    ['stepConnect', 'stepConnectDescription', Link2],
+    ['stepDescribe', 'stepDescribeDescription', FileText],
+    ['stepVerify', 'stepVerifyDescription', CircleCheck],
   ] as const;
   const capabilities = [
     [
@@ -32,11 +41,24 @@ export function MarketingSections() {
           <h2 id="workflow-title">{t('workflowTitle')}</h2>
         </div>
         <ol className="workflow-grid">
-          {steps.map(([title, description], index) => (
+          {steps.map(([title, description, Icon], index) => (
             <li key={title}>
-              <span className="workflow-step">{index + 1}</span>
+              <div className="workflow-node">
+                <span className="workflow-icon" aria-hidden="true">
+                  <Icon size={23} strokeWidth={1.8} />
+                </span>
+                <span className="workflow-step">0{index + 1}</span>
+              </div>
               <h3>{t(title)}</h3>
               <p>{t(description)}</p>
+              {index < steps.length - 1 ? (
+                <ArrowRight
+                  className="workflow-connector"
+                  size={44}
+                  strokeWidth={1.4}
+                  aria-hidden="true"
+                />
+              ) : null}
             </li>
           ))}
         </ol>
@@ -68,9 +90,10 @@ export function MarketingSections() {
               <span className="capability-tag">{t(tag)}</span>
               <h3>{t(title)}</h3>
               <p>{t(description)}</p>
-              <span className="capability-card-arrow" aria-hidden="true">
-                ↗
-              </span>
+              <a className="capability-card-link" href="#pricing">
+                {t('capabilityLearnMore')}
+                <ArrowUpRight size={16} strokeWidth={2} aria-hidden="true" />
+              </a>
             </article>
           ))}
         </div>

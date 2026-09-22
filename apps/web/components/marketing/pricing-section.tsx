@@ -1,6 +1,6 @@
 'use client';
 
-import { Check } from 'lucide-react';
+import { Box, Check, Crown, UsersRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Link } from '../../i18n/navigation';
@@ -15,6 +15,7 @@ export function PricingSection() {
       monthly: '0',
       annual: '0',
       unit: t('pricingFree'),
+      Icon: Box,
       action: t('pricingStarterAction'),
       href: '/app/websites',
       features: [
@@ -29,6 +30,7 @@ export function PricingSection() {
       monthly: '49',
       annual: '39',
       unit: t('pricingPerMonth'),
+      Icon: Crown,
       action: t('pricingProAction'),
       href: 'mailto:hello@itkdm.com',
       featured: true,
@@ -40,6 +42,7 @@ export function PricingSection() {
       monthly: '129',
       annual: '99',
       unit: t('pricingPerMonth'),
+      Icon: UsersRound,
       action: t('pricingTeamAction'),
       href: 'mailto:hello@itkdm.com',
       features: [t('pricingTeamFeature1'), t('pricingTeamFeature2'), t('pricingTeamFeature3')],
@@ -84,6 +87,9 @@ export function PricingSection() {
               <span className="pricing-card-badge">{t('pricingRecommended')}</span>
             ) : null}
             <div className="pricing-card-header">
+              <span className="pricing-card-icon" aria-hidden="true">
+                <plan.Icon size={19} strokeWidth={1.8} />
+              </span>
               <h3>{plan.name}</h3>
               <p>{plan.description}</p>
             </div>

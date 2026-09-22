@@ -91,6 +91,7 @@
     "capabilityWorkspaceTag": "Context that stays",
     "capabilityBrowserTag": "Results you can verify",
     "capabilityMaintenanceTag": "Always ready to iterate",
+    "capabilityLearnMore": "Learn more",
     "capabilityWorkspace": "Persistent workspaces",
     "capabilityWorkspaceDescription": "Every website has an independent workspace where code and context persist beyond a single session.",
     "capabilityBrowser": "Real browser verification",
