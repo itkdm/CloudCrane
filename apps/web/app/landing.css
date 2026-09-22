@@ -341,12 +341,13 @@
   max-width: 600px;
 }
 .marketing-section-heading-centered {
+  max-width: 960px;
   margin-inline: auto;
   text-align: center;
 }
 .marketing-section h2 {
   margin: 0;
-  font-size: clamp(32px, 4vw, 52px);
+  font-size: clamp(30px, 3vw, 44px);
   line-height: 1.1;
   letter-spacing: -0.04em;
   color: var(--marketing-text);
@@ -552,7 +553,7 @@
   padding-bottom: 112px;
 }
 .pricing-section-heading {
-  max-width: 720px;
+  max-width: 960px;
   margin-inline: auto;
   text-align: center;
 }
