@@ -1012,6 +1012,50 @@
   white-space: nowrap;
 }
 
+.composer-model-capabilities,
+.composer-model-capability-fields {
+  display: grid;
+  gap: 5px;
+  color: var(--cc-text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.composer-model-capabilities {
+  padding: 6px 8px;
+  border: 1px solid var(--cc-border);
+  border-radius: 6px;
+  background: var(--cc-surface-2);
+}
+
+.composer-model-capability-fields {
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+}
+
+.composer-model-capability-fields > span {
+  grid-column: 1 / -1;
+  color: var(--cc-text-secondary);
+  font-weight: 600;
+}
+
+.composer-model-capability-fields label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-model-capability-fields input[type='checkbox'] {
+  width: auto;
+  accent-color: var(--cc-brand);
+}
+
+.composer-model-capability-fields label:has(input[type='number']) {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr 110px;
+}
+
 .composer-hint {
   color: var(--cc-text-tertiary);
   font-size: 10px;

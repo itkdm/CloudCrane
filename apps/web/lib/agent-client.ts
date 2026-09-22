@@ -89,6 +89,10 @@ export async function createModelProfile(input: {
   baseUrl?: string;
   api?: string;
   apiKey: string;
+  input?: Array<'text' | 'image'>;
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
   isDefault?: boolean;
 }) {
   const response = await fetch(agentEndpoint('/v1/model-profiles'), {
@@ -120,6 +124,10 @@ export async function updateModelProfile(
     baseUrl?: string;
     api?: string;
     apiKey?: string;
+    input?: Array<'text' | 'image'>;
+    reasoning?: boolean;
+    contextWindow?: number;
+    maxTokens?: number;
   },
 ) {
   const response = await fetch(agentEndpoint(`/v1/model-profiles/${profileId}`), {

@@ -227,6 +227,10 @@ export function buildAgentServiceApp(
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
       api: typeof body.api === 'string' ? body.api : undefined,
       apiKey: body.apiKey,
+      ...(Array.isArray(body.input) ? { input: body.input as ModelProfileInput['input'] } : {}),
+      ...(typeof body.reasoning === 'boolean' ? { reasoning: body.reasoning } : {}),
+      ...(typeof body.contextWindow === 'number' ? { contextWindow: body.contextWindow } : {}),
+      ...(typeof body.maxTokens === 'number' ? { maxTokens: body.maxTokens } : {}),
       ...(typeof body.isDefault === 'boolean' ? { isDefault: body.isDefault } : {}),
     });
     return reply.code(201).send({ profile });
@@ -269,6 +273,10 @@ export function buildAgentServiceApp(
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
       api: typeof body.api === 'string' ? body.api : undefined,
       apiKey: typeof body.apiKey === 'string' && body.apiKey ? body.apiKey : undefined,
+      ...(Array.isArray(body.input) ? { input: body.input as ModelProfileUpdateInput['input'] } : {}),
+      ...(typeof body.reasoning === 'boolean' ? { reasoning: body.reasoning } : {}),
+      ...(typeof body.contextWindow === 'number' ? { contextWindow: body.contextWindow } : {}),
+      ...(typeof body.maxTokens === 'number' ? { maxTokens: body.maxTokens } : {}),
     });
     return { profile };
   });

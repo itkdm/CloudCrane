@@ -55,8 +55,13 @@ export function Composer({
     modelId: '',
     baseUrl: '',
     apiKey: '',
+    input: ['text'] as Array<'text' | 'image'>,
+    reasoning: false,
+    contextWindow: 128000,
+    maxTokens: 16384,
   });
   const selectedPreset = modelCatalog.find((preset) => preset.id === form.presetId);
+  const selectedPresetModel = selectedPreset?.models.find((model) => model.id === form.modelId);
   const selectedModel =
     modelProfiles.find((profile) => profile.id === selectedModelProfileId) ??
     modelProfiles.find((profile) => profile.isDefault);
@@ -187,6 +192,10 @@ export function Composer({
                             modelId: profile.modelId,
                             baseUrl: profile.baseUrl ?? '',
                             apiKey: '',
+                            input: profile.input,
+                            reasoning: profile.reasoning,
+                            contextWindow: profile.contextWindow,
+                            maxTokens: profile.maxTokens,
                           });
                           setModelMenuOpen(false);
                           setAddOpen(true);
@@ -226,6 +235,10 @@ export function Composer({
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
+                      input: ['text'],
+                      reasoning: false,
+                      contextWindow: 128000,
+                      maxTokens: 16384,
                     });
                     setAddOpen(true);
                     setModelMenuOpen(false);
@@ -251,6 +264,10 @@ export function Composer({
                       modelId: form.modelId,
                       baseUrl: selectedPreset ? undefined : form.baseUrl || undefined,
                       api: selectedPreset?.api ?? 'openai-completions',
+                      input: selectedPresetModel?.input ?? form.input,
+                      reasoning: selectedPresetModel?.reasoning ?? form.reasoning,
+                      contextWindow: selectedPresetModel?.contextWindow ?? form.contextWindow,
+                      maxTokens: selectedPresetModel?.maxTokens ?? form.maxTokens,
                       ...(form.apiKey ? { apiKey: form.apiKey } : {}),
                     };
                     const result = editingProfileId
@@ -277,6 +294,10 @@ export function Composer({
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
+                      input: ['text'],
+                      reasoning: false,
+                      contextWindow: 128000,
+                      maxTokens: 16384,
                     });
                     setAddOpen(false);
                     setModelMenuOpen(false);
@@ -299,6 +320,10 @@ export function Composer({
                       providerId: preset?.providerId ?? 'custom',
                       modelId: preset?.models[0]?.id ?? '',
                       baseUrl: preset?.baseUrl ?? '',
+                      input: preset?.models[0]?.input ?? ['text'],
+                      reasoning: preset?.models[0]?.reasoning ?? false,
+                      contextWindow: preset?.models[0]?.contextWindow ?? 128000,
+                      maxTokens: preset?.models[0]?.maxTokens ?? 16384,
                     });
                   }}
                 >
@@ -330,6 +355,14 @@ export function Composer({
                       ))}
                     </datalist>
                     <small className="composer-model-auto-config">{selectedPreset.baseUrl}</small>
+                    {selectedPresetModel ? (
+                      <div className="composer-model-capabilities" aria-label={t('modelCapabilities')}>
+                        <span>{t('inputCapability')}: {selectedPresetModel.input.join('、')}</span>
+                        <span>{t('reasoningCapability')}: {selectedPresetModel.reasoning ? t('supported') : t('unsupported')}</span>
+                        <span>{t('contextWindow')}: {selectedPresetModel.contextWindow.toLocaleString()}</span>
+                        <span>{t('maxOutputTokens')}: {selectedPresetModel.maxTokens.toLocaleString()}</span>
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -350,6 +383,16 @@ export function Composer({
                     />
                   </>
                 )}
+                {!selectedPresetModel ? (
+                  <div className="composer-model-capability-fields">
+                    <span>{t('inputCapability')}</span>
+                    <label><input type="checkbox" checked={form.input.includes('text')} onChange={(e) => setForm({ ...form, input: (e.target.checked ? [...new Set([...form.input, 'text'])] : form.input.filter((item) => item !== 'text')) as Array<'text' | 'image'> })} /> {t('textInput')}</label>
+                    <label><input type="checkbox" checked={form.input.includes('image')} onChange={(e) => setForm({ ...form, input: (e.target.checked ? [...new Set([...form.input, 'image'])] : form.input.filter((item) => item !== 'image')) as Array<'text' | 'image'> })} /> {t('imageInput')}</label>
+                    <label><input type="checkbox" checked={form.reasoning} onChange={(e) => setForm({ ...form, reasoning: e.target.checked })} /> {t('reasoningCapability')}</label>
+                    <label>{t('contextWindow')}<input type="number" min={1024} step={1024} value={form.contextWindow} onChange={(e) => setForm({ ...form, contextWindow: Number(e.target.value) })} /></label>
+                    <label>{t('maxOutputTokens')}<input type="number" min={1} step={1024} value={form.maxTokens} onChange={(e) => setForm({ ...form, maxTokens: Number(e.target.value) })} /></label>
+                  </div>
+                ) : null}
                 <input
                   required={!editingProfileId}
                   type="password"

@@ -21,6 +21,10 @@ export type ModelProfileInput = {
   baseUrl?: string;
   api?: string;
   apiKey: string;
+  input?: ModelInput[];
+  reasoning?: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
   isDefault?: boolean;
 };
 
@@ -89,6 +93,12 @@ function validateInput(input: ModelProfileInput | ModelProfileUpdateInput): void
     throw new AgentServiceError('INVALID_ARGUMENT', 'model is invalid', 400);
   if (input.apiKey !== undefined && (!input.apiKey.trim() || input.apiKey.length > 16_384))
     throw new AgentServiceError('INVALID_ARGUMENT', 'API key is invalid', 400);
+  if (input.input !== undefined && (input.input.length === 0 || input.input.some((item) => item !== 'text' && item !== 'image')))
+    throw new AgentServiceError('INVALID_ARGUMENT', 'model input capability is invalid', 400);
+  if (input.contextWindow !== undefined && (!Number.isInteger(input.contextWindow) || input.contextWindow < 1_024))
+    throw new AgentServiceError('INVALID_ARGUMENT', 'context window is invalid', 400);
+  if (input.maxTokens !== undefined && (!Number.isInteger(input.maxTokens) || input.maxTokens < 1))
+    throw new AgentServiceError('INVALID_ARGUMENT', 'maximum output tokens is invalid', 400);
 }
 
 function resolvePreset(input: ModelProfileInput | ModelProfileUpdateInput) {
@@ -143,6 +153,13 @@ export class ModelProfileService {
         400,
       );
     const baseUrl = normalizeBaseUrl(input.baseUrl ?? preset?.baseUrl, input.providerKind);
+    const presetModel = findPresetModel(input.presetId, input.modelId);
+    const capabilities = presetModel ?? {
+      input: input.input ?? ['text'],
+      reasoning: input.reasoning ?? false,
+      contextWindow: input.contextWindow ?? 128_000,
+      maxTokens: input.maxTokens ?? 16_384,
+    };
     const id = randomUUID();
     const providerId =
       input.providerKind === 'openai-compatible'
@@ -173,6 +190,10 @@ export class ModelProfileService {
           input.providerKind === 'openai-compatible'
             ? (input.api ?? preset?.api ?? 'openai-completions')
             : null,
+        input: capabilities.input,
+        reasoning: capabilities.reasoning,
+        contextWindow: capabilities.contextWindow,
+        maxTokens: capabilities.maxTokens,
         apiKeyCiphertext: encrypted.ciphertext,
         apiKeyIv: encrypted.iv,
         apiKeyAuthTag: encrypted.authTag,
@@ -208,6 +229,13 @@ export class ModelProfileService {
     const row = existing[0];
     if (!row)
       throw new AgentServiceError('MODEL_PROFILE_NOT_FOUND', 'model profile was not found', 404);
+    const presetModel = findPresetModel(input.presetId, input.modelId);
+    const capabilities = presetModel ?? {
+      input: input.input ?? (row.input as ModelInput[]) ?? ['text'],
+      reasoning: input.reasoning ?? row.reasoning ?? false,
+      contextWindow: input.contextWindow ?? row.contextWindow ?? 128_000,
+      maxTokens: input.maxTokens ?? row.maxTokens ?? 16_384,
+    };
 
     const encrypted = input.apiKey?.trim() ? this.encrypt(input.apiKey) : undefined;
     const updated = await this.platform.db
@@ -221,6 +249,10 @@ export class ModelProfileService {
           `${input.providerId}/${input.modelId}`,
         baseUrl,
         api: input.api ?? preset?.api ?? 'openai-completions',
+        input: capabilities.input,
+        reasoning: capabilities.reasoning,
+        contextWindow: capabilities.contextWindow,
+        maxTokens: capabilities.maxTokens,
         ...(encrypted
           ? {
               apiKeyCiphertext: encrypted.ciphertext,
@@ -328,10 +360,10 @@ export class ModelProfileService {
       api: row.api,
       keyHint: row.keyHint,
       isDefault: row.isDefault,
-      input: presetModel?.input ?? ['text'],
-      reasoning: presetModel?.reasoning ?? false,
-      contextWindow: presetModel?.contextWindow ?? 128_000,
-      maxTokens: presetModel?.maxTokens ?? 16_384,
+      input: (presetModel?.input ?? row.input) as ModelInput[],
+      reasoning: presetModel?.reasoning ?? row.reasoning,
+      contextWindow: presetModel?.contextWindow ?? row.contextWindow,
+      maxTokens: presetModel?.maxTokens ?? row.maxTokens,
       supportsTools: presetModel?.supportsTools ?? true,
     };
   }
