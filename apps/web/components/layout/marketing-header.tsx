@@ -1,11 +1,18 @@
+'use client';
+
 import { useTranslations } from 'next-intl';
 import { Link } from '../../i18n/navigation';
+import { authClient } from '@/lib/auth-client';
 import { Brand } from './brand';
 import { LanguageSwitcher } from './language-switcher';
 import { ThemeSwitcher } from '../theme-switcher';
 
 export function MarketingHeader() {
   const t = useTranslations('navigation');
+  const common = useTranslations('common');
+  const { data: session, isPending } = authClient.useSession();
+  const destination = session ? '/app/websites' : '/sign-in';
+  const label = isPending ? common('loading') : session ? t('workbench') : t('login');
   return (
     <div className="marketing-header-wrapper">
       <header className="marketing-header">
@@ -27,9 +34,10 @@ export function MarketingHeader() {
           <ThemeSwitcher />
           <Link
             className="marketing-button marketing-button-primary marketing-button-small"
-            href="/sign-in"
+            href={destination}
+            aria-busy={isPending}
           >
-            {t('login')}
+            {label}
           </Link>
         </div>
       </header>
