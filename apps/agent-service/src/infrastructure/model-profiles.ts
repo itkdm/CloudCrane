@@ -17,6 +17,10 @@ export type ModelProfileInput = {
   isDefault?: boolean;
 };
 
+export type ModelProfileUpdateInput = Omit<ModelProfileInput, 'apiKey' | 'isDefault'> & {
+  apiKey?: string;
+};
+
 export type PublicModelProfile = {
   id: string;
   providerKind: 'builtin' | 'openai-compatible';
@@ -65,12 +69,12 @@ function normalizeBaseUrl(
   return url.toString().replace(/\/$/, '');
 }
 
-function validateInput(input: ModelProfileInput): void {
+function validateInput(input: ModelProfileInput | ModelProfileUpdateInput): void {
   if (!input.providerId.trim() || input.providerId.length > 128)
     throw new AgentServiceError('INVALID_ARGUMENT', 'provider is invalid', 400);
   if (!input.modelId.trim() || input.modelId.length > 255)
     throw new AgentServiceError('INVALID_ARGUMENT', 'model is invalid', 400);
-  if (!input.apiKey.trim() || input.apiKey.length > 16_384)
+  if (input.apiKey !== undefined && (!input.apiKey.trim() || input.apiKey.length > 16_384))
     throw new AgentServiceError('INVALID_ARGUMENT', 'API key is invalid', 400);
   if (input.providerKind === 'openai-compatible' && !input.baseUrl)
     throw new AgentServiceError(
@@ -152,6 +156,47 @@ export class ModelProfileService {
     const row = rows[0];
     if (!row) throw new Error('model profile was not created');
     return this.toPublic(row);
+  }
+
+  async update(
+    userId: string,
+    profileId: string,
+    input: ModelProfileUpdateInput,
+  ): Promise<PublicModelProfile> {
+    validateInput(input);
+    const baseUrl = normalizeBaseUrl(input.baseUrl, input.providerKind);
+    const existing = await this.platform.db
+      .select()
+      .from(userModelProfile)
+      .where(and(eq(userModelProfile.id, profileId), eq(userModelProfile.userId, userId)))
+      .limit(1);
+    const row = existing[0];
+    if (!row)
+      throw new AgentServiceError('MODEL_PROFILE_NOT_FOUND', 'model profile was not found', 404);
+
+    const encrypted = input.apiKey?.trim() ? this.encrypt(input.apiKey) : undefined;
+    const updated = await this.platform.db
+      .update(userModelProfile)
+      .set({
+        modelId: input.modelId.trim(),
+        displayName: input.displayName?.trim() || `${input.providerId}/${input.modelId}`,
+        baseUrl,
+        api: input.api ?? 'openai-completions',
+        ...(encrypted
+          ? {
+              apiKeyCiphertext: encrypted.ciphertext,
+              apiKeyIv: encrypted.iv,
+              apiKeyAuthTag: encrypted.authTag,
+              encryptionKeyVersion: encrypted.keyVersion,
+              keyHint: keyHint(input.apiKey ?? ''),
+            }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(userModelProfile.id, row.id), eq(userModelProfile.userId, userId)))
+      .returning();
+    if (!updated[0]) throw new Error('model profile was not updated');
+    return this.toPublic(updated[0]);
   }
 
   async delete(userId: string, profileId: string): Promise<void> {

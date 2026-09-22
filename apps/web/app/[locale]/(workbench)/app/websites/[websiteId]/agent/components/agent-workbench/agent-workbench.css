@@ -908,9 +908,13 @@
   cursor: pointer;
   text-align: left;
 }
-.composer-model-row small {
-  color: var(--muted-foreground);
-  font-size: 10px;
+.composer-model-edit {
+  border: 0;
+  background: transparent;
+  color: var(--cc-brand);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .composer-model-delete {
   border: 0;

@@ -295,6 +295,8 @@
     "promptPlaceholder": "Describe what you want to change…",
     "model": "Model",
     "addModel": "Add model",
+    "editModel": "Edit",
+    "updateModel": "Update model",
     "provider": "Provider",
     "providerOpenAiCompatible": "OpenAI-compatible",
     "modelName": "Model name",

@@ -46,7 +46,11 @@ import {
   removeReference,
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
-import { ModelProfileService, type ModelProfileInput } from './infrastructure/model-profiles.js';
+import {
+  ModelProfileService,
+  type ModelProfileInput,
+  type ModelProfileUpdateInput,
+} from './infrastructure/model-profiles.js';
 import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 
@@ -234,6 +238,36 @@ export function buildAgentServiceApp(
       return reply.code(204).send();
     },
   );
+  app.patch<{
+    Params: { profileId: string };
+    Body: Partial<ModelProfileUpdateInput>;
+  }>('/v1/model-profiles/:profileId', async (request) => {
+    if (!options.modelProfiles || !options.auth)
+      throw new AgentServiceError('INTERNAL_ERROR', 'model profile service is unavailable', 503);
+    const session = await requireSession(options.auth, headersFromNode(request.headers));
+    const body = request.body ?? {};
+    if (
+      (body.providerKind !== 'builtin' && body.providerKind !== 'openai-compatible') ||
+      typeof body.providerId !== 'string' ||
+      typeof body.modelId !== 'string' ||
+      typeof body.baseUrl !== 'string'
+    )
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'provider, model and base URL are required',
+        400,
+      );
+    const profile = await options.modelProfiles.update(session.user.id, request.params.profileId, {
+      providerKind: body.providerKind,
+      providerId: body.providerId,
+      modelId: body.modelId,
+      displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
+      baseUrl: body.baseUrl,
+      api: typeof body.api === 'string' ? body.api : undefined,
+      apiKey: typeof body.apiKey === 'string' && body.apiKey ? body.apiKey : undefined,
+    });
+    return { profile };
+  });
   app.post<{
     Params: { websiteId: string; sessionId: string };
   }>(

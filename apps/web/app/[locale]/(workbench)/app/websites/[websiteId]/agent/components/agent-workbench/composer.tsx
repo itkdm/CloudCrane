@@ -3,7 +3,7 @@ import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ModelProfile } from '@/lib/agent-client';
-import { createModelProfile, deleteModelProfile } from '@/lib/agent-client';
+import { createModelProfile, deleteModelProfile, updateModelProfile } from '@/lib/agent-client';
 
 type ComposerProps = {
   draft: string;
@@ -43,6 +43,7 @@ export function Composer({
   const isComposingRef = useRef(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string>();
   const [savingModel, setSavingModel] = useState(false);
   const [modelError, setModelError] = useState<string>();
   const [form, setForm] = useState({
@@ -152,10 +153,27 @@ export function Composer({
                         setModelMenuOpen(false);
                       }}
                     >
-                      <span>{profile.displayName}</span>
-                      <small>
-                        {profile.providerId}/{profile.modelId}
-                      </small>
+                      <span>{profile.modelId}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-model-edit"
+                      aria-label={t('editModel')}
+                      onClick={() => {
+                        setEditingProfileId(profile.id);
+                        setForm({
+                          providerId: profile.providerId,
+                          modelId: profile.modelId,
+                          baseUrl: profile.baseUrl ?? '',
+                          apiKey: '',
+                          displayName: profile.displayName,
+                        });
+                        setModelMenuOpen(false);
+                        setAddOpen(true);
+                        setModelError(undefined);
+                      }}
+                    >
+                      {t('editModel')}
                     </button>
                     <button
                       type="button"
@@ -180,6 +198,7 @@ export function Composer({
                   type="button"
                   className="composer-model-add"
                   onClick={() => {
+                    setEditingProfileId(undefined);
                     setAddOpen(true);
                     setModelMenuOpen(false);
                     setModelError(undefined);
@@ -197,16 +216,22 @@ export function Composer({
                   setModelError(undefined);
                   setSavingModel(true);
                   try {
-                    const result = await createModelProfile({
-                      providerKind: 'openai-compatible',
+                    const input = {
+                      providerKind: 'openai-compatible' as const,
                       providerId: form.providerId,
                       modelId: form.modelId,
                       baseUrl: form.baseUrl || undefined,
-                      apiKey: form.apiKey,
                       displayName: form.displayName || undefined,
                       api: 'openai-completions',
-                      isDefault: modelProfiles.length === 0,
-                    });
+                      ...(form.apiKey ? { apiKey: form.apiKey } : {}),
+                    };
+                    const result = editingProfileId
+                      ? await updateModelProfile(editingProfileId, input)
+                      : await createModelProfile({
+                          ...input,
+                          apiKey: form.apiKey,
+                          isDefault: modelProfiles.length === 0,
+                        });
                     const next = [
                       ...modelProfiles
                         .filter((item) => item.id !== result.profile.id)
@@ -217,6 +242,7 @@ export function Composer({
                     ];
                     onModelProfileChange?.(next);
                     onModelProfileSelect?.(result.profile.id);
+                    setEditingProfileId(undefined);
                     setForm({
                       providerId: 'openai-compatible',
                       modelId: '',
@@ -233,7 +259,7 @@ export function Composer({
                   }
                 }}
               >
-                <strong>{t('addModel')}</strong>
+                <strong>{editingProfileId ? t('editModel') : t('addModel')}</strong>
                 <select
                   name="providerId"
                   value={form.providerId}
@@ -273,11 +299,21 @@ export function Composer({
                 />
                 {modelError ? <small className="composer-model-error">{modelError}</small> : null}
                 <div>
-                  <button type="button" onClick={() => setAddOpen(false)}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingProfileId(undefined);
+                      setAddOpen(false);
+                    }}
+                  >
                     {t('cancel')}
                   </button>
                   <button type="submit" disabled={savingModel}>
-                    {savingModel ? t('savingModel') : t('saveModel')}
+                    {savingModel
+                      ? t('savingModel')
+                      : editingProfileId
+                        ? t('updateModel')
+                        : t('saveModel')}
                   </button>
                 </div>
               </form>

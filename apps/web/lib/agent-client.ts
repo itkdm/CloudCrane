@@ -79,6 +79,28 @@ export async function deleteModelProfile(profileId: string) {
   if (!response.ok) throw new Error(await errorMessage(response));
 }
 
+export async function updateModelProfile(
+  profileId: string,
+  input: {
+    providerKind: ModelProfile['providerKind'];
+    providerId: string;
+    modelId: string;
+    displayName?: string;
+    baseUrl?: string;
+    api?: string;
+    apiKey?: string;
+  },
+) {
+  const response = await fetch(agentEndpoint(`/v1/model-profiles/${profileId}`), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { profile: ModelProfile };
+}
+
 export async function createAgentSession(websiteId: string) {
   const response = await fetch(agentEndpoint(`/v1/websites/${websiteId}/sessions`), {
     method: 'POST',

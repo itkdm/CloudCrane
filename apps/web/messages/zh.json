@@ -295,6 +295,8 @@
     "promptPlaceholder": "描述你想修改的网站…",
     "model": "模型",
     "addModel": "添加模型",
+    "editModel": "编辑",
+    "updateModel": "更新模型",
     "provider": "Provider",
     "providerOpenAiCompatible": "OpenAI 兼容接口",
     "modelName": "模型名称",
