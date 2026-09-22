@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { MarketingHero } from '../../../components/marketing/marketing-hero';
+import { MarketingSections } from '../../../components/marketing/marketing-sections';
 import '../../landing.css';
 
 export async function generateMetadata({
@@ -27,6 +28,7 @@ export default function Home() {
   return (
     <main className="landing">
       <MarketingHero />
+      <MarketingSections />
     </main>
   );
 }

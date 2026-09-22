@@ -74,6 +74,9 @@
 .marketing-footer nav a:hover {
   color: var(--marketing-text);
 }
+.marketing-header nav a[href^='#'] {
+  scroll-margin-top: 96px;
+}
 .marketing-nav-disabled {
   cursor: default;
   white-space: nowrap;
@@ -396,6 +399,74 @@
   background: var(--cc-surface-2);
 }
 
+.marketing-section[id] {
+  scroll-margin-top: 96px;
+}
+.marketing-section-heading > p:last-child {
+  max-width: 620px;
+  margin: 18px auto 0;
+  color: var(--marketing-text-muted);
+  line-height: 1.7;
+}
+.marketing-pricing {
+  padding-bottom: 112px;
+}
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 48px;
+}
+.pricing-card {
+  position: relative;
+  display: flex;
+  min-height: 330px;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 30px;
+  border: 1px solid var(--marketing-border);
+  border-radius: var(--cc-radius-lg);
+  background: var(--marketing-surface);
+}
+.pricing-card-featured {
+  border-color: var(--marketing-brand);
+  background: color-mix(in srgb, var(--marketing-brand) 8%, var(--marketing-surface));
+  box-shadow: 0 18px 50px rgb(14 165 233 / 10%);
+}
+.pricing-card-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--marketing-brand);
+  color: var(--cc-surface-0);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pricing-card h3 {
+  margin: 0;
+  color: var(--marketing-text);
+  font-size: 20px;
+}
+.pricing-card p {
+  min-height: 52px;
+  margin: 14px 0 28px;
+  color: var(--marketing-text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.pricing-card strong {
+  margin-top: auto;
+  color: var(--marketing-text);
+  font-size: 26px;
+  letter-spacing: -0.04em;
+}
+.pricing-card .marketing-button {
+  width: 100%;
+  margin-top: 24px;
+}
+
 .marketing-footer {
   margin-top: 112px;
   padding: 0 0 24px;
@@ -562,7 +633,8 @@
     font-size: clamp(44px, 12vw, 68px);
   }
   .workflow-grid,
-  .capability-grid {
+  .capability-grid,
+  .pricing-grid {
     grid-template-columns: 1fr;
     gap: 28px;
   }
