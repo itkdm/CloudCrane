@@ -116,13 +116,22 @@ export function AgentWorkbenchContent({
     void listModelProfiles()
       .then(({ profiles }) => {
         setModelProfiles(profiles);
-        setSelectedModelProfileId(
-          (current) =>
-            current ?? profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id,
-        );
+        const storageKey = `cloudcrane:selected-model-profile:${websiteId}`;
+        const storedProfileId = window.localStorage.getItem(storageKey);
+        const selectedProfileId =
+          storedProfileId && profiles.some((profile) => profile.id === storedProfileId)
+            ? storedProfileId
+            : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id);
+        setSelectedModelProfileId(selectedProfileId);
+        if (selectedProfileId) window.localStorage.setItem(storageKey, selectedProfileId);
       })
       .catch(() => undefined);
-  }, []);
+  }, [websiteId]);
+
+  function selectModelProfile(profileId: string) {
+    setSelectedModelProfileId(profileId);
+    window.localStorage.setItem(`cloudcrane:selected-model-profile:${websiteId}`, profileId);
+  }
 
   const socket = useRef<WebSocket | null>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
@@ -1021,14 +1030,20 @@ export function AgentWorkbenchContent({
           }
           modelProfiles={modelProfiles}
           selectedModelProfileId={selectedModelProfileId}
-          onModelProfileSelect={setSelectedModelProfileId}
+          onModelProfileSelect={selectModelProfile}
           onModelProfileChange={(profiles) => {
             setModelProfiles(profiles);
-            setSelectedModelProfileId((current) =>
+            const current = selectedModelProfileId;
+            const nextProfileId =
               current && profiles.some((profile) => profile.id === current)
                 ? current
-                : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id),
-            );
+                : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id);
+            setSelectedModelProfileId(nextProfileId);
+            if (nextProfileId)
+              window.localStorage.setItem(
+                `cloudcrane:selected-model-profile:${websiteId}`,
+                nextProfileId,
+              );
           }}
         />
         {previewOpen ? (
