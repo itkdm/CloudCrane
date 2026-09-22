@@ -2,20 +2,28 @@
 
 import { LoaderCircle } from 'lucide-react';
 import { useLinkStatus } from 'next/link';
+import { useState } from 'react';
 import { Link } from '../../i18n/navigation';
 
-function NavigationStatus({ pendingLabel }: { pendingLabel: string }) {
+function NavigationStatus({
+  navigating,
+  pendingLabel,
+}: {
+  navigating: boolean;
+  pendingLabel: string;
+}) {
   const { pending } = useLinkStatus();
+  const active = pending || navigating;
 
   return (
     <>
       <LoaderCircle
         className="marketing-button-loading"
-        data-pending={pending}
+        data-pending={active}
         size={16}
         aria-hidden="true"
       />
-      {pending ? <span className="sr-only">{pendingLabel}</span> : null}
+      {active ? <span className="sr-only">{pendingLabel}</span> : null}
     </>
   );
 }
@@ -29,10 +37,23 @@ export function StartBuildingLink({
   children: React.ReactNode;
   pendingLabel: string;
 }) {
+  const [navigating, setNavigating] = useState(false);
+
   return (
-    <Link className={className} href="/app/websites">
+    <Link
+      className={className}
+      href="/app/websites"
+      aria-disabled={navigating}
+      onClick={(event) => {
+        if (navigating) {
+          event.preventDefault();
+          return;
+        }
+        setNavigating(true);
+      }}
+    >
       {children}
-      <NavigationStatus pendingLabel={pendingLabel} />
+      <NavigationStatus navigating={navigating} pendingLabel={pendingLabel} />
     </Link>
   );
 }
