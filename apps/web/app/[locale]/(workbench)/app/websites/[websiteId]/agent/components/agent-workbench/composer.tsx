@@ -236,12 +236,14 @@ export function Composer({
                 <strong>{t('addModel')}</strong>
                 <input
                   required
+                  name="providerId"
                   placeholder={t('provider')}
                   value={form.providerId}
                   onChange={(e) => setForm({ ...form, providerId: e.target.value })}
                 />
                 <input
                   required
+                  name="modelId"
                   placeholder={t('modelName')}
                   value={form.modelId}
                   onChange={(e) => setForm({ ...form, modelId: e.target.value })}
@@ -249,6 +251,7 @@ export function Composer({
                 <input
                   required
                   type="url"
+                  name="baseUrl"
                   placeholder={t('baseUrl')}
                   value={form.baseUrl}
                   onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -256,11 +259,14 @@ export function Composer({
                 <input
                   required
                   type="password"
+                  name="apiKey"
+                  autoComplete="new-password"
                   placeholder={t('apiKey')}
                   value={form.apiKey}
                   onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
                 />
                 <input
+                  name="displayName"
                   placeholder={t('model')}
                   value={form.displayName}
                   onChange={(e) => setForm({ ...form, displayName: e.target.value })}
