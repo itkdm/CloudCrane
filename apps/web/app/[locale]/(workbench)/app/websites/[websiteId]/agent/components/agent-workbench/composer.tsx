@@ -131,7 +131,10 @@ export function Composer({
             <button
               type="button"
               className="composer-model-trigger"
-              onClick={() => setModelMenuOpen((open) => !open)}
+              onClick={() => {
+                setAddOpen(false);
+                setModelMenuOpen((open) => !open);
+              }}
               disabled={running}
             >
               <span>{selectedModel?.displayName ?? t('model')}</span>
@@ -178,6 +181,7 @@ export function Composer({
                   className="composer-model-add"
                   onClick={() => {
                     setAddOpen(true);
+                    setModelMenuOpen(false);
                     setModelError(undefined);
                   }}
                 >
