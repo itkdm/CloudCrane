@@ -296,6 +296,7 @@
     "model": "模型",
     "addModel": "添加模型",
     "provider": "Provider",
+    "providerOpenAiCompatible": "OpenAI 兼容接口",
     "modelName": "模型名称",
     "baseUrl": "接口地址",
     "apiKey": "API Key",

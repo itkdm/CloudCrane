@@ -46,7 +46,7 @@ export function Composer({
   const [savingModel, setSavingModel] = useState(false);
   const [modelError, setModelError] = useState<string>();
   const [form, setForm] = useState({
-    providerId: 'openai',
+    providerId: 'openai-compatible',
     modelId: '',
     baseUrl: '',
     apiKey: '',
@@ -218,7 +218,7 @@ export function Composer({
                     onModelProfileChange?.(next);
                     onModelProfileSelect?.(result.profile.id);
                     setForm({
-                      providerId: 'openai',
+                      providerId: 'openai-compatible',
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
@@ -234,13 +234,13 @@ export function Composer({
                 }}
               >
                 <strong>{t('addModel')}</strong>
-                <input
-                  required
+                <select
                   name="providerId"
-                  placeholder={t('provider')}
                   value={form.providerId}
                   onChange={(e) => setForm({ ...form, providerId: e.target.value })}
-                />
+                >
+                  <option value="openai-compatible">{t('providerOpenAiCompatible')}</option>
+                </select>
                 <input
                   required
                   name="modelId"

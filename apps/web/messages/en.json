@@ -296,6 +296,7 @@
     "model": "Model",
     "addModel": "Add model",
     "provider": "Provider",
+    "providerOpenAiCompatible": "OpenAI-compatible",
     "modelName": "Model name",
     "baseUrl": "Base URL",
     "apiKey": "API key",
