@@ -882,15 +882,14 @@
 .composer-model-form {
   position: absolute;
   bottom: calc(100% + 12px);
-  left: 50%;
+  right: 0;
   z-index: 20;
-  width: 280px;
+  width: min(520px, calc(100vw - 24px));
   padding: 8px;
   border: 1px solid var(--cc-border);
   border-radius: 10px;
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-lg);
-  transform: translateX(-50%);
 }
 .composer-model-row {
   display: flex;
@@ -985,7 +984,7 @@
   outline: 2px solid rgb(37 99 235 / 18%);
   outline-offset: 0;
 }
-.composer-model-form > div {
+.composer-model-form > div:not(.composer-model-capability-fields) {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
@@ -1031,6 +1030,8 @@
 .composer-model-capability-fields {
   grid-template-columns: 1fr 1fr;
   align-items: center;
+  min-width: 0;
+  padding: 4px 0;
 }
 
 .composer-model-capability-fields > span {
@@ -1043,6 +1044,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .composer-model-capability-fields input[type='checkbox'] {
@@ -1054,6 +1057,11 @@
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: 1fr 110px;
+  white-space: normal;
+}
+
+.composer-model-capability-fields label input[type='number'] {
+  min-width: 0;
 }
 
 .composer-hint {
