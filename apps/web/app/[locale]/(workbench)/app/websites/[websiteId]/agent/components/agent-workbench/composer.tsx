@@ -57,7 +57,9 @@ export function Composer({
   const selectedModel =
     modelProfiles.find((profile) => profile.id === selectedModelProfileId) ??
     modelProfiles.find((profile) => profile.isDefault);
-  const canSubmit = !running && !disabled && Boolean(selectedModel);
+  const attachmentUploadInProgress = uploadingAttachmentNames.length > 0;
+  const canSubmit =
+    !running && !disabled && !attachmentUploadInProgress && Boolean(selectedModel);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -140,7 +142,7 @@ export function Composer({
           id="agent-prompt"
           name="prompt"
           rows={1}
-          disabled={!canSubmit}
+          disabled={disabled}
         />
         <div className="composer-toolbar">
           <div ref={modelPopoverRef} className="composer-model">
@@ -151,7 +153,7 @@ export function Composer({
                 setAddOpen(false);
                 setModelMenuOpen((open) => !open);
               }}
-              disabled={running}
+              disabled={running || disabled}
             >
               <span>{selectedModel?.displayName ?? t('model')}</span>
               <ChevronDown size={14} aria-hidden="true" />
@@ -342,7 +344,7 @@ export function Composer({
               type="file"
               multiple
               accept="image/png,image/jpeg,image/gif,image/webp,text/plain,text/markdown,.txt,.md,.markdown"
-              disabled={!canSubmit || !onAttachmentSelect}
+              disabled={disabled || attachmentUploadInProgress || !onAttachmentSelect}
               onChange={(event) => {
                 const files = Array.from(event.target.files ?? []);
                 if (files.length) onAttachmentSelect?.(files);

@@ -64,7 +64,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   );
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
-  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
   const [runId, setRunIdState] = useState<string>();
   const [error, setError] = useState<string>();
@@ -599,7 +598,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     if (!sessionId) return;
     const selectedFiles = files.slice(0, 8 - attachments.length);
     if (selectedFiles.length === 0) return;
-    setAttachmentsUploading(true);
     setUploadingAttachmentNames(selectedFiles.map((file) => file.name));
     void Promise.allSettled(
       selectedFiles.map((file) => uploadAttachment(websiteId, sessionId, file)),
@@ -614,7 +612,6 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       })
       .finally(() => {
         setUploadingAttachmentNames([]);
-        setAttachmentsUploading(false);
       });
   }
 
@@ -667,7 +664,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           draft={draft}
           running={Boolean(runId)}
           error={error}
-          disabled={!sessionId || attachmentsUploading}
+          disabled={!sessionId}
           onDraftChange={setDraft}
           onSubmit={submit}
           onStop={stop}
