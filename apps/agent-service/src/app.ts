@@ -53,6 +53,7 @@ import {
 } from './infrastructure/model-profiles.js';
 import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
+import { listPublicModelPresets } from './infrastructure/model-catalog.js';
 
 export type AgentServiceAppOptions = {
   config: AgentServiceConfig;
@@ -200,6 +201,7 @@ export function buildAgentServiceApp(
     const session = await requireSession(options.auth, headersFromNode(request.headers));
     return { profiles: await options.modelProfiles.list(session.user.id) };
   });
+  app.get('/v1/model-catalog', async () => ({ presets: listPublicModelPresets() }));
   app.post<{ Body: Partial<ModelProfileInput> }>('/v1/model-profiles', async (request, reply) => {
     if (!options.modelProfiles || !options.auth)
       throw new AgentServiceError('INTERNAL_ERROR', 'model profile service is unavailable', 503);
@@ -218,6 +220,7 @@ export function buildAgentServiceApp(
       );
     const profile = await options.modelProfiles.create(session.user.id, {
       providerKind: body.providerKind,
+      presetId: typeof body.presetId === 'string' ? body.presetId : undefined,
       providerId: body.providerId,
       modelId: body.modelId,
       displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
@@ -250,7 +253,7 @@ export function buildAgentServiceApp(
       (body.providerKind !== 'builtin' && body.providerKind !== 'openai-compatible') ||
       typeof body.providerId !== 'string' ||
       typeof body.modelId !== 'string' ||
-      typeof body.baseUrl !== 'string'
+      (typeof body.baseUrl !== 'string' && typeof body.presetId !== 'string')
     )
       throw new AgentServiceError(
         'INVALID_ARGUMENT',
@@ -259,10 +262,11 @@ export function buildAgentServiceApp(
       );
     const profile = await options.modelProfiles.update(session.user.id, request.params.profileId, {
       providerKind: body.providerKind,
+      presetId: typeof body.presetId === 'string' ? body.presetId : undefined,
       providerId: body.providerId,
       modelId: body.modelId,
       displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
-      baseUrl: body.baseUrl,
+      baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
       api: typeof body.api === 'string' ? body.api : undefined,
       apiKey: typeof body.apiKey === 'string' && body.apiKey ? body.apiKey : undefined,
     });

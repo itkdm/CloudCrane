@@ -24,6 +24,7 @@ export type AgentSession = {
 export type ModelProfile = {
   id: string;
   providerKind: 'builtin' | 'openai-compatible';
+  presetId: string | null;
   providerId: string;
   modelId: string;
   displayName: string;
@@ -31,6 +32,28 @@ export type ModelProfile = {
   api: string | null;
   keyHint: string;
   isDefault: boolean;
+  input: Array<'text' | 'image'>;
+  reasoning: boolean;
+  contextWindow: number;
+  maxTokens: number;
+  supportsTools: boolean;
+};
+
+export type ModelPreset = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  baseUrl: string;
+  api: string;
+  models: Array<{
+    id: string;
+    name: string;
+    input: Array<'text' | 'image'>;
+    reasoning: boolean;
+    contextWindow: number;
+    maxTokens: number;
+    supportsTools: boolean;
+  }>;
 };
 
 function agentEndpoint(path: string): string {
@@ -51,8 +74,15 @@ export async function listModelProfiles() {
   return (await response.json()) as { profiles: ModelProfile[] };
 }
 
+export async function listModelCatalog() {
+  const response = await fetch(agentEndpoint('/v1/model-catalog'), { credentials: 'include' });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { presets: ModelPreset[] };
+}
+
 export async function createModelProfile(input: {
   providerKind: ModelProfile['providerKind'];
+  presetId?: string;
   providerId: string;
   modelId: string;
   displayName?: string;
@@ -83,6 +113,7 @@ export async function updateModelProfile(
   profileId: string,
   input: {
     providerKind: ModelProfile['providerKind'];
+    presetId?: string;
     providerId: string;
     modelId: string;
     displayName?: string;

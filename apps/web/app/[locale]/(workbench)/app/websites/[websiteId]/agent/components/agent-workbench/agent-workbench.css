@@ -1004,6 +1004,14 @@
   color: var(--destructive);
 }
 
+.composer-model-auto-config {
+  overflow: hidden;
+  color: var(--cc-text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-hint {
   color: var(--cc-text-tertiary);
   font-size: 10px;

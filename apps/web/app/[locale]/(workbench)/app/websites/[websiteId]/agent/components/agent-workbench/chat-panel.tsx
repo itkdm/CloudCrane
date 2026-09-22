@@ -1,6 +1,6 @@
 import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
-import type { ModelProfile } from '@/lib/agent-client';
+import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './composer';
@@ -44,6 +44,7 @@ type ChatPanelProps = {
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
   modelProfiles?: ModelProfile[];
+  modelCatalog?: ModelPreset[];
   selectedModelProfileId?: string;
   onModelProfileSelect?: (id: string) => void;
   onModelProfileChange?: (profiles: ModelProfile[]) => void;
@@ -78,6 +79,7 @@ export function ChatPanel({
   onAttachmentSelect,
   onAttachmentRemove,
   modelProfiles,
+  modelCatalog,
   selectedModelProfileId,
   onModelProfileSelect,
   onModelProfileChange,
@@ -173,6 +175,7 @@ export function ChatPanel({
         onAttachmentSelect={onAttachmentSelect}
         onAttachmentRemove={onAttachmentRemove}
         modelProfiles={modelProfiles}
+        modelCatalog={modelCatalog}
         selectedModelProfileId={selectedModelProfileId}
         onModelProfileSelect={onModelProfileSelect}
         onModelProfileChange={onModelProfileChange}

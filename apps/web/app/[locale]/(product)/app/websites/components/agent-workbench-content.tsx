@@ -27,7 +27,9 @@ import {
   parseAgentEvent,
   parseAgentMessage,
   listModelProfiles,
+  listModelCatalog,
   type ModelProfile,
+  type ModelPreset,
 } from '@/lib/agent-client';
 import {
   PREVIEW_READY_TIMEOUT_MS,
@@ -97,6 +99,7 @@ export function AgentWorkbenchContent({
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
+  const [modelCatalog, setModelCatalog] = useState<ModelPreset[]>([]);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string>();
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
   const [error, setError] = useState<WorkbenchError | undefined>();
@@ -113,9 +116,10 @@ export function AgentWorkbenchContent({
   const [isResizingPreview, setIsResizingPreview] = useState(false);
 
   useEffect(() => {
-    void listModelProfiles()
-      .then(({ profiles }) => {
+    void Promise.all([listModelProfiles(), listModelCatalog()])
+      .then(([{ profiles }, { presets }]) => {
         setModelProfiles(profiles);
+        setModelCatalog(presets);
         const storageKey = `cloudcrane:selected-model-profile:${websiteId}`;
         const storedProfileId = window.localStorage.getItem(storageKey);
         const selectedProfileId =
@@ -1029,6 +1033,7 @@ export function AgentWorkbenchContent({
             setAttachments((current) => current.filter((item) => item.id !== id))
           }
           modelProfiles={modelProfiles}
+          modelCatalog={modelCatalog}
           selectedModelProfileId={selectedModelProfileId}
           onModelProfileSelect={selectModelProfile}
           onModelProfileChange={(profiles) => {

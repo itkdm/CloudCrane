@@ -2,12 +2,19 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:
 import { and, desc, eq } from 'drizzle-orm';
 import { userModelProfile, type PlatformDb } from '@cloudcrane/db';
 import { AgentServiceError } from '../application/errors.js';
+import {
+  CUSTOM_MODEL_PRESET_ID,
+  findModelPreset,
+  findPresetModel,
+  type ModelInput,
+} from './model-catalog.js';
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const ENCRYPTION_KEY_VERSION = 'v1';
 
 export type ModelProfileInput = {
   providerKind: 'builtin' | 'openai-compatible';
+  presetId?: string;
   providerId: string;
   modelId: string;
   displayName?: string;
@@ -24,6 +31,7 @@ export type ModelProfileUpdateInput = Omit<ModelProfileInput, 'apiKey' | 'isDefa
 export type PublicModelProfile = {
   id: string;
   providerKind: 'builtin' | 'openai-compatible';
+  presetId: string | null;
   providerId: string;
   modelId: string;
   displayName: string;
@@ -31,6 +39,11 @@ export type PublicModelProfile = {
   api: string | null;
   keyHint: string;
   isDefault: boolean;
+  input: ModelInput[];
+  reasoning: boolean;
+  contextWindow: number;
+  maxTokens: number;
+  supportsTools: boolean;
 };
 
 export type ResolvedModelProfile = PublicModelProfile & { apiKey: string };
@@ -76,12 +89,14 @@ function validateInput(input: ModelProfileInput | ModelProfileUpdateInput): void
     throw new AgentServiceError('INVALID_ARGUMENT', 'model is invalid', 400);
   if (input.apiKey !== undefined && (!input.apiKey.trim() || input.apiKey.length > 16_384))
     throw new AgentServiceError('INVALID_ARGUMENT', 'API key is invalid', 400);
-  if (input.providerKind === 'openai-compatible' && !input.baseUrl)
-    throw new AgentServiceError(
-      'INVALID_ARGUMENT',
-      'base URL is required for OpenAI-compatible providers',
-      400,
-    );
+}
+
+function resolvePreset(input: ModelProfileInput | ModelProfileUpdateInput) {
+  if (!input.presetId || input.presetId === CUSTOM_MODEL_PRESET_ID) return undefined;
+  const preset = findModelPreset(input.presetId);
+  if (!preset || preset.providerId !== input.providerId)
+    throw new AgentServiceError('INVALID_ARGUMENT', 'model provider preset is invalid', 400);
+  return preset;
 }
 
 function keyHint(apiKey: string): string {
@@ -120,7 +135,14 @@ export class ModelProfileService {
 
   async create(userId: string, input: ModelProfileInput): Promise<PublicModelProfile> {
     validateInput(input);
-    const baseUrl = normalizeBaseUrl(input.baseUrl, input.providerKind);
+    const preset = resolvePreset(input);
+    if (input.providerKind === 'openai-compatible' && !(input.baseUrl ?? preset?.baseUrl))
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'base URL is required for custom OpenAI-compatible providers',
+        400,
+      );
+    const baseUrl = normalizeBaseUrl(input.baseUrl ?? preset?.baseUrl, input.providerKind);
     const id = randomUUID();
     const providerId =
       input.providerKind === 'openai-compatible'
@@ -139,12 +161,18 @@ export class ModelProfileService {
         id,
         userId,
         providerKind: input.providerKind,
+        presetId: preset?.id ?? null,
         providerId,
         modelId: input.modelId.trim(),
-        displayName: input.displayName?.trim() || `${input.providerId}/${input.modelId}`,
+        displayName:
+          input.displayName?.trim() ||
+          preset?.models.find((model) => model.id === input.modelId)?.name ||
+          `${input.providerId}/${input.modelId}`,
         baseUrl,
         api:
-          input.providerKind === 'openai-compatible' ? (input.api ?? 'openai-completions') : null,
+          input.providerKind === 'openai-compatible'
+            ? (input.api ?? preset?.api ?? 'openai-completions')
+            : null,
         apiKeyCiphertext: encrypted.ciphertext,
         apiKeyIv: encrypted.iv,
         apiKeyAuthTag: encrypted.authTag,
@@ -164,7 +192,14 @@ export class ModelProfileService {
     input: ModelProfileUpdateInput,
   ): Promise<PublicModelProfile> {
     validateInput(input);
-    const baseUrl = normalizeBaseUrl(input.baseUrl, input.providerKind);
+    const preset = resolvePreset(input);
+    if (input.providerKind === 'openai-compatible' && !(input.baseUrl ?? preset?.baseUrl))
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'base URL is required for custom OpenAI-compatible providers',
+        400,
+      );
+    const baseUrl = normalizeBaseUrl(input.baseUrl ?? preset?.baseUrl, input.providerKind);
     const existing = await this.platform.db
       .select()
       .from(userModelProfile)
@@ -178,10 +213,14 @@ export class ModelProfileService {
     const updated = await this.platform.db
       .update(userModelProfile)
       .set({
+        presetId: preset?.id ?? null,
         modelId: input.modelId.trim(),
-        displayName: input.displayName?.trim() || `${input.providerId}/${input.modelId}`,
+        displayName:
+          input.displayName?.trim() ||
+          preset?.models.find((model) => model.id === input.modelId)?.name ||
+          `${input.providerId}/${input.modelId}`,
         baseUrl,
-        api: input.api ?? 'openai-completions',
+        api: input.api ?? preset?.api ?? 'openai-completions',
         ...(encrypted
           ? {
               apiKeyCiphertext: encrypted.ciphertext,
@@ -274,16 +313,26 @@ export class ModelProfileService {
   }
 
   private toPublic(row: typeof userModelProfile.$inferSelect): PublicModelProfile {
+    const presetModel = findPresetModel(row.presetId ?? undefined, row.modelId);
+    const preset = findModelPreset(row.presetId ?? undefined);
     return {
       id: row.id,
       providerKind: row.providerKind as PublicModelProfile['providerKind'],
-      providerId: row.providerKind === 'openai-compatible' ? 'openai-compatible' : row.providerId,
+      presetId: row.presetId,
+      providerId:
+        preset?.providerId ??
+        (row.providerKind === 'openai-compatible' ? 'openai-compatible' : row.providerId),
       modelId: row.modelId,
       displayName: row.displayName,
       baseUrl: row.baseUrl,
       api: row.api,
       keyHint: row.keyHint,
       isDefault: row.isDefault,
+      input: presetModel?.input ?? ['text'],
+      reasoning: presetModel?.reasoning ?? false,
+      contextWindow: presetModel?.contextWindow ?? 128_000,
+      maxTokens: presetModel?.maxTokens ?? 16_384,
+      supportsTools: presetModel?.supportsTools ?? true,
     };
   }
 

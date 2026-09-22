@@ -2,7 +2,7 @@ import { ChevronDown, LoaderCircle, Paperclip, Send, Square, X } from 'lucide-re
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { ModelProfile } from '@/lib/agent-client';
+import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { createModelProfile, deleteModelProfile, updateModelProfile } from '@/lib/agent-client';
 
 type ComposerProps = {
@@ -17,6 +17,7 @@ type ComposerProps = {
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
   modelProfiles?: ModelProfile[];
+  modelCatalog?: ModelPreset[];
   selectedModelProfileId?: string;
   onModelProfileSelect?: (id: string) => void;
   onModelProfileChange?: (profiles: ModelProfile[]) => void;
@@ -34,6 +35,7 @@ export function Composer({
   onAttachmentSelect,
   onAttachmentRemove,
   modelProfiles = [],
+  modelCatalog = [],
   selectedModelProfileId,
   onModelProfileSelect,
   onModelProfileChange,
@@ -48,18 +50,18 @@ export function Composer({
   const [savingModel, setSavingModel] = useState(false);
   const [modelError, setModelError] = useState<string>();
   const [form, setForm] = useState({
-    providerId: 'openai-compatible',
+    presetId: 'custom-openai-compatible',
+    providerId: 'custom',
     modelId: '',
     baseUrl: '',
     apiKey: '',
-    displayName: '',
   });
+  const selectedPreset = modelCatalog.find((preset) => preset.id === form.presetId);
   const selectedModel =
     modelProfiles.find((profile) => profile.id === selectedModelProfileId) ??
     modelProfiles.find((profile) => profile.isDefault);
   const attachmentUploadInProgress = uploadingAttachmentNames.length > 0;
-  const canSubmit =
-    !running && !disabled && !attachmentUploadInProgress && Boolean(selectedModel);
+  const canSubmit = !running && !disabled && !attachmentUploadInProgress && Boolean(selectedModel);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -180,11 +182,11 @@ export function Composer({
                         onClick={() => {
                           setEditingProfileId(profile.id);
                           setForm({
-                            providerId: profile.providerId,
+                            presetId: profile.presetId ?? 'custom-openai-compatible',
+                            providerId: profile.presetId ? profile.providerId : 'custom',
                             modelId: profile.modelId,
                             baseUrl: profile.baseUrl ?? '',
                             apiKey: '',
-                            displayName: profile.displayName,
                           });
                           setModelMenuOpen(false);
                           setAddOpen(true);
@@ -218,6 +220,13 @@ export function Composer({
                   className="composer-model-add"
                   onClick={() => {
                     setEditingProfileId(undefined);
+                    setForm({
+                      presetId: 'custom-openai-compatible',
+                      providerId: 'custom',
+                      modelId: '',
+                      baseUrl: '',
+                      apiKey: '',
+                    });
                     setAddOpen(true);
                     setModelMenuOpen(false);
                     setModelError(undefined);
@@ -237,11 +246,11 @@ export function Composer({
                   try {
                     const input = {
                       providerKind: 'openai-compatible' as const,
+                      presetId: form.presetId || undefined,
                       providerId: form.providerId,
                       modelId: form.modelId,
-                      baseUrl: form.baseUrl || undefined,
-                      displayName: form.displayName || undefined,
-                      api: 'openai-completions',
+                      baseUrl: selectedPreset ? undefined : form.baseUrl || undefined,
+                      api: selectedPreset?.api ?? 'openai-completions',
                       ...(form.apiKey ? { apiKey: form.apiKey } : {}),
                     };
                     const result = editingProfileId
@@ -263,11 +272,11 @@ export function Composer({
                     onModelProfileSelect?.(result.profile.id);
                     setEditingProfileId(undefined);
                     setForm({
-                      providerId: 'openai-compatible',
+                      presetId: 'custom-openai-compatible',
+                      providerId: 'custom',
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
-                      displayName: '',
                     });
                     setAddOpen(false);
                     setModelMenuOpen(false);
@@ -280,27 +289,67 @@ export function Composer({
               >
                 <strong>{editingProfileId ? t('editModel') : t('addModel')}</strong>
                 <select
-                  name="providerId"
-                  value={form.providerId}
-                  onChange={(e) => setForm({ ...form, providerId: e.target.value })}
+                  name="presetId"
+                  value={form.presetId}
+                  onChange={(e) => {
+                    const preset = modelCatalog.find((item) => item.id === e.target.value);
+                    setForm({
+                      ...form,
+                      presetId: e.target.value,
+                      providerId: preset?.providerId ?? 'custom',
+                      modelId: preset?.models[0]?.id ?? '',
+                      baseUrl: preset?.baseUrl ?? '',
+                    });
+                  }}
                 >
-                  <option value="openai-compatible">{t('providerOpenAiCompatible')}</option>
+                  <option value="" disabled>
+                    {t('selectProvider')}
+                  </option>
+                  {modelCatalog.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.providerName}
+                    </option>
+                  ))}
+                  <option value="custom-openai-compatible">{t('providerCustom')}</option>
                 </select>
-                <input
-                  required
-                  name="modelId"
-                  placeholder={t('modelName')}
-                  value={form.modelId}
-                  onChange={(e) => setForm({ ...form, modelId: e.target.value })}
-                />
-                <input
-                  required
-                  type="url"
-                  name="baseUrl"
-                  placeholder={t('baseUrl')}
-                  value={form.baseUrl}
-                  onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                />
+                {selectedPreset ? (
+                  <>
+                    <input
+                      required
+                      list="model-preset-options"
+                      name="modelId"
+                      placeholder={t('modelName')}
+                      value={form.modelId}
+                      onChange={(e) => setForm({ ...form, modelId: e.target.value })}
+                    />
+                    <datalist id="model-preset-options">
+                      {selectedPreset.models.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </datalist>
+                    <small className="composer-model-auto-config">{selectedPreset.baseUrl}</small>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      required
+                      name="modelId"
+                      placeholder={t('modelName')}
+                      value={form.modelId}
+                      onChange={(e) => setForm({ ...form, modelId: e.target.value })}
+                    />
+                    <input
+                      required
+                      type="url"
+                      name="baseUrl"
+                      placeholder={t('baseUrl')}
+                      value={form.baseUrl}
+                      onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                    />
+                  </>
+                )}
                 <input
                   required={!editingProfileId}
                   type="password"
@@ -309,12 +358,6 @@ export function Composer({
                   placeholder={t('apiKey')}
                   value={form.apiKey}
                   onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                />
-                <input
-                  name="displayName"
-                  placeholder={t('model')}
-                  value={form.displayName}
-                  onChange={(e) => setForm({ ...form, displayName: e.target.value })}
                 />
                 {modelError ? <small className="composer-model-error">{modelError}</small> : null}
                 <div>

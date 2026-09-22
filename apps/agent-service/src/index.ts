@@ -22,6 +22,7 @@ import { createAttachmentStorage } from '@cloudcrane/attachment-storage';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 import { ModelProfileService } from './infrastructure/model-profiles.js';
 import { AgentServiceError } from './application/errors.js';
+import { findPresetModel } from './infrastructure/model-catalog.js';
 
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
@@ -86,6 +87,7 @@ const registry = new WebsiteRuntimeRegistry({
             409,
           );
         if (profile.providerKind === 'openai-compatible') {
+          const presetModel = findPresetModel(profile.presetId ?? undefined, profile.modelId);
           modelRuntime.registerProvider(profile.providerId, {
             name: profile.displayName,
             baseUrl: profile.baseUrl ?? undefined,
@@ -95,11 +97,11 @@ const registry = new WebsiteRuntimeRegistry({
                 id: profile.modelId,
                 name: profile.displayName,
                 api: (profile.api ?? 'openai-completions') as Api,
-                reasoning: false,
-                input: ['text'],
+                reasoning: presetModel?.reasoning ?? false,
+                input: presetModel?.input ?? ['text'],
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                contextWindow: 128_000,
-                maxTokens: 16_384,
+                contextWindow: presetModel?.contextWindow ?? 128_000,
+                maxTokens: presetModel?.maxTokens ?? 16_384,
               },
             ],
           });

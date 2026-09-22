@@ -299,6 +299,8 @@
     "updateModel": "更新模型",
     "provider": "Provider",
     "providerOpenAiCompatible": "OpenAI 兼容接口",
+    "providerCustom": "自定义 OpenAI 兼容接口",
+    "selectProvider": "选择供应商",
     "modelName": "模型名称",
     "baseUrl": "接口地址",
     "apiKey": "API Key",

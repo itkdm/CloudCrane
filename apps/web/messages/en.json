@@ -299,6 +299,8 @@
     "updateModel": "Update model",
     "provider": "Provider",
     "providerOpenAiCompatible": "OpenAI-compatible",
+    "providerCustom": "Custom OpenAI-compatible",
+    "selectProvider": "Select a provider",
     "modelName": "Model name",
     "baseUrl": "Base URL",
     "apiKey": "API key",

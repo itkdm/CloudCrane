@@ -140,6 +140,7 @@ export const userModelProfile = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     providerKind: varchar('provider_kind', { length: 32 }).notNull(),
+    presetId: varchar('preset_id', { length: 128 }),
     providerId: varchar('provider_id', { length: 128 }).notNull(),
     modelId: varchar('model_id', { length: 255 }).notNull(),
     displayName: varchar('display_name', { length: 255 }).notNull(),
