@@ -18,12 +18,8 @@ describe('preview access endpoint', () => {
         previewGatewayOriginTemplate: 'https://{previewSlug}.preview.example/',
         previewSigningSecret: 'test-preview-signing-secret',
         previewTokenTtlSeconds: 20,
-        modelProvider: undefined,
-        modelId: undefined,
-        modelAuthPath: undefined,
         referenceRoot: 'D:/tmp/cloudcrane-references',
         referenceUploadMaxBytes: 100 * 1024 * 1024,
-        modelConfigured: false,
       },
       registry: new WebsiteRuntimeRegistry({
         bindingStore: {

@@ -21,6 +21,18 @@ export type AgentSession = {
   lastActiveAt: string | null;
 };
 
+export type ModelProfile = {
+  id: string;
+  providerKind: 'builtin' | 'openai-compatible';
+  providerId: string;
+  modelId: string;
+  displayName: string;
+  baseUrl: string | null;
+  api: string | null;
+  keyHint: string;
+  isDefault: boolean;
+};
+
 function agentEndpoint(path: string): string {
   return `${serviceUrl.replace(/\/$/, '')}${path}`;
 }
@@ -31,6 +43,40 @@ export async function listAgentSessions(websiteId: string) {
   });
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as { sessions: AgentSession[] };
+}
+
+export async function listModelProfiles() {
+  const response = await fetch(agentEndpoint('/v1/model-profiles'), { credentials: 'include' });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { profiles: ModelProfile[] };
+}
+
+export async function createModelProfile(input: {
+  providerKind: ModelProfile['providerKind'];
+  providerId: string;
+  modelId: string;
+  displayName?: string;
+  baseUrl?: string;
+  api?: string;
+  apiKey: string;
+  isDefault?: boolean;
+}) {
+  const response = await fetch(agentEndpoint('/v1/model-profiles'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
+  return (await response.json()) as { profile: ModelProfile };
+}
+
+export async function deleteModelProfile(profileId: string) {
+  const response = await fetch(agentEndpoint(`/v1/model-profiles/${profileId}`), {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(await errorMessage(response));
 }
 
 export async function createAgentSession(websiteId: string) {

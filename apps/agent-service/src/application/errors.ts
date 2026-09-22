@@ -14,6 +14,9 @@ export type AgentServiceErrorCode =
   | 'INTERACTION_NOT_FOUND'
   | 'ATTACHMENT_INVALID'
   | 'MODEL_NOT_CONFIGURED'
+  | 'MODEL_PROFILE_NOT_FOUND'
+  | 'MODEL_CREDENTIAL_UNAVAILABLE'
+  | 'MODEL_UNAVAILABLE'
   | 'AUDIT_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 
@@ -67,5 +70,15 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
     ).code;
     return new AgentServiceError(code, error instanceof Error ? error.message : 'session is busy');
   }
+  if (
+    error &&
+    typeof error === 'object' &&
+    (error as { code?: unknown }).code === 'MODEL_NOT_CONFIGURED'
+  )
+    return new AgentServiceError(
+      'MODEL_NOT_CONFIGURED',
+      error instanceof Error ? error.message : 'configure a model before using the agent',
+      409,
+    );
   return new AgentServiceError('INTERNAL_ERROR', 'agent service operation failed', 500);
 }

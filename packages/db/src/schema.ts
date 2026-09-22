@@ -132,6 +132,38 @@ export const verification = pgTable('verification', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
 });
 
+export const userModelProfile = pgTable(
+  'user_model_profile',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    providerKind: varchar('provider_kind', { length: 32 }).notNull(),
+    providerId: varchar('provider_id', { length: 128 }).notNull(),
+    modelId: varchar('model_id', { length: 255 }).notNull(),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    baseUrl: text('base_url'),
+    api: varchar('api', { length: 64 }),
+    apiKeyCiphertext: text('api_key_ciphertext').notNull(),
+    apiKeyIv: varchar('api_key_iv', { length: 32 }).notNull(),
+    apiKeyAuthTag: varchar('api_key_auth_tag', { length: 32 }).notNull(),
+    encryptionKeyVersion: varchar('encryption_key_version', { length: 32 }).notNull(),
+    keyHint: varchar('key_hint', { length: 16 }).notNull(),
+    isDefault: boolean('is_default').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
+  },
+  (table) => [
+    index('user_model_profile_user_id_idx').on(table.userId),
+    check(
+      'user_model_profile_provider_kind_check',
+      sql`${table.providerKind} in ('builtin', 'openai-compatible')`,
+    ),
+    check('user_model_profile_key_hint_check', sql`${table.keyHint} <> ''`),
+  ],
+);
+
 export const runner = pgTable('runner', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),

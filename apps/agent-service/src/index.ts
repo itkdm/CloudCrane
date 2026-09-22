@@ -8,6 +8,7 @@ import {
   startObservability,
 } from '@cloudcrane/shared';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { TemplatePublishingService } from '@cloudcrane/template-publishing';
 import { buildAgentServiceApp } from './app.js';
@@ -19,6 +20,8 @@ import { ClientPreviewProvider } from './infrastructure/client-preview-provider.
 import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 import { createAttachmentStorage } from '@cloudcrane/attachment-storage';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
+import { ModelProfileService } from './infrastructure/model-profiles.js';
+import { AgentServiceError } from './application/errors.js';
 
 const config = loadAgentServiceConfig();
 const logger = createLogger('agent-service');
@@ -26,16 +29,10 @@ const observability = startObservability(loadTracingConfig('agent-service'));
 const platform = createPlatformDb();
 validateAuthRuntimeConfig();
 const auth = createAuth(platform.db);
-const modelRuntime = await ModelRuntime.create({
-  authPath: config.modelAuthPath ?? path.join(config.agentDataRoot, 'model-auth.json'),
-  modelsPath: null,
-  allowModelNetwork: false,
-  refreshOnCreate: false,
-});
-const model = config.modelConfigured
-  ? modelRuntime.getModel(config.modelProvider!, config.modelId!)
-  : undefined;
-if (config.modelConfigured && !model) throw new Error('configured agent model is not available');
+const modelProfiles = new ModelProfileService(
+  platform,
+  config.modelCredentialEncryptionKey ?? 'cloudcrane-dev-model-credential-key-32',
+);
 const previewClients = new PreviewClientRegistry();
 const templatePublisher = new TemplatePublishingService(
   platform,
@@ -78,8 +75,49 @@ const registry = new WebsiteRuntimeRegistry({
       workspaceClientToken: config.workspaceGatewayClientToken,
       agentDataRoot: config.agentDataRoot,
       store: new DrizzleWebsiteAgentStore(platform),
-      modelRuntime,
-      model,
+      modelResolver: async (modelRuntime: ModelRuntime, userId: string, profileId?: string) => {
+        const profile = profileId
+          ? await modelProfiles.resolve(userId, profileId)
+          : await modelProfiles.resolveDefault(userId);
+        if (!profile)
+          throw new AgentServiceError(
+            'MODEL_NOT_CONFIGURED',
+            'configure a model before using the agent',
+            409,
+          );
+        if (profile.providerKind === 'openai-compatible') {
+          modelRuntime.registerProvider(profile.providerId, {
+            name: profile.displayName,
+            baseUrl: profile.baseUrl ?? undefined,
+            api: (profile.api ?? 'openai-completions') as Api,
+            models: [
+              {
+                id: profile.modelId,
+                name: profile.displayName,
+                api: (profile.api ?? 'openai-completions') as Api,
+                reasoning: false,
+                input: ['text'],
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                contextWindow: 128_000,
+                maxTokens: 16_384,
+              },
+            ],
+          });
+        }
+        await modelRuntime.setRuntimeApiKey(profile.providerId, profile.apiKey);
+        const model = modelRuntime.getModel(profile.providerId, profile.modelId);
+        if (!model)
+          throw new AgentServiceError(
+            'MODEL_UNAVAILABLE',
+            'the configured model is not available',
+            409,
+          );
+        return {
+          model: model as Model<Api>,
+          profileId: profile.id,
+          displayName: profile.displayName,
+        };
+      },
       previewObservationProvider: new ClientPreviewProvider(previewClients),
       referenceUploadMaxBytes: config.referenceUploadMaxBytes,
       templatePublisher: (request) =>
@@ -96,6 +134,7 @@ const app = buildAgentServiceApp({
   registry,
   auth,
   db: platform.db,
+  modelProfiles,
   attachmentStorage,
   previewClientRegistry: previewClients,
   logger,

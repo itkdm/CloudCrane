@@ -55,6 +55,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     payload: z.object({
       text: z.string().min(1).max(32_000),
       promptRequestId: z.string().min(1).max(256).optional(),
+      modelProfileId: z.string().uuid().optional(),
       attachments: z.array(attachmentRefSchema).max(8).optional(),
     }),
   }),

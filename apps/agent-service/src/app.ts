@@ -46,6 +46,7 @@ import {
   removeReference,
   ReferenceMaterializationError,
 } from './infrastructure/reference-materializer.js';
+import { ModelProfileService, type ModelProfileInput } from './infrastructure/model-profiles.js';
 import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 
@@ -57,6 +58,7 @@ export type AgentServiceAppOptions = {
   previewClientRegistry?: PreviewClientRegistry;
   logger?: ServiceLogger;
   attachmentStorage?: AttachmentStorage;
+  modelProfiles?: ModelProfileService;
 };
 
 const auditLogger = createLogger('agent-service.audit');
@@ -76,11 +78,14 @@ export function buildAgentServiceApp(
         )
       : undefined;
   const attachmentCleanupTimer = attachmentService
-    ? setInterval(() => {
-        void attachmentService.cleanupExpired().catch((error) => {
-          logger.warn({ ...serializeError(error) }, 'attachment cleanup failed');
-        });
-      }, 60 * 60 * 1000)
+    ? setInterval(
+        () => {
+          void attachmentService.cleanupExpired().catch((error) => {
+            logger.warn({ ...serializeError(error) }, 'attachment cleanup failed');
+          });
+        },
+        60 * 60 * 1000,
+      )
     : undefined;
   const requestStarts = new WeakMap<object, number>();
   void app.register(multipart, {
@@ -185,6 +190,50 @@ export function buildAgentServiceApp(
   });
   app.options('/*', async (_request, reply) => reply.code(204).send());
   app.get('/health', async () => ({ service: 'agent-service', status: 'ok' }));
+  app.get('/v1/model-profiles', async (request) => {
+    if (!options.modelProfiles || !options.auth)
+      throw new AgentServiceError('INTERNAL_ERROR', 'model profile service is unavailable', 503);
+    const session = await requireSession(options.auth, headersFromNode(request.headers));
+    return { profiles: await options.modelProfiles.list(session.user.id) };
+  });
+  app.post<{ Body: Partial<ModelProfileInput> }>('/v1/model-profiles', async (request, reply) => {
+    if (!options.modelProfiles || !options.auth)
+      throw new AgentServiceError('INTERNAL_ERROR', 'model profile service is unavailable', 503);
+    const session = await requireSession(options.auth, headersFromNode(request.headers));
+    const body = request.body ?? {};
+    if (
+      (body.providerKind !== 'builtin' && body.providerKind !== 'openai-compatible') ||
+      typeof body.providerId !== 'string' ||
+      typeof body.modelId !== 'string' ||
+      typeof body.apiKey !== 'string'
+    )
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'provider, model and API key are required',
+        400,
+      );
+    const profile = await options.modelProfiles.create(session.user.id, {
+      providerKind: body.providerKind,
+      providerId: body.providerId,
+      modelId: body.modelId,
+      displayName: typeof body.displayName === 'string' ? body.displayName : undefined,
+      baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
+      api: typeof body.api === 'string' ? body.api : undefined,
+      apiKey: body.apiKey,
+      ...(typeof body.isDefault === 'boolean' ? { isDefault: body.isDefault } : {}),
+    });
+    return reply.code(201).send({ profile });
+  });
+  app.delete<{ Params: { profileId: string } }>(
+    '/v1/model-profiles/:profileId',
+    async (request, reply) => {
+      if (!options.modelProfiles || !options.auth)
+        throw new AgentServiceError('INTERNAL_ERROR', 'model profile service is unavailable', 503);
+      const session = await requireSession(options.auth, headersFromNode(request.headers));
+      await options.modelProfiles.delete(session.user.id, request.params.profileId);
+      return reply.code(204).send();
+    },
+  );
   app.post<{
     Params: { websiteId: string; sessionId: string };
   }>(
@@ -200,7 +249,11 @@ export function buildAgentServiceApp(
       for await (const part of request.parts()) {
         if (part.type !== 'file' || part.fieldname !== 'file' || result) {
           if (result) await attachmentService.remove(result.id, session.user.id);
-          throw new AgentServiceError('INVALID_ARGUMENT', 'exactly one file field is required', 400);
+          throw new AgentServiceError(
+            'INVALID_ARGUMENT',
+            'exactly one file field is required',
+            400,
+          );
         }
         result = await attachmentService.upload({
           userId: session.user.id,

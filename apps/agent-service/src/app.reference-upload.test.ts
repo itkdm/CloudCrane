@@ -35,12 +35,8 @@ describe('reference upload route', () => {
         previewGatewayOriginTemplate: 'https://{previewSlug}.preview.example/',
         previewSigningSecret: 'test-preview-signing-secret',
         previewTokenTtlSeconds: 20,
-        modelProvider: undefined,
-        modelId: undefined,
-        modelAuthPath: undefined,
         referenceRoot: '.test-reference-upload-data',
         referenceUploadMaxBytes: 4,
-        modelConfigured: false,
       },
       registry: new WebsiteRuntimeRegistry({
         bindingStore: {
@@ -85,12 +81,8 @@ describe('reference upload route', () => {
         previewGatewayOriginTemplate: 'https://{previewSlug}.preview.example/',
         previewSigningSecret: 'test-preview-signing-secret',
         previewTokenTtlSeconds: 20,
-        modelProvider: undefined,
-        modelId: undefined,
-        modelAuthPath: undefined,
         referenceRoot: '.test-reference-upload-data',
         referenceUploadMaxBytes: 100 * 1024 * 1024,
-        modelConfigured: false,
       },
       registry: new WebsiteRuntimeRegistry({
         bindingStore: {

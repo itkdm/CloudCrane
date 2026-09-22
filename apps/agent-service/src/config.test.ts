@@ -36,6 +36,7 @@ describe('agent service production configuration', () => {
         WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
         PREVIEW_SIGNING_SECRET: 'production-preview-signing-secret',
         WORKSPACE_GATEWAY_CLIENT_TOKEN: 'production-gateway-client-token',
+        MODEL_CREDENTIAL_ENCRYPTION_KEY: 'production-model-credential-encryption-key-32',
       }),
     ).not.toThrow();
   });
@@ -47,6 +48,7 @@ describe('agent service production configuration', () => {
       WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
       PREVIEW_SIGNING_SECRET: 'production-preview-signing-secret',
       WORKSPACE_GATEWAY_CLIENT_TOKEN: 'production-gateway-client-token',
+      MODEL_CREDENTIAL_ENCRYPTION_KEY: 'production-model-credential-encryption-key-32',
       TEMPLATE_ARTIFACT_MAX_BYTES: '524288000',
     });
 

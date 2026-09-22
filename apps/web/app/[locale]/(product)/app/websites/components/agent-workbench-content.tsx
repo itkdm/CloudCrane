@@ -26,6 +26,8 @@ import {
   uploadAttachment,
   parseAgentEvent,
   parseAgentMessage,
+  listModelProfiles,
+  type ModelProfile,
 } from '@/lib/agent-client';
 import {
   PREVIEW_READY_TIMEOUT_MS,
@@ -94,6 +96,8 @@ export function AgentWorkbenchContent({
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
+  const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
+  const [selectedModelProfileId, setSelectedModelProfileId] = useState<string>();
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
   const [error, setError] = useState<WorkbenchError | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -107,6 +111,18 @@ export function AgentWorkbenchContent({
   const [previewViewportMode, setPreviewViewportMode] = useState<PreviewViewportMode>('desktop');
   const [previewSplitRatio, setPreviewSplitRatio] = useState(0.45);
   const [isResizingPreview, setIsResizingPreview] = useState(false);
+
+  useEffect(() => {
+    void listModelProfiles()
+      .then(({ profiles }) => {
+        setModelProfiles(profiles);
+        setSelectedModelProfileId(
+          (current) =>
+            current ?? profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id,
+        );
+      })
+      .catch(() => undefined);
+  }, []);
 
   const socket = useRef<WebSocket | null>(null);
   const previewFrame = useRef<HTMLIFrameElement | null>(null);
@@ -574,7 +590,12 @@ export function AgentWorkbenchContent({
               type: 'agent.prompt',
               websiteId,
               sessionId,
-              payload: { text, promptRequestId: requestId, attachments },
+              payload: {
+                text,
+                promptRequestId: requestId,
+                attachments,
+                modelProfileId: selectedModelProfileId,
+              },
             }),
             requestId,
           }),
@@ -998,6 +1019,17 @@ export function AgentWorkbenchContent({
           onAttachmentRemove={(id) =>
             setAttachments((current) => current.filter((item) => item.id !== id))
           }
+          modelProfiles={modelProfiles}
+          selectedModelProfileId={selectedModelProfileId}
+          onModelProfileSelect={setSelectedModelProfileId}
+          onModelProfileChange={(profiles) => {
+            setModelProfiles(profiles);
+            setSelectedModelProfileId((current) =>
+              current && profiles.some((profile) => profile.id === current)
+                ? current
+                : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id),
+            );
+          }}
         />
         {previewOpen ? (
           <WorkspaceResizeHandle

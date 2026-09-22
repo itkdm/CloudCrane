@@ -1,5 +1,6 @@
 import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
+import type { ModelProfile } from '@/lib/agent-client';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './composer';
@@ -42,6 +43,10 @@ type ChatPanelProps = {
   uploadingAttachmentNames?: string[];
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
+  modelProfiles?: ModelProfile[];
+  selectedModelProfileId?: string;
+  onModelProfileSelect?: (id: string) => void;
+  onModelProfileChange?: (profiles: ModelProfile[]) => void;
 };
 
 export function ChatPanel({
@@ -72,6 +77,10 @@ export function ChatPanel({
   uploadingAttachmentNames = [],
   onAttachmentSelect,
   onAttachmentRemove,
+  modelProfiles,
+  selectedModelProfileId,
+  onModelProfileSelect,
+  onModelProfileChange,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
   const onDismissErrorRef = useRef(onDismissError);
@@ -163,6 +172,10 @@ export function ChatPanel({
         uploadingAttachmentNames={uploadingAttachmentNames}
         onAttachmentSelect={onAttachmentSelect}
         onAttachmentRemove={onAttachmentRemove}
+        modelProfiles={modelProfiles}
+        selectedModelProfileId={selectedModelProfileId}
+        onModelProfileSelect={onModelProfileSelect}
+        onModelProfileChange={onModelProfileChange}
       />
     </section>
   );

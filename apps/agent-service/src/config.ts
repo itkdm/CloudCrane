@@ -11,7 +11,11 @@ const configSchema = z.object({
   agentDataRoot: z.string().min(1).default('.cloudcrane-data'),
   attachmentStorageDriver: z.enum(['local', 'oss']).default('local'),
   attachmentStorageRoot: z.string().min(1).optional(),
-  attachmentMaxBytes: z.coerce.number().int().positive().default(20 * 1024 * 1024),
+  attachmentMaxBytes: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(20 * 1024 * 1024),
   attachmentOssBucket: z.string().min(3).optional(),
   attachmentOssRegion: z.string().min(1).optional(),
   attachmentOssEndpoint: z.string().url().optional(),
@@ -23,9 +27,10 @@ const configSchema = z.object({
   attachmentOssAccessKeySecret: z.string().min(1).optional(),
   attachmentOssStsToken: z.string().min(1).optional(),
   attachmentOssTimeoutMs: z.coerce.number().int().positive().default(60_000),
-  modelProvider: z.string().min(1).optional(),
-  modelId: z.string().min(1).optional(),
-  modelAuthPath: z.string().min(1).optional(),
+  modelCredentialEncryptionKey: z
+    .string()
+    .min(32)
+    .default('cloudcrane-dev-model-credential-key-32'),
   previewGatewayOriginTemplate: z.string().url().default('http://{previewSlug}.localhost:4103/'),
   previewSigningSecret: z.string().min(16).default('cloudcrane-preview-dev-secret'),
   previewTokenTtlSeconds: z.coerce.number().int().positive().max(3600).default(600),
@@ -54,6 +59,7 @@ export type AgentServiceConfig = Omit<
   | 'attachmentOssTimeoutMs'
   | 'templateArtifactRoot'
   | 'templateArtifactMaxBytes'
+  | 'modelCredentialEncryptionKey'
 > & {
   agentDataRoot: string;
   attachmentStorageDriver?: 'local' | 'oss';
@@ -70,7 +76,7 @@ export type AgentServiceConfig = Omit<
   templateArtifactRoot?: string;
   internalServiceToken?: string;
   templateArtifactMaxBytes?: number;
-  modelConfigured: boolean;
+  modelCredentialEncryptionKey?: string;
 };
 
 export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): AgentServiceConfig {
@@ -80,12 +86,19 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     throw new Error('WORKSPACE_REFERENCE_ROOT is required in production');
   if (env.NODE_ENV === 'production' && !env.PREVIEW_SIGNING_SECRET)
     throw new Error('PREVIEW_SIGNING_SECRET is required in production');
-  if (env.NODE_ENV === 'production' && env.PREVIEW_SIGNING_SECRET === 'cloudcrane-preview-dev-secret')
+  if (
+    env.NODE_ENV === 'production' &&
+    env.PREVIEW_SIGNING_SECRET === 'cloudcrane-preview-dev-secret'
+  )
     throw new Error('PREVIEW_SIGNING_SECRET must not use the development default in production');
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_GATEWAY_CLIENT_TOKEN)
     throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN is required in production');
   if (env.NODE_ENV === 'production' && env.WORKSPACE_GATEWAY_CLIENT_TOKEN === 'dev-client-token')
-    throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production');
+    throw new Error(
+      'WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production',
+    );
+  if (env.NODE_ENV === 'production' && !env.MODEL_CREDENTIAL_ENCRYPTION_KEY)
+    throw new Error('MODEL_CREDENTIAL_ENCRYPTION_KEY is required in production');
   if (env.ATTACHMENT_STORAGE_DRIVER === 'oss') {
     for (const [name, value] of [
       ['ATTACHMENT_OSS_BUCKET', env.ATTACHMENT_OSS_BUCKET],
@@ -113,9 +126,7 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     attachmentOssAccessKeySecret: env.ATTACHMENT_OSS_ACCESS_KEY_SECRET,
     attachmentOssStsToken: env.ATTACHMENT_OSS_STS_TOKEN,
     attachmentOssTimeoutMs: env.ATTACHMENT_OSS_TIMEOUT_MS,
-    modelProvider: env.AGENT_MODEL_PROVIDER,
-    modelId: env.AGENT_MODEL_ID,
-    modelAuthPath: env.AGENT_MODEL_AUTH_PATH,
+    modelCredentialEncryptionKey: env.MODEL_CREDENTIAL_ENCRYPTION_KEY,
     previewGatewayOriginTemplate: env.PREVIEW_GATEWAY_ORIGIN_TEMPLATE,
     previewSigningSecret: env.PREVIEW_SIGNING_SECRET,
     previewTokenTtlSeconds: env.PREVIEW_TOKEN_TTL_SECONDS,
@@ -133,6 +144,5 @@ export function loadAgentServiceConfig(env: NodeJS.ProcessEnv = process.env): Ag
     ),
     referenceRoot: path.resolve(parsed.referenceRoot),
     templateArtifactRoot: path.resolve(parsed.templateArtifactRoot),
-    modelConfigured: Boolean(parsed.modelProvider && parsed.modelId),
   };
 }

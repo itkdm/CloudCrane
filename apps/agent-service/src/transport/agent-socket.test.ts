@@ -31,12 +31,8 @@ const config: AgentServiceConfig = {
   previewGatewayOriginTemplate: 'http://{previewSlug}.localhost:4103/',
   previewSigningSecret: 'test-preview-signing-secret',
   previewTokenTtlSeconds: 600,
-  modelProvider: undefined,
-  modelId: undefined,
-  modelAuthPath: undefined,
   referenceRoot: 'D:/tmp/cloudcrane-references',
   referenceUploadMaxBytes: 100 * 1024 * 1024,
-  modelConfigured: true,
 };
 
 describe('AgentSocketTransport', () => {

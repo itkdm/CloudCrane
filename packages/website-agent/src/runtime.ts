@@ -17,7 +17,7 @@ import {
   type ToolDefinition,
   type CreateAgentSessionRuntimeFactory,
 } from '@earendil-works/pi-coding-agent';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import { InMemoryCredentialStore, type Api, type Model } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { createCloudCraneCodingTools } from '@cloudcrane/pi-adapter';
@@ -174,6 +174,11 @@ export type WebsiteAgentRuntimeOptions = {
   store: WebsiteAgentStore;
   modelRuntime?: ModelRuntime;
   model?: Model<Api>;
+  modelResolver?: (
+    modelRuntime: ModelRuntime,
+    ownerId: string,
+    profileId?: string,
+  ) => Promise<{ model: Model<Api>; profileId: string; displayName: string }>;
   workspaceClientFactory?: WorkspaceClientFactory;
   previewObservationProvider?: PreviewObservationProvider;
   referenceUploadMaxBytes?: number;
@@ -302,7 +307,8 @@ export class WebsiteAgentRuntimeError extends Error {
       | 'WEBSITE_MUTATION_BUSY'
       | 'CONTEXT_COMPACTION_NOT_NEEDED'
       | 'INTERACTION_NOT_FOUND'
-      | 'ATTACHMENT_INVALID',
+      | 'ATTACHMENT_INVALID'
+      | 'MODEL_NOT_CONFIGURED',
     message: string,
   ) {
     super(message);
@@ -541,7 +547,7 @@ export class WebsiteAgentRuntime {
     this.modelRuntimePromise = options.modelRuntime
       ? Promise.resolve(options.modelRuntime)
       : ModelRuntime.create({
-          authPath: path.join(this.agentDir, 'auth.json'),
+          credentials: new InMemoryCredentialStore(),
           modelsPath: null,
           allowModelNetwork: false,
           refreshOnCreate: false,
@@ -664,6 +670,7 @@ export class WebsiteAgentRuntime {
     onAccepted?: () => void,
     attachments: AttachmentRef[] = [],
     ownerId?: string,
+    modelProfileId?: string,
   ): Promise<AgentRunResult> {
     const managed = await this.getManaged(websiteSessionId);
     if (!managed.tryReservePrimaryOperation('run'))
@@ -673,6 +680,23 @@ export class WebsiteAgentRuntime {
       );
     try {
       await managed.reloadResources();
+      const modelRuntime = await this.modelRuntimePromise;
+      const resolvedModel =
+        ownerId && this.options.modelResolver
+          ? await this.options.modelResolver(modelRuntime, ownerId, modelProfileId)
+          : this.options.model
+            ? { model: this.options.model, profileId: 'legacy', displayName: this.options.model.id }
+            : null;
+      if (!resolvedModel)
+        throw new WebsiteAgentRuntimeError(
+          'MODEL_NOT_CONFIGURED',
+          'configure a model before sending an agent prompt',
+        );
+      if (
+        managed.piRuntime.session.model?.provider !== resolvedModel.model.provider ||
+        managed.piRuntime.session.model?.id !== resolvedModel.model.id
+      )
+        await managed.piRuntime.session.setModel(resolvedModel.model);
       await this.ensureSessionTitle(managed, text);
       const runId = randomUUID();
       const traceId = randomUUID();
@@ -693,9 +717,7 @@ export class WebsiteAgentRuntime {
           sessionId: managed.websiteSessionId,
           traceId,
           status: 'PENDING',
-          model: this.options.model
-            ? `${this.options.model.provider}/${this.options.model.id}`
-            : null,
+          model: `${resolvedModel.model.provider}/${resolvedModel.model.id}`,
           error: null,
           startedAt: null,
           endedAt: null,
@@ -752,7 +774,10 @@ export class WebsiteAgentRuntime {
       const unsubscribe = managed.piRuntime.session.subscribe(onSettled);
       try {
         if (attachments.length > 0 && !this.options.attachmentResolver)
-          throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'attachment service is unavailable');
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'attachment service is unavailable',
+          );
         const resolvedAttachments = this.options.attachmentResolver
           ? await this.options.attachmentResolver({
               ownerId,
@@ -774,8 +799,11 @@ export class WebsiteAgentRuntime {
             promptText += `\n\n[附件：${attachment.name}]\n${await streamToUtf8(attachment.stream, 512_000)}`;
           }
         }
-        if (images.length > 0 && this.options.model && !this.options.model.input.includes('image'))
-          throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'the configured model does not support image attachments');
+        if (images.length > 0 && !resolvedModel.model.input.includes('image'))
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'the configured model does not support image attachments',
+          );
         await this.runContext.run(activeRun, () =>
           withSpan(
             'agent.run',
@@ -785,7 +813,8 @@ export class WebsiteAgentRuntime {
               'cloudcrane.agent_run_id': run.id,
               'cloudcrane.run_correlation_id': traceId,
             },
-            () => managed.piRuntime.session.prompt(promptText, images.length ? { images } : undefined),
+            () =>
+              managed.piRuntime.session.prompt(promptText, images.length ? { images } : undefined),
           ),
         );
         if (!settled) await settledPromise;
@@ -1934,7 +1963,8 @@ function projectSessionHistory(entries: readonly unknown[]): WebsiteAgentMessage
 
 async function streamToBase64(stream: NodeJS.ReadableStream): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const chunk of stream as AsyncIterable<Buffer | string>) chunks.push(Buffer.from(chunk));
+  for await (const chunk of stream as AsyncIterable<Buffer | string>)
+    chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString('base64');
 }
 

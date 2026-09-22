@@ -394,8 +394,6 @@ class AgentSocketConnection {
       return;
     }
     if (command.type === 'agent.prompt') {
-      if (!this.options.config.modelConfigured)
-        throw new AgentServiceError('MODEL_NOT_CONFIGURED', 'agent model is not configured', 503);
       let accepted = false;
       void runtime
         .prompt(
@@ -409,6 +407,7 @@ class AgentSocketConnection {
           },
           command.payload.attachments,
           this.userId,
+          command.payload.modelProfileId,
         )
         .catch((error) => {
           if (!accepted) this.sendError(command.requestId, asAgentServiceError(error), command);

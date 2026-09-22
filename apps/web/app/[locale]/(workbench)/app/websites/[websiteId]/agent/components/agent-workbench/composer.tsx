@@ -1,7 +1,9 @@
-import { LoaderCircle, Paperclip, Send, Square, X } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Paperclip, Send, Square, X } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import type { ModelProfile } from '@/lib/agent-client';
+import { createModelProfile, deleteModelProfile } from '@/lib/agent-client';
 
 type ComposerProps = {
   draft: string;
@@ -14,6 +16,10 @@ type ComposerProps = {
   uploadingAttachmentNames?: string[];
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
+  modelProfiles?: ModelProfile[];
+  selectedModelProfileId?: string;
+  onModelProfileSelect?: (id: string) => void;
+  onModelProfileChange?: (profiles: ModelProfile[]) => void;
 };
 
 export function Composer({
@@ -27,11 +33,29 @@ export function Composer({
   uploadingAttachmentNames = [],
   onAttachmentSelect,
   onAttachmentRemove,
+  modelProfiles = [],
+  selectedModelProfileId,
+  onModelProfileSelect,
+  onModelProfileChange,
 }: ComposerProps) {
   const t = useTranslations('workbench');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isComposingRef = useRef(false);
-  const canSubmit = !running && !disabled;
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
+  const [modelError, setModelError] = useState<string>();
+  const [form, setForm] = useState({
+    providerId: 'openai',
+    modelId: '',
+    baseUrl: '',
+    apiKey: '',
+    displayName: '',
+  });
+  const selectedModel =
+    modelProfiles.find((profile) => profile.id === selectedModelProfileId) ??
+    modelProfiles.find((profile) => profile.isDefault);
+  const canSubmit = !running && !disabled && Boolean(selectedModel);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -103,6 +127,152 @@ export function Composer({
           disabled={!canSubmit}
         />
         <div className="composer-toolbar">
+          <div className="composer-model">
+            <button
+              type="button"
+              className="composer-model-trigger"
+              onClick={() => setModelMenuOpen((open) => !open)}
+              disabled={running}
+            >
+              <span>{selectedModel?.displayName ?? t('model')}</span>
+              <ChevronDown size={14} aria-hidden="true" />
+            </button>
+            {modelMenuOpen ? (
+              <div className="composer-model-menu" role="menu">
+                {modelProfiles.map((profile) => (
+                  <div className="composer-model-row" key={profile.id}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onModelProfileSelect?.(profile.id);
+                        setModelMenuOpen(false);
+                      }}
+                    >
+                      <span>{profile.displayName}</span>
+                      <small>
+                        {profile.providerId}/{profile.modelId}
+                      </small>
+                    </button>
+                    <button
+                      type="button"
+                      className="composer-model-delete"
+                      aria-label={t('deleteModel')}
+                      onClick={async () => {
+                        await deleteModelProfile(profile.id);
+                        const next = modelProfiles.filter((item) => item.id !== profile.id);
+                        onModelProfileChange?.(next);
+                        if (selectedModelProfileId === profile.id)
+                          onModelProfileSelect?.(next[0]?.id ?? '');
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {modelProfiles.length === 0 ? (
+                  <div className="composer-model-empty">{t('noModels')}</div>
+                ) : null}
+                <button
+                  type="button"
+                  className="composer-model-add"
+                  onClick={() => {
+                    setAddOpen(true);
+                    setModelError(undefined);
+                  }}
+                >
+                  {t('addModel')}
+                </button>
+              </div>
+            ) : null}
+            {addOpen ? (
+              <form
+                className="composer-model-form"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  setModelError(undefined);
+                  setSavingModel(true);
+                  try {
+                    const result = await createModelProfile({
+                      providerKind: 'openai-compatible',
+                      providerId: form.providerId,
+                      modelId: form.modelId,
+                      baseUrl: form.baseUrl || undefined,
+                      apiKey: form.apiKey,
+                      displayName: form.displayName || undefined,
+                      api: 'openai-completions',
+                      isDefault: modelProfiles.length === 0,
+                    });
+                    const next = [
+                      ...modelProfiles
+                        .filter((item) => item.id !== result.profile.id)
+                        .map((item) =>
+                          result.profile.isDefault ? { ...item, isDefault: false } : item,
+                        ),
+                      result.profile,
+                    ];
+                    onModelProfileChange?.(next);
+                    onModelProfileSelect?.(result.profile.id);
+                    setForm({
+                      providerId: 'openai',
+                      modelId: '',
+                      baseUrl: '',
+                      apiKey: '',
+                      displayName: '',
+                    });
+                    setAddOpen(false);
+                    setModelMenuOpen(false);
+                  } catch (error) {
+                    setModelError(error instanceof Error ? error.message : t('modelProfileFailed'));
+                  } finally {
+                    setSavingModel(false);
+                  }
+                }}
+              >
+                <strong>{t('addModel')}</strong>
+                <input
+                  required
+                  placeholder={t('provider')}
+                  value={form.providerId}
+                  onChange={(e) => setForm({ ...form, providerId: e.target.value })}
+                />
+                <input
+                  required
+                  placeholder={t('modelName')}
+                  value={form.modelId}
+                  onChange={(e) => setForm({ ...form, modelId: e.target.value })}
+                />
+                <input
+                  required
+                  type="url"
+                  placeholder={t('baseUrl')}
+                  value={form.baseUrl}
+                  onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                />
+                <input
+                  required
+                  type="password"
+                  placeholder={t('apiKey')}
+                  value={form.apiKey}
+                  onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                />
+                <input
+                  placeholder={t('model')}
+                  value={form.displayName}
+                  onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+                />
+                {modelError ? <small className="composer-model-error">{modelError}</small> : null}
+                <div>
+                  <button type="button" onClick={() => setAddOpen(false)}>
+                    {t('cancel')}
+                  </button>
+                  <button type="submit" disabled={savingModel}>
+                    {savingModel ? t('savingModel') : t('saveModel')}
+                  </button>
+                </div>
+              </form>
+            ) : null}
+          </div>
           <label className="composer-attach" title="Add attachment">
             <Paperclip size={16} aria-hidden="true" />
             <input
