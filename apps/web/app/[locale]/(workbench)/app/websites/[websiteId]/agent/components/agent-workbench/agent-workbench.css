@@ -852,13 +852,14 @@
 }
 
 .composer-toolbar {
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
   margin-top: 2px;
 }
 
 .composer-model {
   position: relative;
+  margin-left: auto;
   order: 2;
 }
 
