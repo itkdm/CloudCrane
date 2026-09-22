@@ -89,7 +89,7 @@ export function PricingSection() {
             </div>
             <div className="pricing-card-price">
               <strong>
-                {plan.monthly === '0' ? plan.unit : `¥${annual ? plan.annual : plan.monthly}`}
+                {plan.monthly === '0' ? plan.unit : `$${annual ? plan.annual : plan.monthly}`}
               </strong>
               {plan.monthly !== '0' ? <span>{plan.unit}</span> : null}
             </div>

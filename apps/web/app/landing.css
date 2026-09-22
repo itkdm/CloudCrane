@@ -340,6 +340,10 @@
 .marketing-section-heading {
   max-width: 600px;
 }
+.marketing-section-heading-centered {
+  margin-inline: auto;
+  text-align: center;
+}
 .marketing-section h2 {
   margin: 0;
   font-size: clamp(32px, 4vw, 52px);

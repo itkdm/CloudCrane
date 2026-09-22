@@ -27,7 +27,7 @@ export function MarketingSections() {
   return (
     <>
       <section className="marketing-section" id="workflow" aria-labelledby="workflow-title">
-        <div className="marketing-section-heading">
+        <div className="marketing-section-heading marketing-section-heading-centered">
           <p className="marketing-eyebrow">{t('workflowLabel')}</p>
           <h2 id="workflow-title">{t('workflowTitle')}</h2>
         </div>
@@ -46,7 +46,7 @@ export function MarketingSections() {
         id="capability"
         aria-labelledby="capability-title"
       >
-        <div className="marketing-section-heading">
+        <div className="marketing-section-heading marketing-section-heading-centered">
           <p className="marketing-eyebrow">{t('capabilityLabel')}</p>
           <h2 id="capability-title">{t('capabilityTitle')}</h2>
           <p>{t('capabilityDescription')}</p>
