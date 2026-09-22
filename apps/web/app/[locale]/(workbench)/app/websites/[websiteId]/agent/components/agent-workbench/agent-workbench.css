@@ -884,12 +884,17 @@
   bottom: calc(100% + 12px);
   right: 0;
   z-index: 20;
-  width: min(520px, calc(100vw - 24px));
   padding: 8px;
   border: 1px solid var(--cc-border);
   border-radius: 10px;
   background: var(--cc-surface-1);
   box-shadow: var(--cc-shadow-lg);
+}
+.composer-model-menu {
+  width: 300px;
+}
+.composer-model-form {
+  width: min(520px, calc(100vw - 24px));
 }
 .composer-model-row {
   display: flex;
