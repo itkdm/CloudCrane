@@ -40,6 +40,7 @@ export function Composer({
 }: ComposerProps) {
   const t = useTranslations('workbench');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const modelPopoverRef = useRef<HTMLDivElement | null>(null);
   const isComposingRef = useRef(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -64,6 +65,20 @@ export function Composer({
     textarea.style.height = 'auto';
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 28), 176)}px`;
   }, [draft]);
+
+  useEffect(() => {
+    if (!modelMenuOpen && !addOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && modelPopoverRef.current?.contains(target)) return;
+      setModelMenuOpen(false);
+      setAddOpen(false);
+      setEditingProfileId(undefined);
+      setModelError(undefined);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [addOpen, modelMenuOpen]);
 
   return (
     <div className="composer-wrap">
@@ -128,7 +143,7 @@ export function Composer({
           disabled={!canSubmit}
         />
         <div className="composer-toolbar">
-          <div className="composer-model">
+          <div ref={modelPopoverRef} className="composer-model">
             <button
               type="button"
               className="composer-model-trigger"
