@@ -3,11 +3,9 @@ import { Link } from '../../i18n/navigation';
 import { Brand } from './brand';
 import { LanguageSwitcher } from './language-switcher';
 import { ThemeSwitcher } from '../theme-switcher';
-import { StartBuildingLink } from './start-building-link';
 
 export function MarketingHeader() {
   const t = useTranslations('navigation');
-  const common = useTranslations('common');
   return (
     <div className="marketing-header-wrapper">
       <header className="marketing-header">
@@ -27,12 +25,12 @@ export function MarketingHeader() {
         <div className="marketing-header-actions">
           <LanguageSwitcher />
           <ThemeSwitcher />
-          <StartBuildingLink
+          <Link
             className="marketing-button marketing-button-primary marketing-button-small"
-            pendingLabel={common('loading')}
+            href="/sign-in"
           >
-            {t('startBuilding')}
-          </StartBuildingLink>
+            {t('login')}
+          </Link>
         </div>
       </header>
     </div>
