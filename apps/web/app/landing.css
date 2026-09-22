@@ -693,6 +693,13 @@
   margin-top: 1px;
   color: var(--marketing-brand);
 }
+.pricing-card li.pricing-feature-disabled {
+  color: var(--marketing-text-muted);
+  opacity: 0.65;
+}
+.pricing-card li.pricing-feature-disabled svg {
+  color: var(--marketing-text-muted);
+}
 .pricing-card .marketing-button {
   align-self: stretch;
   width: 100%;

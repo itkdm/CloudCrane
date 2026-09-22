@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Check, Crown, UsersRound } from 'lucide-react';
+import { Box, Check, Crown, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Link } from '../../i18n/navigation';
@@ -10,42 +10,60 @@ export function PricingSection() {
   const [annual, setAnnual] = useState(false);
   const plans = [
     {
+      name: t('pricingFreePlan'),
+      description: t('pricingFreeDescription'),
+      monthly: '$0',
+      annual: '$0',
+      Icon: Box,
+      action: t('pricingFreeAction'),
+      href: '/app/websites',
+      features: [
+        { label: t('pricingFreeFeature1'), included: true },
+        { label: t('pricingFreeFeature2'), included: true },
+        { label: t('pricingFreeFeature3'), included: true },
+        { label: t('pricingFreeFeature4'), included: true },
+        { label: t('pricingFreeFeature5'), included: true },
+        { label: t('pricingFreeFeature6'), included: true },
+        { label: t('pricingFreeFeature7'), included: false },
+        { label: t('pricingFreeFeature8'), included: false },
+        { label: t('pricingFreeFeature9'), included: false },
+      ],
+    },
+    {
       name: t('pricingStarter'),
       description: t('pricingStarterDescription'),
-      monthly: '0',
-      annual: '0',
-      unit: t('pricingFree'),
+      monthly: '$7.99',
+      annual: '$79.99',
       Icon: Box,
       action: t('pricingStarterAction'),
       href: '/app/websites',
       features: [
-        t('pricingStarterFeature1'),
-        t('pricingStarterFeature2'),
-        t('pricingStarterFeature3'),
+        { label: t('pricingStarterFeature1'), included: true },
+        { label: t('pricingStarterFeature2'), included: true },
+        { label: t('pricingStarterFeature3'), included: true },
+        { label: t('pricingStarterFeature4'), included: true },
+        { label: t('pricingStarterFeature5'), included: true },
+        { label: t('pricingStarterFeature6'), included: true },
+        { label: t('pricingStarterFeature7'), included: true },
+        { label: t('pricingStarterFeature8'), included: true },
       ],
     },
     {
       name: t('pricingPro'),
       description: t('pricingProDescription'),
-      monthly: '49',
-      annual: '39',
-      unit: t('pricingPerMonth'),
+      monthly: '$29.99',
+      annual: '$299.99',
       Icon: Crown,
       action: t('pricingProAction'),
-      href: 'mailto:hello@itkdm.com',
+      href: '/app/websites',
+      features: [
+        { label: t('pricingProFeature1'), included: true },
+        { label: t('pricingProFeature2'), included: true },
+        { label: t('pricingProFeature3'), included: true },
+        { label: t('pricingProFeature4'), included: true },
+        { label: t('pricingProFeature5'), included: true },
+      ],
       featured: true,
-      features: [t('pricingProFeature1'), t('pricingProFeature2'), t('pricingProFeature3')],
-    },
-    {
-      name: t('pricingTeam'),
-      description: t('pricingTeamDescription'),
-      monthly: '129',
-      annual: '99',
-      unit: t('pricingPerMonth'),
-      Icon: UsersRound,
-      action: t('pricingTeamAction'),
-      href: 'mailto:hello@itkdm.com',
-      features: [t('pricingTeamFeature1'), t('pricingTeamFeature2'), t('pricingTeamFeature3')],
     },
   ];
 
@@ -92,16 +110,23 @@ export function PricingSection() {
               <p>{plan.description}</p>
             </div>
             <div className="pricing-card-price">
-              <strong>
-                {plan.monthly === '0' ? plan.unit : `$${annual ? plan.annual : plan.monthly}`}
-              </strong>
-              {plan.monthly !== '0' ? <span>{plan.unit}</span> : null}
+              <strong>{annual ? plan.annual : plan.monthly}</strong>
+              {plan.monthly !== '$0' ? (
+                <span>{annual ? t('pricingPerYear') : t('pricingPerMonth')}</span>
+              ) : null}
             </div>
             <ul>
               {plan.features.map((feature) => (
-                <li key={feature}>
-                  <Check size={16} aria-hidden="true" />
-                  <span>{feature}</span>
+                <li
+                  className={feature.included ? '' : 'pricing-feature-disabled'}
+                  key={feature.label}
+                >
+                  {feature.included ? (
+                    <Check size={16} aria-hidden="true" />
+                  ) : (
+                    <X size={16} aria-hidden="true" />
+                  )}
+                  <span>{feature.label}</span>
                 </li>
               ))}
             </ul>
