@@ -37,7 +37,10 @@ export function WebsiteCreateDialog({
     try {
       const response = await fetch('/api/websites', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify({ name, ...(template ? { templateId: template.id } : {}) }),
       });
       const payload = (await response.json()) as CreatedWebsite | { error?: { message?: string } };

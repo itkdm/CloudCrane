@@ -53,6 +53,7 @@ import {
 } from './infrastructure/model-profiles.js';
 import { TEMPLATE_ARTIFACT_MAX_BYTES } from './infrastructure/template-limits.js';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
+import { DrizzleAttachmentQuotaService } from './infrastructure/attachment-quota.js';
 import { listPublicModelPresets } from './infrastructure/model-catalog.js';
 
 export type AgentServiceAppOptions = {
@@ -63,6 +64,7 @@ export type AgentServiceAppOptions = {
   previewClientRegistry?: PreviewClientRegistry;
   logger?: ServiceLogger;
   attachmentStorage?: AttachmentStorage;
+  attachmentQuota?: DrizzleAttachmentQuotaService;
   modelProfiles?: ModelProfileService;
 };
 
@@ -80,6 +82,7 @@ export function buildAgentServiceApp(
           options.attachmentStorage,
           options.config.attachmentStorageDriver ?? 'local',
           options.config.attachmentMaxBytes ?? 20 * 1024 * 1024,
+          options.attachmentQuota,
         )
       : undefined;
   const attachmentCleanupTimer = attachmentService
@@ -273,7 +276,9 @@ export function buildAgentServiceApp(
       baseUrl: typeof body.baseUrl === 'string' ? body.baseUrl : undefined,
       api: typeof body.api === 'string' ? body.api : undefined,
       apiKey: typeof body.apiKey === 'string' && body.apiKey ? body.apiKey : undefined,
-      ...(Array.isArray(body.input) ? { input: body.input as ModelProfileUpdateInput['input'] } : {}),
+      ...(Array.isArray(body.input)
+        ? { input: body.input as ModelProfileUpdateInput['input'] }
+        : {}),
       ...(typeof body.reasoning === 'boolean' ? { reasoning: body.reasoning } : {}),
       ...(typeof body.contextWindow === 'number' ? { contextWindow: body.contextWindow } : {}),
       ...(typeof body.maxTokens === 'number' ? { maxTokens: body.maxTokens } : {}),

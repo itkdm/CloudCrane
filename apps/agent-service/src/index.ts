@@ -20,6 +20,7 @@ import { ClientPreviewProvider } from './infrastructure/client-preview-provider.
 import { PreviewClientRegistry } from './infrastructure/preview-client-registry.js';
 import { createAttachmentStorage } from '@cloudcrane/attachment-storage';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
+import { DrizzleAttachmentQuotaService } from './infrastructure/attachment-quota.js';
 import { ModelProfileService } from './infrastructure/model-profiles.js';
 import { AgentServiceError } from './application/errors.js';
 
@@ -63,6 +64,7 @@ const attachmentService = new ConversationAttachmentService(
   attachmentStorage,
   config.attachmentStorageDriver ?? 'local',
   config.attachmentMaxBytes ?? 20 * 1024 * 1024,
+  new DrizzleAttachmentQuotaService(platform.db),
 );
 
 const registry = new WebsiteRuntimeRegistry({
@@ -136,6 +138,7 @@ const app = buildAgentServiceApp({
   db: platform.db,
   modelProfiles,
   attachmentStorage,
+  attachmentQuota: new DrizzleAttachmentQuotaService(platform.db),
   previewClientRegistry: previewClients,
   logger,
 });

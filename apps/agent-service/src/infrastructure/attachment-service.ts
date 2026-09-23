@@ -4,6 +4,11 @@ import type { AttachmentStorage } from '@cloudcrane/attachment-storage';
 import { conversationAttachment, websiteSession, type PlatformDb } from '@cloudcrane/db';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import { AgentServiceError } from '../application/errors.js';
+import {
+  AttachmentQuotaError,
+  type AttachmentQuotaReservation,
+  type DrizzleAttachmentQuotaService,
+} from './attachment-quota.js';
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.markdown']);
@@ -24,6 +29,10 @@ export class ConversationAttachmentService {
     private readonly storage: AttachmentStorage,
     private readonly storageDriver: 'local' | 'oss',
     private readonly maxBytes: number,
+    private readonly quota?: Pick<
+      DrizzleAttachmentQuotaService,
+      'reserve' | 'commit' | 'release' | 'releaseForAttachment'
+    >,
   ) {}
 
   async upload(input: {
@@ -43,40 +52,35 @@ export class ConversationAttachmentService {
       ),
       columns: { id: true },
     });
-    if (!session) throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
-    const quota = await this.db
-      .select({ total: sql<number>`coalesce(sum(${conversationAttachment.sizeBytes}), 0)` })
-      .from(conversationAttachment)
-      .where(
-        and(
-          eq(conversationAttachment.ownerId, input.userId),
-          eq(conversationAttachment.websiteId, input.websiteId),
-          eq(conversationAttachment.sessionId, input.sessionId),
-          eq(conversationAttachment.status, 'ready'),
-        ),
-      );
-    if (Number(quota[0]?.total ?? 0) >= SESSION_ATTACHMENT_QUOTA)
-      throw new AgentServiceError('INVALID_ARGUMENT', 'session attachment quota exceeded', 413);
-
+    if (!session)
+      throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
     const id = crypto.randomUUID();
     const key = `attachments/${input.userId}/${input.websiteId}/${input.sessionId}/${id}/blob`;
-    let object;
-    try {
-      object = await this.storage.put({
-        key,
-        source: input.part.file,
-        contentType: normalizeContentType(input.part.mimetype, input.part.filename),
-        maxBytes: this.maxBytes,
-      });
-    } catch (error) {
-      if (error instanceof Error && /exceeds maximum size/i.test(error.message))
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
-      throw error;
-    }
-    try {
-      if (object.size <= 0 || object.size > this.maxBytes || input.part.file.truncated)
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
-      const currentQuota = await this.db
+    let reservation: AttachmentQuotaReservation | undefined;
+    if (this.quota) {
+      try {
+        reservation = await this.quota.reserve({
+          attachmentId: id,
+          userId: input.userId,
+          websiteId: input.websiteId,
+          sessionId: input.sessionId,
+          quantity: this.maxBytes,
+        });
+      } catch (error) {
+        if (error instanceof AttachmentQuotaError && error.code === 'QUOTA_EXCEEDED')
+          throw new AgentServiceError(
+            'ATTACHMENT_INVALID',
+            'attachment storage quota exceeded',
+            413,
+          );
+        throw new AgentServiceError(
+          'INTERNAL_ERROR',
+          'attachment quota is temporarily unavailable',
+          503,
+        );
+      }
+    } else {
+      const quota = await this.db
         .select({ total: sql<number>`coalesce(sum(${conversationAttachment.sizeBytes}), 0)` })
         .from(conversationAttachment)
         .where(
@@ -87,10 +91,50 @@ export class ConversationAttachmentService {
             eq(conversationAttachment.status, 'ready'),
           ),
         );
-      if (Number(currentQuota[0]?.total ?? 0) + object.size > SESSION_ATTACHMENT_QUOTA)
+      if (Number(quota[0]?.total ?? 0) >= SESSION_ATTACHMENT_QUOTA)
         throw new AgentServiceError('INVALID_ARGUMENT', 'session attachment quota exceeded', 413);
-      if (kind === 'image' && !(await hasValidImageHeader(this.storage, object.key, object.contentType)))
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment content does not match its image type', 415);
+    }
+    let object;
+    try {
+      object = await this.storage.put({
+        key,
+        source: input.part.file,
+        contentType: normalizeContentType(input.part.mimetype, input.part.filename),
+        maxBytes: this.maxBytes,
+      });
+    } catch (error) {
+      if (this.quota && reservation) await this.quota.release(reservation).catch(() => undefined);
+      if (error instanceof Error && /exceeds maximum size/i.test(error.message))
+        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
+      throw error;
+    }
+    try {
+      if (object.size <= 0 || object.size > this.maxBytes || input.part.file.truncated)
+        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
+      if (!this.quota) {
+        const currentQuota = await this.db
+          .select({ total: sql<number>`coalesce(sum(${conversationAttachment.sizeBytes}), 0)` })
+          .from(conversationAttachment)
+          .where(
+            and(
+              eq(conversationAttachment.ownerId, input.userId),
+              eq(conversationAttachment.websiteId, input.websiteId),
+              eq(conversationAttachment.sessionId, input.sessionId),
+              eq(conversationAttachment.status, 'ready'),
+            ),
+          );
+        if (Number(currentQuota[0]?.total ?? 0) + object.size > SESSION_ATTACHMENT_QUOTA)
+          throw new AgentServiceError('INVALID_ARGUMENT', 'session attachment quota exceeded', 413);
+      }
+      if (
+        kind === 'image' &&
+        !(await hasValidImageHeader(this.storage, object.key, object.contentType))
+      )
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'attachment content does not match its image type',
+          415,
+        );
       const now = new Date();
       await this.db.insert(conversationAttachment).values({
         id,
@@ -104,12 +148,27 @@ export class ConversationAttachmentService {
         sha256: object.sha256,
         storageDriver: this.storageDriver,
         storageKey: object.key,
-        status: 'ready',
+        status: this.quota ? 'uploading' : 'ready',
         createdAt: now,
         expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
       });
+      if (this.quota && reservation) {
+        await this.quota.commit({ ...reservation, actualBytes: object.size });
+        await this.db
+          .update(conversationAttachment)
+          .set({ status: 'ready' })
+          .where(
+            and(eq(conversationAttachment.id, id), eq(conversationAttachment.status, 'uploading')),
+          );
+      }
     } catch (error) {
       await this.storage.delete(object.key).catch(() => undefined);
+      if (this.quota && reservation) await this.quota.release(reservation).catch(() => undefined);
+      await this.db
+        .update(conversationAttachment)
+        .set({ status: 'failed', errorCode: 'UPLOAD_FAILED' })
+        .where(eq(conversationAttachment.id, id))
+        .catch(() => undefined);
       throw error;
     }
     return {
@@ -129,7 +188,9 @@ export class ConversationAttachmentService {
     attachments: AttachmentRef[];
   }): Promise<Array<AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }>> {
     if (input.attachments.length === 0) return [];
-    const resolved = [] as Array<AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }>;
+    const resolved = [] as Array<
+      AttachmentRef & { contentType: string; stream: NodeJS.ReadableStream }
+    >;
     for (const requested of input.attachments) {
       const row = await this.db.query.conversationAttachment.findFirst({
         where: and(
@@ -141,7 +202,11 @@ export class ConversationAttachmentService {
         ),
       });
       if (!row || row.originalFilename !== requested.name || row.sizeBytes !== requested.size)
-        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is not valid for this session', 400);
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'attachment is not valid for this session',
+          400,
+        );
       resolved.push({
         id: row.id,
         kind: row.kind as 'image' | 'document',
@@ -167,7 +232,9 @@ export class ConversationAttachmentService {
       const claim = await this.db
         .update(conversationAttachment)
         .set({ status: 'deleting' })
-        .where(and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'ready')));
+        .where(
+          and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'ready')),
+        );
       if (claim.rowCount !== 1) continue;
       try {
         await this.storage.delete(row.storageKey);
@@ -175,14 +242,21 @@ export class ConversationAttachmentService {
           .update(conversationAttachment)
           .set({ status: 'deleted', deletedAt: now })
           .where(
-            and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
+            and(
+              eq(conversationAttachment.id, row.id),
+              eq(conversationAttachment.status, 'deleting'),
+            ),
           );
+        if (this.quota) await this.quota.releaseForAttachment(row.id);
       } catch {
         await this.db
           .update(conversationAttachment)
           .set({ status: 'ready', errorCode: 'STORAGE_DELETE_FAILED' })
           .where(
-            and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
+            and(
+              eq(conversationAttachment.id, row.id),
+              eq(conversationAttachment.status, 'deleting'),
+            ),
           );
       }
     }
@@ -194,6 +268,7 @@ export class ConversationAttachmentService {
     });
     if (!row) return;
     await this.storage.delete(row.storageKey);
+    if (this.quota) await this.quota.releaseForAttachment(row.id);
     await this.db
       .update(conversationAttachment)
       .set({ status: 'deleted', deletedAt: new Date() })
@@ -216,24 +291,43 @@ async function hasValidImageHeader(
     if (size >= 16) break;
   }
   const header = Buffer.concat(chunks).subarray(0, 16);
-  if (contentType === 'image/png') return header.length >= 8 && header.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  if (contentType === 'image/jpeg') return header.length >= 3 && header.subarray(0, 3).equals(Buffer.from([255, 216, 255]));
-  if (contentType === 'image/gif') return header.length >= 6 && (header.subarray(0, 6).toString() === 'GIF87a' || header.subarray(0, 6).toString() === 'GIF89a');
-  if (contentType === 'image/webp') return header.length >= 12 && header.subarray(0, 4).toString() === 'RIFF' && header.subarray(8, 12).toString() === 'WEBP';
+  if (contentType === 'image/png')
+    return (
+      header.length >= 8 &&
+      header.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    );
+  if (contentType === 'image/jpeg')
+    return header.length >= 3 && header.subarray(0, 3).equals(Buffer.from([255, 216, 255]));
+  if (contentType === 'image/gif')
+    return (
+      header.length >= 6 &&
+      (header.subarray(0, 6).toString() === 'GIF87a' ||
+        header.subarray(0, 6).toString() === 'GIF89a')
+    );
+  if (contentType === 'image/webp')
+    return (
+      header.length >= 12 &&
+      header.subarray(0, 4).toString() === 'RIFF' &&
+      header.subarray(8, 12).toString() === 'WEBP'
+    );
   return false;
 }
 
 function classify(filename: string, contentType: string): 'image' | 'document' | null {
   const extension = extname(filename).toLowerCase();
   if (IMAGE_TYPES.has(contentType.toLowerCase()) && IMAGE_EXTENSIONS.has(extension)) return 'image';
-  if ((contentType === 'text/plain' || contentType === 'text/markdown' || !contentType) && TEXT_EXTENSIONS.has(extension))
+  if (
+    (contentType === 'text/plain' || contentType === 'text/markdown' || !contentType) &&
+    TEXT_EXTENSIONS.has(extension)
+  )
     return 'document';
   return null;
 }
 
 function normalizeContentType(contentType: string, filename: string): string {
   if (contentType) return contentType.toLowerCase();
-  return extname(filename).toLowerCase() === '.md' || extname(filename).toLowerCase() === '.markdown'
+  return extname(filename).toLowerCase() === '.md' ||
+    extname(filename).toLowerCase() === '.markdown'
     ? 'text/markdown'
     : 'text/plain';
 }

@@ -1,7 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import {
+  billingAccount,
+  billingAccountMember,
   createPlatformDb,
+  entitlementDefinition,
+  entitlementGrant,
+  plan,
+  planEntitlement,
+  planVersion,
+  subscription,
   template,
   website,
   websiteTemplateAttachment,
@@ -9,6 +17,12 @@ import {
 } from '@cloudcrane/db';
 import { createLogger, generatePreviewSlug } from '@cloudcrane/shared';
 import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
+import {
+  FREE_PREVIEW_CATALOG,
+  FREE_PREVIEW_PLAN_KEY,
+  FREE_PREVIEW_PLAN_VERSION,
+  FREE_PREVIEW_SOURCE_REF,
+} from '@cloudcrane/billing';
 
 export const WEBSITE_CMS_TYPE = 'pbootcms';
 export const WORKSPACE_PROVIDER = 'docker';
@@ -82,6 +96,12 @@ type WebsiteStore = {
   findWorkspace?(websiteId: string): Promise<{ id: string; status: string } | null>;
   findPreviewSlug?(websiteId: string): Promise<string | null>;
   deleteWebsite(websiteId: string): Promise<boolean>;
+};
+
+type ProductionWebsiteStore = WebsiteStore & {
+  ensureBillingAccountId(input: { ownerId: string; name: string }): Promise<string>;
+  findBillingAccountId(websiteId: string): Promise<string | null>;
+  findWebsiteById(websiteId: string): Promise<PublicWebsite | null>;
 };
 
 type RuntimeClient = {
@@ -510,7 +530,7 @@ export async function retryTemplateAttachment(
 
 export function createProductionWebsiteStore(ownerId?: string) {
   const platform = createPlatformDb();
-  const store: WebsiteStore = {
+  const store: ProductionWebsiteStore = {
     async persistDesiredState(input) {
       let created: PublicWebsite | undefined;
       // The web package and the DB package resolve Drizzle from separate workspace paths.
@@ -522,12 +542,17 @@ export function createProductionWebsiteStore(ownerId?: string) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await db.transaction(async (tx: any) => {
+            const billingAccountId = await ensurePersonalBillingAccount(tx, {
+              ownerId: input.ownerId,
+              name: input.name,
+            });
             const [row] = await tx
               .insert(website)
               .values({
                 id: input.websiteId,
                 name: input.name,
                 ownerId: input.ownerId,
+                billingAccountId,
                 previewSlug,
                 status: WEBSITE_PROVISIONING,
                 cmsType: WEBSITE_CMS_TYPE,
@@ -775,6 +800,42 @@ export function createProductionWebsiteStore(ownerId?: string) {
         .limit(1);
       return rows[0]?.previewSlug ?? null;
     },
+    async ensureBillingAccountId(input: { ownerId: string; name: string }) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return db.transaction((tx: any) => ensurePersonalBillingAccount(tx, input));
+    },
+    async findWebsiteById(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const conditions = [eq(website.id as never, websiteId)];
+      if (ownerId) conditions.push(eq(website.ownerId as never, ownerId));
+      const rows = await db
+        .select({
+          id: website.id,
+          name: website.name,
+          status: website.status,
+          createdAt: website.createdAt,
+          previewSlug: website.previewSlug,
+        })
+        .from(website)
+        .where(and(...conditions))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    async findBillingAccountId(websiteId: string) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db: any = platform.db;
+      const conditions = [eq(website.id as never, websiteId)];
+      if (ownerId) conditions.push(eq(website.ownerId as never, ownerId));
+      const rows = await db
+        .select({ billingAccountId: website.billingAccountId })
+        .from(website)
+        .where(and(...conditions))
+        .limit(1);
+      return rows[0]?.billingAccountId ?? null;
+    },
     async deleteWebsite(websiteId: string) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db: any = platform.db;
@@ -788,6 +849,215 @@ export function createProductionWebsiteStore(ownerId?: string) {
     },
   };
   return { platform, store };
+}
+
+async function ensurePersonalBillingAccount(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any,
+  input: { ownerId: string; name: string },
+): Promise<string> {
+  const existingAccount = await tx
+    .select({ id: billingAccount.id })
+    .from(billingAccount)
+    .where(
+      and(
+        eq(billingAccount.personalOwnerUserId as never, input.ownerId),
+        eq(billingAccount.kind as never, 'personal'),
+        eq(billingAccount.status as never, 'active'),
+      ),
+    )
+    .limit(1);
+  if (existingAccount[0]?.id) {
+    await ensureFreePreviewCatalog(tx, existingAccount[0].id as string);
+    return existingAccount[0].id as string;
+  }
+
+  const [createdAccount] = await tx
+    .insert(billingAccount)
+    .values({
+      kind: 'personal',
+      name: input.name,
+      status: 'active',
+      personalOwnerUserId: input.ownerId,
+    })
+    .onConflictDoNothing()
+    .returning({ id: billingAccount.id });
+  if (createdAccount?.id) {
+    await tx.insert(billingAccountMember).values({
+      billingAccountId: createdAccount.id,
+      userId: input.ownerId,
+      role: 'owner',
+      status: 'active',
+    });
+    await ensureFreePreviewCatalog(tx, createdAccount.id as string);
+    return createdAccount.id as string;
+  }
+  const concurrentAccount = await tx
+    .select({ id: billingAccount.id })
+    .from(billingAccount)
+    .where(
+      and(
+        eq(billingAccount.personalOwnerUserId as never, input.ownerId),
+        eq(billingAccount.kind as never, 'personal'),
+        eq(billingAccount.status as never, 'active'),
+      ),
+    )
+    .limit(1);
+  if (!concurrentAccount[0]?.id) throw new Error('billing account was not created');
+  await ensureFreePreviewCatalog(tx, concurrentAccount[0].id as string);
+  return concurrentAccount[0].id as string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensureFreePreviewCatalog(tx: any, billingAccountId: string): Promise<void> {
+  // Catalog bootstrap can be reached concurrently by two website requests for
+  // the same account. Serialize the account-local subscription/grant projection
+  // so the unique current-subscription index is a final guard, not normal flow.
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${`billing-catalog:${billingAccountId}`}))`,
+  );
+  const [createdPlan] = await tx
+    .insert(plan)
+    .values({
+      key: FREE_PREVIEW_PLAN_KEY,
+      name: FREE_PREVIEW_CATALOG.plan.name,
+      description: FREE_PREVIEW_CATALOG.plan.description,
+      status: 'active',
+    })
+    .onConflictDoNothing()
+    .returning({ id: plan.id });
+  const planRow =
+    createdPlan ??
+    (
+      await tx
+        .select({ id: plan.id })
+        .from(plan)
+        .where(eq(plan.key as never, FREE_PREVIEW_PLAN_KEY))
+        .limit(1)
+    )[0];
+  if (!planRow?.id) throw new Error('free preview plan was not created');
+
+  const [createdVersion] = await tx
+    .insert(planVersion)
+    .values({
+      planId: planRow.id,
+      version: FREE_PREVIEW_PLAN_VERSION,
+      displayName: FREE_PREVIEW_CATALOG.plan.displayName,
+      description: FREE_PREVIEW_CATALOG.plan.description,
+      status: 'published',
+      billingInterval: FREE_PREVIEW_CATALOG.plan.billingInterval,
+      intervalCount: FREE_PREVIEW_CATALOG.plan.intervalCount,
+      priceAmount: FREE_PREVIEW_CATALOG.plan.priceAmount,
+      priceCurrency: FREE_PREVIEW_CATALOG.plan.priceCurrency,
+      publishedAt: new Date(),
+    })
+    .onConflictDoNothing()
+    .returning({ id: planVersion.id });
+  const versionRow =
+    createdVersion ??
+    (
+      await tx
+        .select({ id: planVersion.id })
+        .from(planVersion)
+        .where(
+          and(
+            eq(planVersion.planId as never, planRow.id),
+            eq(planVersion.version as never, FREE_PREVIEW_PLAN_VERSION),
+          ),
+        )
+        .limit(1)
+    )[0];
+  if (!versionRow?.id) throw new Error('free preview plan version was not created');
+
+  const definitionIds = new Map<string, string>();
+  for (const entry of FREE_PREVIEW_CATALOG.entitlements) {
+    const [createdDefinition] = await tx
+      .insert(entitlementDefinition)
+      .values({
+        key: entry.key,
+        name: entry.name,
+        valueType: entry.valueType,
+        ...(entry.unit ? { unit: entry.unit } : {}),
+      })
+      .onConflictDoNothing()
+      .returning({ id: entitlementDefinition.id });
+    const definitionRow =
+      createdDefinition ??
+      (
+        await tx
+          .select({ id: entitlementDefinition.id })
+          .from(entitlementDefinition)
+          .where(eq(entitlementDefinition.key as never, entry.key))
+          .limit(1)
+      )[0];
+    if (!definitionRow?.id) throw new Error(`entitlement definition was not created: ${entry.key}`);
+    definitionIds.set(entry.key, definitionRow.id);
+    await tx
+      .insert(planEntitlement)
+      .values({
+        planVersionId: versionRow.id,
+        entitlementDefinitionId: definitionRow.id,
+        enabled: true,
+        value: { ...entry.value },
+      })
+      .onConflictDoNothing();
+  }
+
+  const now = new Date();
+  const existingSubscription =
+    (
+      await tx
+        .select({ id: subscription.id })
+        .from(subscription)
+        .where(
+          and(
+            eq(subscription.billingAccountId as never, billingAccountId),
+            inArray(subscription.status as never, ['trialing', 'active', 'grace', 'canceling']),
+          ),
+        )
+        .limit(1)
+    )[0] ?? null;
+  const [createdSubscription] = existingSubscription
+    ? [null]
+    : await tx
+        .insert(subscription)
+        .values({
+          billingAccountId,
+          planVersionId: versionRow.id,
+          status: 'active',
+          startsAt: now,
+        })
+        .returning({ id: subscription.id });
+  const subscriptionRow = createdSubscription ?? existingSubscription;
+  if (!subscriptionRow?.id) throw new Error('free preview subscription was not created');
+
+  for (const entry of FREE_PREVIEW_CATALOG.entitlements) {
+    const definitionId = definitionIds.get(entry.key);
+    if (!definitionId) throw new Error(`entitlement definition is unavailable: ${entry.key}`);
+    const existingGrant = await tx
+      .select({ id: entitlementGrant.id })
+      .from(entitlementGrant)
+      .where(
+        and(
+          eq(entitlementGrant.billingAccountId as never, billingAccountId),
+          eq(entitlementGrant.entitlementDefinitionId as never, definitionId),
+          eq(entitlementGrant.sourceRef as never, FREE_PREVIEW_SOURCE_REF),
+          eq(entitlementGrant.status as never, 'active'),
+        ),
+      )
+      .limit(1);
+    if (existingGrant[0]?.id) continue;
+    await tx.insert(entitlementGrant).values({
+      billingAccountId,
+      entitlementDefinitionId: definitionId,
+      sourceType: 'subscription',
+      sourceRef: FREE_PREVIEW_SOURCE_REF,
+      value: { ...entry.value },
+      scope: 'account',
+      status: 'active',
+      startsAt: now,
+    });
+  }
 }
 
 export function createProductionRuntime(websiteId: string, workspaceId: string): RuntimeClient {

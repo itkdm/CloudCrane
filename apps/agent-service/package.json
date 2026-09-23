@@ -14,6 +14,7 @@
     "@cloudcrane/auth": "workspace:*",
     "@cloudcrane/attachment-storage": "workspace:*",
     "@cloudcrane/agent-protocol": "workspace:*",
+    "@cloudcrane/billing": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-access": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",

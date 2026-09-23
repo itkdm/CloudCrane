@@ -14,6 +14,12 @@ import { auth } from '../../../../lib/server/auth.js';
 import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
 import { getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../../lib/server/observability.js';
+import {
+  claimWebsiteDeleteOperation,
+  finishWebsiteDeleteOperation,
+  WebsiteOperationIdempotencyError,
+  websiteDeleteRequestHash,
+} from '../../../../lib/server/billing-operations.js';
 
 export const runtime = 'nodejs';
 
@@ -48,12 +54,50 @@ export async function DELETE(
     }
 
     const { websiteId } = await params;
+    const idempotencyKey = request.headers.get('idempotency-key')?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255)
+      return NextResponse.json(
+        { error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: '请求缺少有效的幂等键' } },
+        { status: 400 },
+      );
     const { platform, store } = createProductionWebsiteStore(
       getUserRole(session) === 'admin' ? undefined : session.user.id,
     );
     const startedAt = Date.now();
     let auditId: string | undefined;
+    let billingOperationId: string | undefined;
+    let websiteDeletionCompleted = false;
     try {
+      const billingAccountId = await store.findBillingAccountId(websiteId);
+      if (!billingAccountId)
+        return NextResponse.json(
+          { error: { code: 'BILLING_ACCOUNT_REQUIRED', message: '网站尚未关联计费账户' } },
+          { status: 409 },
+        );
+      const claim = await claimWebsiteDeleteOperation({
+        db: platform.db,
+        billingAccountId,
+        idempotencyKey,
+        requestHash: websiteDeleteRequestHash(websiteId),
+        requestId: request.headers.get('x-request-id') ?? undefined,
+      });
+      billingOperationId = claim.operationId;
+      if (claim.kind === 'pending')
+        return NextResponse.json(
+          { status: 'processing', operationId: claim.operationId },
+          { status: 202 },
+        );
+      if (claim.kind === 'failed')
+        return NextResponse.json(
+          {
+            error: {
+              code: claim.errorCode ?? 'DELETE_FAILED',
+              message: '网站删除失败，请稍后重试',
+            },
+          },
+          { status: 502 },
+        );
+      if (claim.kind === 'replay') return new NextResponse(null, { status: 204 });
       try {
         const traceContext = getActiveTraceContext();
         auditId = await insertAuditEvent(platform.db, {
@@ -77,6 +121,14 @@ export async function DELETE(
 
       const workspace = await store.findWorkspace?.(websiteId);
       if (!workspace) {
+        await finishWebsiteDeleteOperation({
+          db: platform.db,
+          operationId: billingOperationId,
+          status: 'failed',
+          errorCode: 'WEBSITE_NOT_FOUND',
+          errorMessage: 'website was not found or is not accessible',
+        });
+        websiteDeletionCompleted = true;
         await finishAuditEvent(platform.db, auditId, {
           status: 'FAILED',
           durationMs: Date.now() - startedAt,
@@ -97,6 +149,14 @@ export async function DELETE(
       }
       const deleted = await store.deleteWebsite?.(websiteId);
       if (!deleted) {
+        await finishWebsiteDeleteOperation({
+          db: platform.db,
+          operationId: billingOperationId,
+          status: 'failed',
+          errorCode: 'WEBSITE_NOT_FOUND',
+          errorMessage: 'website was not found or is not accessible',
+        });
+        websiteDeletionCompleted = true;
         await finishAuditEvent(platform.db, auditId, {
           status: 'FAILED',
           durationMs: Date.now() - startedAt,
@@ -106,6 +166,17 @@ export async function DELETE(
           { error: { code: 'WEBSITE_NOT_FOUND', message: '网站不存在或无权访问' } },
           { status: 404 },
         );
+      }
+      websiteDeletionCompleted = true;
+      try {
+        await finishWebsiteDeleteOperation({
+          db: platform.db,
+          operationId: billingOperationId,
+          status: 'succeeded',
+          websiteId,
+        });
+      } catch {
+        // The destructive operation is complete; the operation can be reconciled later.
       }
       try {
         await finishAuditEvent(platform.db, auditId, {
@@ -119,6 +190,24 @@ export async function DELETE(
       await finalizeAgentRuntime(websiteId);
       return new NextResponse(null, { status: 204 });
     } catch (error) {
+      if (billingOperationId && !websiteDeletionCompleted) {
+        try {
+          await finishWebsiteDeleteOperation({
+            db: platform.db,
+            operationId: billingOperationId,
+            status: 'failed',
+            errorCode:
+              error instanceof WebsiteOperationIdempotencyError
+                ? error.code
+                : error instanceof Error
+                  ? error.name
+                  : 'DELETE_FAILED',
+            errorMessage: error instanceof Error ? error.message : 'website deletion failed',
+          });
+        } catch {
+          // Preserve the original deletion error; reconciliation can repair operation state.
+        }
+      }
       if (auditId) {
         try {
           await finishAuditEvent(platform.db, auditId, {
@@ -136,6 +225,11 @@ export async function DELETE(
           );
         }
       }
+      if (error instanceof WebsiteOperationIdempotencyError)
+        return NextResponse.json(
+          { error: { code: error.code, message: '幂等键已用于其他删除参数' } },
+          { status: 409 },
+        );
       return NextResponse.json(
         { error: { code: 'DELETE_FAILED', message: '网站删除失败，请稍后重试' } },
         { status: 502 },

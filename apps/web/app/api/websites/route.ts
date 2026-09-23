@@ -22,6 +22,12 @@ import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
 import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../lib/server/observability.js';
 import { toWebsiteCreationResponse } from '../../../lib/website-creation-response.js';
+import {
+  claimWebsiteCreateOperation,
+  finishWebsiteCreateOperation,
+  WebsiteCreateIdempotencyError,
+  websiteCreateRequestHash,
+} from '../../../lib/server/billing-operations.js';
 
 export const runtime = 'nodejs';
 
@@ -113,6 +119,12 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    const idempotencyKey = request.headers.get('idempotency-key')?.trim();
+    if (!idempotencyKey || idempotencyKey.length > 255)
+      return NextResponse.json(
+        { error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: '请求缺少有效的幂等键' } },
+        { status: 400 },
+      );
     const catalog = templateId ? createTemplateCatalog() : undefined;
     let selectedTemplate;
     try {
@@ -140,8 +152,52 @@ export async function POST(request: Request) {
     }
     const { platform, store } = createProductionWebsiteStore(session.user.id);
     const startedAt = Date.now();
-    let auditId: string;
+    let auditId: string | undefined;
+    let billingOperationId: string | undefined;
+    let websiteCreationCompleted = false;
     try {
+      const billingAccountId = await store.ensureBillingAccountId({
+        ownerId: session.user.id,
+        name,
+      });
+      const claim = await claimWebsiteCreateOperation({
+        db: platform.db,
+        billingAccountId,
+        idempotencyKey,
+        requestHash: websiteCreateRequestHash({ name, ...(templateId ? { templateId } : {}) }),
+        requestId: request.headers.get('x-request-id') ?? undefined,
+      });
+      billingOperationId = claim.operationId;
+      if (claim.kind === 'pending')
+        return NextResponse.json(
+          { status: 'processing', operationId: claim.operationId },
+          { status: 202 },
+        );
+      if (claim.kind === 'failed')
+        return NextResponse.json(
+          { error: { code: claim.errorCode ?? 'PROVISIONING_FAILED', message: '创建网站失败' } },
+          { status: 502 },
+        );
+      if (claim.kind === 'replay') {
+        const replayed = await store.findWebsiteById(claim.websiteId);
+        if (!replayed)
+          return NextResponse.json(
+            {
+              error: { code: 'OPERATION_RESULT_MISSING', message: '创建结果暂不可用，请稍后重试' },
+            },
+            { status: 503 },
+          );
+        const replayResponse = toWebsiteCreationResponse(
+          {
+            ...publicWebsiteView(replayed),
+            previewUrl: replayed.previewSlug
+              ? previewUrlForWebsite(replayed.previewSlug)
+              : undefined,
+          },
+          replayed.status !== 'provisioning_failed',
+        );
+        return NextResponse.json(replayResponse.payload, { status: replayResponse.status });
+      }
       const traceContext = getActiveTraceContext();
       try {
         auditId = await insertAuditEvent(platform.db, {
@@ -176,6 +232,20 @@ export async function POST(request: Request) {
             }
           : {}),
       });
+      websiteCreationCompleted = true;
+      try {
+        await finishWebsiteCreateOperation({
+          db: platform.db,
+          operationId: billingOperationId,
+          status: 'succeeded',
+          websiteId: result.website.id,
+        });
+      } catch {
+        logger.error(
+          { event: 'billing.operation.finalization.failed', operation: 'website.create' },
+          'website creation succeeded but operation finalization failed',
+        );
+      }
       try {
         await finishAuditEvent(platform.db, auditId, {
           status: result.provisioned ? 'SUCCESS' : 'FAILED',
@@ -209,23 +279,51 @@ export async function POST(request: Request) {
       );
       return NextResponse.json(creationResponse.payload, { status: creationResponse.status });
     } catch (error) {
-      try {
-        await finishAuditEvent(platform.db, auditId!, {
-          status: 'FAILED',
-          durationMs: Date.now() - startedAt,
-          errorCode: error instanceof WebsiteProvisioningError ? error.code : 'INTERNAL_ERROR',
-          errorType: error instanceof Error ? error.constructor.name : typeof error,
-        });
-      } catch {
-        return NextResponse.json(
-          { error: { code: 'AUDIT_UNKNOWN', message: '操作失败，但审计结果暂时无法确认' } },
-          { status: 503 },
-        );
+      if (billingOperationId && !websiteCreationCompleted) {
+        try {
+          await finishWebsiteCreateOperation({
+            db: platform.db,
+            operationId: billingOperationId,
+            status: 'failed',
+            errorCode:
+              error instanceof WebsiteCreateIdempotencyError
+                ? error.code
+                : error instanceof WebsiteProvisioningError
+                  ? error.code
+                  : 'INTERNAL_ERROR',
+            errorMessage: error instanceof Error ? error.message : 'website creation failed',
+          });
+        } catch {
+          logger.error(
+            { event: 'billing.operation.finalization.failed', operation: 'website.create' },
+            'website creation operation finalization failed',
+          );
+        }
+      }
+      if (auditId) {
+        try {
+          await finishAuditEvent(platform.db, auditId, {
+            status: 'FAILED',
+            durationMs: Date.now() - startedAt,
+            errorCode: error instanceof WebsiteProvisioningError ? error.code : 'INTERNAL_ERROR',
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+          });
+        } catch {
+          return NextResponse.json(
+            { error: { code: 'AUDIT_UNKNOWN', message: '操作失败，但审计结果暂时无法确认' } },
+            { status: 503 },
+          );
+        }
       }
       if (error instanceof WebsiteProvisioningError)
         return NextResponse.json(
           { error: { code: error.code, message: error.message } },
           { status: 400 },
+        );
+      if (error instanceof WebsiteCreateIdempotencyError)
+        return NextResponse.json(
+          { error: { code: error.code, message: '幂等键已用于其他创建参数' } },
+          { status: 409 },
         );
       return NextResponse.json(
         { error: { code: 'INTERNAL_ERROR', message: '创建网站失败' } },

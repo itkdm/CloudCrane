@@ -337,7 +337,10 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     const websiteId = settingsWebsiteId;
     let response: Response;
     try {
-      response = await fetch(`/api/websites/${websiteId}`, { method: 'DELETE' });
+      response = await fetch(`/api/websites/${websiteId}`, {
+        method: 'DELETE',
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+      });
     } catch (error) {
       setDeletingWebsiteId(null);
       throw error;

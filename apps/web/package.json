@@ -12,6 +12,7 @@
   "dependencies": {
     "@cloudcrane/auth": "workspace:*",
     "@cloudcrane/agent-protocol": "workspace:*",
+    "@cloudcrane/billing": "workspace:*",
     "@cloudcrane/db": "workspace:*",
     "@cloudcrane/preview-protocol": "workspace:*",
     "@cloudcrane/shared": "workspace:*",
