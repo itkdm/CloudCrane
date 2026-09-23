@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
 import {
   entitlementDefinition,
   entitlementGrant,
@@ -8,7 +8,12 @@ import {
   website,
   type PlatformDb,
 } from '@cloudcrane/db';
-import { BILLING_FEATURES } from '@cloudcrane/billing';
+import {
+  BILLING_FEATURES,
+  decideQuota,
+  resolveEntitlements,
+  type EntitlementGrant,
+} from '@cloudcrane/billing';
 
 const RESERVATION_TTL_MS = 15 * 60 * 1000;
 
@@ -59,8 +64,16 @@ export class DrizzleAttachmentQuotaService {
         .limit(1);
       const definitionId = definition[0]?.id;
       if (!definitionId) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+      const now = new Date();
       const grants = await tx
-        .select({ value: entitlementGrant.value })
+        .select({
+          id: entitlementGrant.id,
+          value: entitlementGrant.value,
+          startsAt: entitlementGrant.startsAt,
+          endsAt: entitlementGrant.endsAt,
+          sourceType: entitlementGrant.sourceType,
+          sourceRef: entitlementGrant.sourceRef,
+        })
         .from(entitlementGrant)
         .where(
           and(
@@ -69,13 +82,20 @@ export class DrizzleAttachmentQuotaService {
             eq(entitlementGrant.scope as never, 'account'),
             eq(entitlementGrant.status as never, 'active'),
             isNull(entitlementGrant.revokedAt),
-            lt(entitlementGrant.startsAt, new Date()),
-            or(isNull(entitlementGrant.endsAt), gt(entitlementGrant.endsAt, new Date())),
+            lte(entitlementGrant.startsAt, now),
+            or(isNull(entitlementGrant.endsAt), gt(entitlementGrant.endsAt, now)),
           ),
         )
-        .limit(1);
-      const limit = readHardLimit(grants[0]?.value);
-      if (limit === null) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+        .limit(100);
+      const entitlements = toStorageEntitlements(grants, billingAccountId);
+      const entitlement = resolveEntitlements({
+        grants: entitlements,
+        scope: 'account',
+        scopeId: billingAccountId,
+        at: now,
+      }).find((item) => item.featureKey === BILLING_FEATURES.storageAccountBytes);
+      if (!entitlement || entitlement.valueType !== 'metered')
+        throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
 
       const committed = await tx
         .select({ total: sql<number>`coalesce(sum(${quotaReservation.quantity}), 0)` })
@@ -99,7 +119,16 @@ export class DrizzleAttachmentQuotaService {
           ),
         );
       const current = Number(committed[0]?.total ?? 0) + Number(reserved[0]?.total ?? 0);
-      if (current + input.quantity > limit) throw new AttachmentQuotaError('QUOTA_EXCEEDED');
+      const decision = decideQuota({
+        entitlement,
+        currentUsage: current,
+        requested: input.quantity,
+      });
+      if (decision.outcome === 'deny') {
+        if (decision.code === 'QUOTA_EXCEEDED') throw new AttachmentQuotaError('QUOTA_EXCEEDED');
+        throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+      }
+      if (decision.outcome === 'pending') throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
 
       const requestHash = createHash('sha256')
         .update(JSON.stringify({ attachmentId: input.attachmentId, quantity: input.quantity }))
@@ -210,10 +239,49 @@ export class DrizzleAttachmentQuotaService {
   }
 }
 
-function readHardLimit(value: unknown): number | null {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as { limit?: unknown; limitMode?: unknown };
-  if (record.limitMode !== 'hard' || typeof record.limit !== 'number' || record.limit < 0)
-    return null;
-  return record.limit;
+function toStorageEntitlements(
+  grants: Array<{
+    id: string;
+    value: Record<string, unknown>;
+    startsAt: Date;
+    endsAt: Date | null;
+    sourceType: string;
+    sourceRef: string | null;
+  }>,
+  scopeId: string,
+): EntitlementGrant[] {
+  return grants.flatMap((grant) => {
+    const value = grant.value;
+    const limitMode = value.limitMode;
+    const limit = typeof value.limit === 'number' || value.limit === null ? value.limit : undefined;
+    const validLimit =
+      limitMode === 'unlimited'
+        ? limit === null || (typeof limit === 'number' && limit >= 0)
+        : typeof limit === 'number' && limit >= 0;
+    if (
+      !validLimit ||
+      typeof value.unit !== 'string' ||
+      !['hard', 'soft', 'unlimited'].includes(String(limitMode))
+    )
+      return [];
+    const normalizedLimit = limit as number | null;
+    return [
+      {
+        id: grant.id,
+        featureKey: BILLING_FEATURES.storageAccountBytes,
+        scope: 'account' as const,
+        scopeId,
+        period: { kind: 'lifetime' as const },
+        effectiveAt: grant.startsAt,
+        expiresAt: grant.endsAt,
+        source: { type: grant.sourceType, id: grant.sourceRef ?? grant.id },
+        valueType: 'metered' as const,
+        value: {
+          limit: normalizedLimit,
+          unit: value.unit,
+          limitMode: limitMode as 'hard' | 'soft' | 'unlimited',
+        },
+      },
+    ];
+  });
 }
