@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:
 import { and, desc, eq } from 'drizzle-orm';
 import { userModelProfile, type PlatformDb } from '@cloudcrane/db';
 import { AgentServiceError } from '../application/errors.js';
+import { assertPublicProviderHost } from './secure-provider-fetch.js';
 import {
   CUSTOM_MODEL_PRESET_ID,
   findModelPreset,
@@ -16,6 +17,7 @@ export type ModelProfileInput = {
   providerKind: 'builtin' | 'openai-compatible';
   presetId?: string;
   providerId: string;
+  providerName?: string;
   modelId: string;
   displayName?: string;
   baseUrl?: string;
@@ -37,6 +39,7 @@ export type PublicModelProfile = {
   providerKind: 'builtin' | 'openai-compatible';
   presetId: string | null;
   providerId: string;
+  providerName: string;
   modelId: string;
   displayName: string;
   baseUrl: string | null;
@@ -59,7 +62,7 @@ type EncryptedSecret = {
   keyVersion: string;
 };
 
-function normalizeBaseUrl(
+async function normalizeBaseUrl(
   value: string | undefined,
   providerKind: ModelProfileInput['providerKind'],
 ) {
@@ -70,10 +73,7 @@ function normalizeBaseUrl(
   } catch {
     throw new AgentServiceError('INVALID_ARGUMENT', 'base URL is invalid', 400);
   }
-  if (
-    url.protocol !== 'https:' &&
-    !(process.env.NODE_ENV !== 'production' && url.protocol === 'http:')
-  )
+  if (url.protocol !== 'https:')
     throw new AgentServiceError('INVALID_ARGUMENT', 'base URL must use HTTPS', 400);
   if (providerKind !== 'openai-compatible')
     throw new AgentServiceError(
@@ -81,8 +81,21 @@ function normalizeBaseUrl(
       'base URL is only supported for OpenAI-compatible providers',
       400,
     );
-  url.username = '';
-  url.password = '';
+  if (url.username || url.password || url.search || url.hash)
+    throw new AgentServiceError(
+      'INVALID_ARGUMENT',
+      'base URL must not contain credentials or query parameters',
+      400,
+    );
+  try {
+    await assertPublicProviderHost(url.hostname);
+  } catch {
+    throw new AgentServiceError(
+      'INVALID_ARGUMENT',
+      'base URL host must resolve only to public addresses',
+      400,
+    );
+  }
   return url.toString().replace(/\/$/, '');
 }
 
@@ -91,11 +104,33 @@ function validateInput(input: ModelProfileInput | ModelProfileUpdateInput): void
     throw new AgentServiceError('INVALID_ARGUMENT', 'provider is invalid', 400);
   if (!input.modelId.trim() || input.modelId.length > 255)
     throw new AgentServiceError('INVALID_ARGUMENT', 'model is invalid', 400);
+  if (
+    input.providerName !== undefined &&
+    (!input.providerName.trim() || input.providerName.length > 128)
+  )
+    throw new AgentServiceError('INVALID_ARGUMENT', 'provider name is invalid', 400);
   if (input.apiKey !== undefined && (!input.apiKey.trim() || input.apiKey.length > 16_384))
     throw new AgentServiceError('INVALID_ARGUMENT', 'API key is invalid', 400);
-  if (input.input !== undefined && (input.input.length === 0 || input.input.some((item) => item !== 'text' && item !== 'image')))
+  if (
+    input.input !== undefined &&
+    (input.input.length === 0 || input.input.some((item) => item !== 'text' && item !== 'image'))
+  )
     throw new AgentServiceError('INVALID_ARGUMENT', 'model input capability is invalid', 400);
-  if (input.contextWindow !== undefined && (!Number.isInteger(input.contextWindow) || input.contextWindow < 1_024))
+  if (
+    input.api !== undefined &&
+    ![
+      'openai-completions',
+      'openai-responses',
+      'anthropic-messages',
+      'google-generative-ai',
+      'mistral-conversations',
+    ].includes(input.api)
+  )
+    throw new AgentServiceError('INVALID_ARGUMENT', 'model API is unsupported', 400);
+  if (
+    input.contextWindow !== undefined &&
+    (!Number.isInteger(input.contextWindow) || input.contextWindow < 1_024)
+  )
     throw new AgentServiceError('INVALID_ARGUMENT', 'context window is invalid', 400);
   if (input.maxTokens !== undefined && (!Number.isInteger(input.maxTokens) || input.maxTokens < 1))
     throw new AgentServiceError('INVALID_ARGUMENT', 'maximum output tokens is invalid', 400);
@@ -146,13 +181,20 @@ export class ModelProfileService {
   async create(userId: string, input: ModelProfileInput): Promise<PublicModelProfile> {
     validateInput(input);
     const preset = resolvePreset(input);
-    if (input.providerKind === 'openai-compatible' && !(input.baseUrl ?? preset?.baseUrl))
+    const configuredBaseUrl = preset?.baseUrl ?? input.baseUrl;
+    if (input.providerKind === 'openai-compatible' && !configuredBaseUrl)
       throw new AgentServiceError(
         'INVALID_ARGUMENT',
         'base URL is required for custom OpenAI-compatible providers',
         400,
       );
-    const baseUrl = normalizeBaseUrl(input.baseUrl ?? preset?.baseUrl, input.providerKind);
+    const baseUrl = await normalizeBaseUrl(configuredBaseUrl, input.providerKind);
+    if (!preset && input.api !== undefined && input.api !== 'openai-completions')
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'custom providers must use OpenAI-compatible chat completions',
+        400,
+      );
     const presetModel = findPresetModel(input.presetId, input.modelId);
     const capabilities = presetModel ?? {
       input: input.input ?? ['text'],
@@ -179,16 +221,17 @@ export class ModelProfileService {
         userId,
         providerKind: input.providerKind,
         presetId: preset?.id ?? null,
+        providerName: preset?.providerName ?? input.providerName?.trim() ?? input.providerId.trim(),
         providerId,
         modelId: input.modelId.trim(),
         displayName:
           input.displayName?.trim() ||
           preset?.models.find((model) => model.id === input.modelId)?.name ||
-          `${input.providerId}/${input.modelId}`,
+          `${preset?.providerName ?? input.providerName?.trim() ?? input.providerId}/${input.modelId}`,
         baseUrl,
         api:
           input.providerKind === 'openai-compatible'
-            ? (input.api ?? preset?.api ?? 'openai-completions')
+            ? (preset?.api ?? input.api ?? 'openai-completions')
             : null,
         input: capabilities.input,
         reasoning: capabilities.reasoning,
@@ -214,13 +257,20 @@ export class ModelProfileService {
   ): Promise<PublicModelProfile> {
     validateInput(input);
     const preset = resolvePreset(input);
-    if (input.providerKind === 'openai-compatible' && !(input.baseUrl ?? preset?.baseUrl))
+    const configuredBaseUrl = preset?.baseUrl ?? input.baseUrl;
+    if (input.providerKind === 'openai-compatible' && !configuredBaseUrl)
       throw new AgentServiceError(
         'INVALID_ARGUMENT',
         'base URL is required for custom OpenAI-compatible providers',
         400,
       );
-    const baseUrl = normalizeBaseUrl(input.baseUrl ?? preset?.baseUrl, input.providerKind);
+    const baseUrl = await normalizeBaseUrl(configuredBaseUrl, input.providerKind);
+    if (!preset && input.api !== undefined && input.api !== 'openai-completions')
+      throw new AgentServiceError(
+        'INVALID_ARGUMENT',
+        'custom providers must use OpenAI-compatible chat completions',
+        400,
+      );
     const existing = await this.platform.db
       .select()
       .from(userModelProfile)
@@ -242,13 +292,14 @@ export class ModelProfileService {
       .update(userModelProfile)
       .set({
         presetId: preset?.id ?? null,
+        providerName: preset?.providerName ?? input.providerName?.trim() ?? row.providerName,
         modelId: input.modelId.trim(),
         displayName:
           input.displayName?.trim() ||
           preset?.models.find((model) => model.id === input.modelId)?.name ||
-          `${input.providerId}/${input.modelId}`,
+          `${preset?.providerName ?? input.providerName?.trim() ?? input.providerId}/${input.modelId}`,
         baseUrl,
-        api: input.api ?? preset?.api ?? 'openai-completions',
+        api: preset?.api ?? input.api ?? 'openai-completions',
         input: capabilities.input,
         reasoning: capabilities.reasoning,
         contextWindow: capabilities.contextWindow,
@@ -354,10 +405,11 @@ export class ModelProfileService {
       providerId:
         preset?.providerId ??
         (row.providerKind === 'openai-compatible' ? 'openai-compatible' : row.providerId),
+      providerName: preset?.providerName ?? row.providerName,
       modelId: row.modelId,
       displayName: row.displayName,
-      baseUrl: row.baseUrl,
-      api: row.api,
+      baseUrl: preset?.baseUrl ?? row.baseUrl,
+      api: preset?.api ?? row.api,
       keyHint: row.keyHint,
       isDefault: row.isDefault,
       input: (presetModel?.input ?? row.input) as ModelInput[],

@@ -52,6 +52,7 @@ export function Composer({
   const [form, setForm] = useState({
     presetId: 'custom-openai-compatible',
     providerId: 'custom',
+    providerName: '',
     modelId: '',
     baseUrl: '',
     apiKey: '',
@@ -177,7 +178,7 @@ export function Composer({
                         setModelMenuOpen(false);
                       }}
                     >
-                      <span>{profile.modelId}</span>
+                      <span>{profile.displayName}</span>
                     </button>
                     <div className="composer-model-actions">
                       <button
@@ -189,6 +190,7 @@ export function Composer({
                           setForm({
                             presetId: profile.presetId ?? 'custom-openai-compatible',
                             providerId: profile.presetId ? profile.providerId : 'custom',
+                            providerName: profile.providerName,
                             modelId: profile.modelId,
                             baseUrl: profile.baseUrl ?? '',
                             apiKey: '',
@@ -232,6 +234,7 @@ export function Composer({
                     setForm({
                       presetId: 'custom-openai-compatible',
                       providerId: 'custom',
+                      providerName: '',
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
@@ -261,6 +264,7 @@ export function Composer({
                       providerKind: 'openai-compatible' as const,
                       presetId: form.presetId || undefined,
                       providerId: form.providerId,
+                      providerName: form.providerName,
                       modelId: form.modelId,
                       baseUrl: selectedPreset ? undefined : form.baseUrl || undefined,
                       api: selectedPreset?.api ?? 'openai-completions',
@@ -291,6 +295,7 @@ export function Composer({
                     setForm({
                       presetId: 'custom-openai-compatible',
                       providerId: 'custom',
+                      providerName: '',
                       modelId: '',
                       baseUrl: '',
                       apiKey: '',
@@ -318,6 +323,7 @@ export function Composer({
                       ...form,
                       presetId: e.target.value,
                       providerId: preset?.providerId ?? 'custom',
+                      providerName: preset?.providerName ?? '',
                       modelId: preset?.models[0]?.id ?? '',
                       baseUrl: preset?.baseUrl ?? '',
                       input: preset?.models[0]?.input ?? ['text'],
@@ -345,7 +351,24 @@ export function Composer({
                       name="modelId"
                       placeholder={t('modelName')}
                       value={form.modelId}
-                      onChange={(e) => setForm({ ...form, modelId: e.target.value })}
+                      onChange={(e) => {
+                        const modelId = e.target.value;
+                        const knownModel = selectedPreset?.models.find(
+                          (model) => model.id === modelId,
+                        );
+                        setForm({
+                          ...form,
+                          modelId,
+                          ...(!knownModel
+                            ? {
+                                input: ['text'],
+                                reasoning: false,
+                                contextWindow: 128000,
+                                maxTokens: 16384,
+                              }
+                            : {}),
+                        });
+                      }}
                     />
                     <datalist id="model-preset-options">
                       {selectedPreset.models.map((model) => (
@@ -356,16 +379,38 @@ export function Composer({
                     </datalist>
                     <small className="composer-model-auto-config">{selectedPreset.baseUrl}</small>
                     {selectedPresetModel ? (
-                      <div className="composer-model-capabilities" aria-label={t('modelCapabilities')}>
-                        <span>{t('inputCapability')}: {selectedPresetModel.input.join('、')}</span>
-                        <span>{t('reasoningCapability')}: {selectedPresetModel.reasoning ? t('supported') : t('unsupported')}</span>
-                        <span>{t('contextWindow')}: {selectedPresetModel.contextWindow.toLocaleString()}</span>
-                        <span>{t('maxOutputTokens')}: {selectedPresetModel.maxTokens.toLocaleString()}</span>
+                      <div
+                        className="composer-model-capabilities"
+                        aria-label={t('modelCapabilities')}
+                      >
+                        <span>
+                          {t('inputCapability')}: {selectedPresetModel.input.join('、')}
+                        </span>
+                        <span>
+                          {t('reasoningCapability')}:{' '}
+                          {selectedPresetModel.reasoning ? t('supported') : t('unsupported')}
+                        </span>
+                        <span>
+                          {t('contextWindow')}: {selectedPresetModel.contextWindow.toLocaleString()}
+                        </span>
+                        <span>
+                          {t('maxOutputTokens')}: {selectedPresetModel.maxTokens.toLocaleString()}
+                        </span>
                       </div>
                     ) : null}
                   </>
                 ) : (
                   <>
+                    <small className="composer-model-auto-config">
+                      {t('providerOpenAiCompatible')}
+                    </small>
+                    <input
+                      required
+                      name="providerName"
+                      placeholder={t('providerName')}
+                      value={form.providerName}
+                      onChange={(e) => setForm({ ...form, providerName: e.target.value })}
+                    />
                     <input
                       required
                       name="modelId"
@@ -386,11 +431,70 @@ export function Composer({
                 {!selectedPresetModel ? (
                   <div className="composer-model-capability-fields">
                     <span>{t('inputCapability')}</span>
-                    <label><input type="checkbox" checked={form.input.includes('text')} onChange={(e) => setForm({ ...form, input: (e.target.checked ? [...new Set([...form.input, 'text'])] : form.input.filter((item) => item !== 'text')) as Array<'text' | 'image'> })} /> {t('textInput')}</label>
-                    <label><input type="checkbox" checked={form.input.includes('image')} onChange={(e) => setForm({ ...form, input: (e.target.checked ? [...new Set([...form.input, 'image'])] : form.input.filter((item) => item !== 'image')) as Array<'text' | 'image'> })} /> {t('imageInput')}</label>
-                    <label><input type="checkbox" checked={form.reasoning} onChange={(e) => setForm({ ...form, reasoning: e.target.checked })} /> {t('reasoningCapability')}</label>
-                    <label>{t('contextWindow')}<input type="number" min={1024} step={1024} value={form.contextWindow} onChange={(e) => setForm({ ...form, contextWindow: Number(e.target.value) })} /></label>
-                    <label>{t('maxOutputTokens')}<input type="number" min={1} step={1024} value={form.maxTokens} onChange={(e) => setForm({ ...form, maxTokens: Number(e.target.value) })} /></label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={form.input.includes('text')}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            input: (e.target.checked
+                              ? [...new Set([...form.input, 'text'])]
+                              : form.input.filter((item) => item !== 'text')) as Array<
+                              'text' | 'image'
+                            >,
+                          })
+                        }
+                      />{' '}
+                      {t('textInput')}
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={form.input.includes('image')}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            input: (e.target.checked
+                              ? [...new Set([...form.input, 'image'])]
+                              : form.input.filter((item) => item !== 'image')) as Array<
+                              'text' | 'image'
+                            >,
+                          })
+                        }
+                      />{' '}
+                      {t('imageInput')}
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={form.reasoning}
+                        onChange={(e) => setForm({ ...form, reasoning: e.target.checked })}
+                      />{' '}
+                      {t('reasoningCapability')}
+                    </label>
+                    <label>
+                      {t('contextWindow')}
+                      <input
+                        type="number"
+                        min={1024}
+                        step={1024}
+                        value={form.contextWindow}
+                        onChange={(e) =>
+                          setForm({ ...form, contextWindow: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label>
+                      {t('maxOutputTokens')}
+                      <input
+                        type="number"
+                        min={1}
+                        step={1024}
+                        value={form.maxTokens}
+                        onChange={(e) => setForm({ ...form, maxTokens: Number(e.target.value) })}
+                      />
+                    </label>
                   </div>
                 ) : null}
                 <input

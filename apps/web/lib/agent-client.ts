@@ -26,6 +26,7 @@ export type ModelProfile = {
   providerKind: 'builtin' | 'openai-compatible';
   presetId: string | null;
   providerId: string;
+  providerName: string;
   modelId: string;
   displayName: string;
   baseUrl: string | null;
@@ -84,6 +85,7 @@ export async function createModelProfile(input: {
   providerKind: ModelProfile['providerKind'];
   presetId?: string;
   providerId: string;
+  providerName?: string;
   modelId: string;
   displayName?: string;
   baseUrl?: string;
@@ -119,6 +121,7 @@ export async function updateModelProfile(
     providerKind: ModelProfile['providerKind'];
     presetId?: string;
     providerId: string;
+    providerName?: string;
     modelId: string;
     displayName?: string;
     baseUrl?: string;

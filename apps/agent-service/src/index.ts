@@ -9,6 +9,7 @@ import {
 } from '@cloudcrane/shared';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { TemplatePublishingService } from '@cloudcrane/template-publishing';
 import { buildAgentServiceApp } from './app.js';
@@ -22,6 +23,7 @@ import { createAttachmentStorage } from '@cloudcrane/attachment-storage';
 import { ConversationAttachmentService } from './infrastructure/attachment-service.js';
 import { DrizzleAttachmentQuotaService } from './infrastructure/attachment-quota.js';
 import { ModelProfileService } from './infrastructure/model-profiles.js';
+import { createSecureProviderFetch } from './infrastructure/secure-provider-fetch.js';
 import { AgentServiceError } from './application/errors.js';
 
 const config = loadAgentServiceConfig();
@@ -89,7 +91,7 @@ const registry = new WebsiteRuntimeRegistry({
           );
         if (profile.providerKind === 'openai-compatible') {
           modelRuntime.registerProvider(profile.providerId, {
-            name: profile.displayName,
+            name: profile.providerName,
             baseUrl: profile.baseUrl ?? undefined,
             api: (profile.api ?? 'openai-completions') as Api,
             models: [
@@ -104,6 +106,17 @@ const registry = new WebsiteRuntimeRegistry({
                 maxTokens: profile.maxTokens,
               },
             ],
+            ...((profile.presetId === null || profile.presetId === 'custom-openai-compatible') &&
+            profile.api === 'openai-completions' &&
+            profile.baseUrl
+              ? {
+                  streamSimple: (model, context, options) =>
+                    openAICompletionsApi().streamSimple(model, context, {
+                      ...options,
+                      fetch: createSecureProviderFetch(profile.baseUrl!),
+                    }),
+                }
+              : {}),
           });
         }
         await modelRuntime.setRuntimeApiKey(profile.providerId, profile.apiKey);
