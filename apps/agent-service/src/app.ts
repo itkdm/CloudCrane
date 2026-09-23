@@ -295,6 +295,13 @@ export function buildAgentServiceApp(
         throw new AgentServiceError('INTERNAL_ERROR', 'attachment storage is unavailable', 503);
       if (!isUuid(request.params.websiteId) || !isUuid(request.params.sessionId))
         throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment parameters', 400);
+      const idempotencyKey = request.headers['idempotency-key'];
+      if (typeof idempotencyKey !== 'string' || !idempotencyKey || idempotencyKey.length > 255)
+        throw new AgentServiceError(
+          'INVALID_ARGUMENT',
+          'idempotency-key header is required for attachment upload',
+          400,
+        );
       const session = await requireSession(options.auth, headersFromNode(request.headers));
       let result: Awaited<ReturnType<ConversationAttachmentService['upload']>> | undefined;
       for await (const part of request.parts()) {
@@ -310,6 +317,7 @@ export function buildAgentServiceApp(
           userId: session.user.id,
           websiteId: request.params.websiteId,
           sessionId: request.params.sessionId,
+          idempotencyKey,
           part,
         });
       }

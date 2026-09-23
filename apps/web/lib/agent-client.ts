@@ -208,9 +208,15 @@ export async function uploadReference(
 export async function uploadAttachment(websiteId: string, sessionId: string, file: File) {
   const body = new FormData();
   body.append('file', file, file.name);
+  const idempotencyKey = crypto.randomUUID();
   const response = await fetch(
     agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/attachments`),
-    { method: 'POST', body, credentials: 'include' },
+    {
+      method: 'POST',
+      body,
+      credentials: 'include',
+      headers: { 'Idempotency-Key': idempotencyKey },
+    },
   );
   if (!response.ok) throw new Error(await errorMessage(response));
   return (await response.json()) as {

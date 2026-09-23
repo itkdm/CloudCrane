@@ -36,7 +36,11 @@ function dbForCleanup(claimRowCount: number, finalRowCount = 1) {
   });
   return {
     db: {
-      query: { conversationAttachment: { findMany: vi.fn(async () => [{ ...row, expiresAt: new Date(0) }]) } },
+      query: {
+        conversationAttachment: {
+          findMany: vi.fn(async () => [{ ...row, expiresAt: new Date(0) }]),
+        },
+      },
       update,
     } as never,
     update,
@@ -47,17 +51,26 @@ function dbForCleanup(claimRowCount: number, finalRowCount = 1) {
 describe('ConversationAttachmentService cleanup boundaries', () => {
   it('does not mark metadata deleted when object deletion fails', async () => {
     const { db, update } = dbForRemove();
-    const storage = { delete: vi.fn(async () => { throw new Error('OSS unavailable'); }) } as never;
+    const storage = {
+      delete: vi.fn(async () => {
+        throw new Error('OSS unavailable');
+      }),
+    } as never;
     const service = new ConversationAttachmentService(db, storage, 'oss', 20 * 1024 * 1024);
 
     await expect(service.remove(row.id, row.ownerId)).rejects.toThrow('OSS unavailable');
-    expect(update).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledTimes(1);
   });
 
   it('does not delete an object when another worker wins the expiry claim', async () => {
     const { db, update } = dbForCleanup(0);
     const storage = { delete: vi.fn(async () => undefined) };
-    const service = new ConversationAttachmentService(db, storage as never, 'oss', 20 * 1024 * 1024);
+    const service = new ConversationAttachmentService(
+      db,
+      storage as never,
+      'oss',
+      20 * 1024 * 1024,
+    );
 
     await service.cleanupExpired(new Date(1));
 
@@ -68,7 +81,12 @@ describe('ConversationAttachmentService cleanup boundaries', () => {
   it('marks a successfully deleted object only after it was claimed', async () => {
     const { db, update, updates } = dbForCleanup(1);
     const storage = { delete: vi.fn(async () => undefined) };
-    const service = new ConversationAttachmentService(db, storage as never, 'oss', 20 * 1024 * 1024);
+    const service = new ConversationAttachmentService(
+      db,
+      storage as never,
+      'oss',
+      20 * 1024 * 1024,
+    );
 
     await service.cleanupExpired(new Date(1));
 
@@ -79,12 +97,24 @@ describe('ConversationAttachmentService cleanup boundaries', () => {
 
   it('returns failed object cleanup to ready so a later run can retry', async () => {
     const { db, update, updates } = dbForCleanup(1);
-    const storage = { delete: vi.fn(async () => { throw new Error('temporary storage outage'); }) };
-    const service = new ConversationAttachmentService(db, storage as never, 'oss', 20 * 1024 * 1024);
+    const storage = {
+      delete: vi.fn(async () => {
+        throw new Error('temporary storage outage');
+      }),
+    };
+    const service = new ConversationAttachmentService(
+      db,
+      storage as never,
+      'oss',
+      20 * 1024 * 1024,
+    );
 
     await service.cleanupExpired(new Date(1));
 
     expect(update).toHaveBeenCalledTimes(2);
-    expect(updates[1]?.set).toHaveBeenCalledWith({ status: 'ready', errorCode: 'STORAGE_DELETE_FAILED' });
+    expect(updates[1]?.set).toHaveBeenCalledWith({
+      status: 'ready',
+      errorCode: 'STORAGE_DELETE_FAILED',
+    });
   });
 });
