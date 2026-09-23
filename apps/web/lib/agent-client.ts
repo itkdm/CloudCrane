@@ -205,28 +205,107 @@ export async function uploadReference(
   };
 }
 
+const attachmentUploadKeys = new Map<string, string>();
+const attachmentUploadKeyPrefix = 'cloudcrane:attachment-upload-key:';
+type UploadedAttachment = {
+  id: string;
+  kind: 'image' | 'document';
+  name: string;
+  mimeType: string;
+  size: number;
+  sha256: string;
+};
+
+function isUploadedAttachment(value: unknown): value is UploadedAttachment {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.id === 'string' &&
+    (item.kind === 'image' || item.kind === 'document') &&
+    typeof item.name === 'string' &&
+    typeof item.mimeType === 'string' &&
+    typeof item.size === 'number' &&
+    item.size > 0 &&
+    typeof item.sha256 === 'string' &&
+    /^[a-f0-9]{64}$/i.test(item.sha256)
+  );
+}
+
+function getStoredAttachmentUploadKey(operationKey: string) {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    return window.localStorage.getItem(attachmentUploadKeyPrefix + operationKey) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function setStoredAttachmentUploadKey(operationKey: string, idempotencyKey: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(attachmentUploadKeyPrefix + operationKey, idempotencyKey);
+  } catch {
+    // Upload retries still work within the current page through the in-memory map.
+  }
+}
+
+function removeStoredAttachmentUploadKey(operationKey: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(attachmentUploadKeyPrefix + operationKey);
+  } catch {
+    // Storage may be unavailable in privacy-restricted browser contexts.
+  }
+}
+
 export async function uploadAttachment(websiteId: string, sessionId: string, file: File) {
   const body = new FormData();
   body.append('file', file, file.name);
-  const idempotencyKey = crypto.randomUUID();
+  const contentSha256 = Array.from(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())),
+  )
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  const operationKey = `${websiteId}:${sessionId}:${file.name}:${file.size}:${file.lastModified}:${contentSha256}`;
+  const idempotencyKey =
+    attachmentUploadKeys.get(operationKey) ??
+    getStoredAttachmentUploadKey(operationKey) ??
+    crypto.randomUUID();
+  attachmentUploadKeys.set(operationKey, idempotencyKey);
+  setStoredAttachmentUploadKey(operationKey, idempotencyKey);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5 * 60 * 1000);
+  try {
+    const response = await fetch(
+      agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/attachments`),
+      {
+        method: 'POST',
+        body,
+        credentials: 'include',
+        signal: controller.signal,
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+          'X-Attachment-Sha256': contentSha256,
+        },
+      },
+    );
+    if (!response.ok) throw new Error(await errorMessage(response));
+    const result: unknown = await response.json();
+    if (!isUploadedAttachment(result)) throw new Error('Invalid attachment upload response');
+    attachmentUploadKeys.delete(operationKey);
+    removeStoredAttachmentUploadKey(operationKey);
+    return result;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export async function deleteAttachment(websiteId: string, sessionId: string, attachmentId: string) {
   const response = await fetch(
-    agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/attachments`),
-    {
-      method: 'POST',
-      body,
-      credentials: 'include',
-      headers: { 'Idempotency-Key': idempotencyKey },
-    },
+    agentEndpoint(`/v1/websites/${websiteId}/sessions/${sessionId}/attachments/${attachmentId}`),
+    { method: 'DELETE', credentials: 'include' },
   );
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as {
-    id: string;
-    kind: 'image' | 'document';
-    name: string;
-    mimeType: string;
-    size: number;
-    sha256: string;
-  };
 }
 
 export function agentWebSocketUrl(): string {

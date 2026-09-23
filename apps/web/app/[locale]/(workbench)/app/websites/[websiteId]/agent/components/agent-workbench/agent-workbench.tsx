@@ -15,6 +15,7 @@ import {
   createAgentSession,
   getPreviewUrl,
   listAgentSessions,
+  deleteAttachment,
   uploadAttachment,
   parseAgentEvent,
   parseAgentMessage,
@@ -65,6 +66,8 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
+  const attachmentUploadGenerationRef = useRef(0);
+  const removingAttachmentIdsRef = useRef(new Set<string>());
   const [runId, setRunIdState] = useState<string>();
   const [error, setError] = useState<string>();
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
@@ -591,6 +594,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       setError(t('connectionInterrupted'));
     }
     setDraft('');
+    attachmentUploadGenerationRef.current += 1;
     setAttachments([]);
   }
 
@@ -598,11 +602,22 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
     if (!sessionId) return;
     const selectedFiles = files.slice(0, 8 - attachments.length);
     if (selectedFiles.length === 0) return;
+    const generation = ++attachmentUploadGenerationRef.current;
     setUploadingAttachmentNames(selectedFiles.map((file) => file.name));
     void Promise.allSettled(
       selectedFiles.map((file) => uploadAttachment(websiteId, sessionId, file)),
     )
       .then((results) => {
+        if (generation !== attachmentUploadGenerationRef.current) {
+          void Promise.allSettled(
+            results.flatMap((result) =>
+              result.status === 'fulfilled'
+                ? [deleteAttachment(websiteId, sessionId, result.value.id)]
+                : [],
+            ),
+          );
+          return;
+        }
         const uploaded = results.flatMap((result) =>
           result.status === 'fulfilled' ? [result.value] : [],
         );
@@ -611,7 +626,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           setError(t('operationIncomplete'));
       })
       .finally(() => {
-        setUploadingAttachmentNames([]);
+        if (generation === attachmentUploadGenerationRef.current) setUploadingAttachmentNames([]);
       });
   }
 
@@ -630,10 +645,17 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
 
   function selectSession(nextSessionId: string) {
     if (nextSessionId === sessionId) return;
+    if (sessionId && attachments.length > 0)
+      void Promise.allSettled(
+        attachments.map((attachment) => deleteAttachment(websiteId, sessionId, attachment.id)),
+      );
     flushConversation();
     queueConversation({ type: 'session.snapshot', payload: { messages: [] } }, true);
     setRunId(undefined);
     setError(undefined);
+    setAttachments([]);
+    setUploadingAttachmentNames([]);
+    attachmentUploadGenerationRef.current += 1;
     setSessionId(nextSessionId);
   }
 
@@ -673,9 +695,17 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
           attachments={attachments}
           uploadingAttachmentNames={uploadingAttachmentNames}
           onAttachmentSelect={selectAttachments}
-          onAttachmentRemove={(id) =>
-            setAttachments((current) => current.filter((item) => item.id !== id))
-          }
+          onAttachmentRemove={(id) => {
+            if (!sessionId) return;
+            if (removingAttachmentIdsRef.current.has(id)) return;
+            removingAttachmentIdsRef.current.add(id);
+            void deleteAttachment(websiteId, sessionId, id)
+              .then(() => setAttachments((current) => current.filter((item) => item.id !== id)))
+              .catch((cause) =>
+                setError(cause instanceof Error ? cause.message : t('operationIncomplete')),
+              )
+              .finally(() => removingAttachmentIdsRef.current.delete(id));
+          }}
         />
         <PreviewPane
           preview={visiblePreview}

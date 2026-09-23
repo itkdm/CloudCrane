@@ -32,7 +32,11 @@ export class ConversationAttachmentService {
     private readonly maxBytes: number,
     private readonly quota?: Pick<
       DrizzleAttachmentQuotaService,
-      'reserve' | 'release' | 'releaseForAttachment' | 'commitAndFinalize'
+      | 'reserve'
+      | 'release'
+      | 'releaseForAttachment'
+      | 'commitAndFinalize'
+      | 'cleanupExpiredReservations'
     >,
   ) {}
 
@@ -41,8 +45,9 @@ export class ConversationAttachmentService {
     websiteId: string;
     sessionId: string;
     idempotencyKey: string;
+    contentSha256: string;
     part: AttachmentUploadPart;
-  }): Promise<AttachmentRef & { sha256: string }> {
+  }): Promise<AttachmentRef & { sha256: string; created: boolean }> {
     const kind = classify(input.part.filename, input.part.mimetype);
     if (!kind) throw new AgentServiceError('INVALID_ARGUMENT', 'unsupported attachment type', 415);
     if (input.part.filename.length > 255)
@@ -62,6 +67,7 @@ export class ConversationAttachmentService {
         JSON.stringify({
           filename: input.part.filename,
           mimetype: input.part.mimetype,
+          contentSha256: input.contentSha256,
           userId: input.userId,
           websiteId: input.websiteId,
           sessionId: input.sessionId,
@@ -70,7 +76,6 @@ export class ConversationAttachmentService {
       .digest('hex');
     const key = `attachments/${input.userId}/${input.websiteId}/${input.sessionId}/${id}/blob`;
     let reservation: AttachmentQuotaReservation | undefined;
-    let finalizationStarted = false;
     if (this.quota) {
       try {
         reservation = await this.quota.reserve({
@@ -119,6 +124,7 @@ export class ConversationAttachmentService {
           mimeType: existing.contentType,
           size: existing.sizeBytes,
           sha256: existing.sha256,
+          created: false,
         };
       }
     } else {
@@ -136,8 +142,25 @@ export class ConversationAttachmentService {
       if (Number(quota[0]?.total ?? 0) >= SESSION_ATTACHMENT_QUOTA)
         throw new AgentServiceError('INVALID_ARGUMENT', 'session attachment quota exceeded', 413);
     }
+    const now = new Date();
     let object;
     try {
+      await this.db.insert(conversationAttachment).values({
+        id,
+        ownerId: input.userId,
+        websiteId: input.websiteId,
+        sessionId: input.sessionId,
+        originalFilename: input.part.filename,
+        contentType: normalizeContentType(input.part.mimetype, input.part.filename),
+        kind,
+        sizeBytes: 1,
+        sha256: '0'.repeat(64),
+        storageDriver: this.storageDriver,
+        storageKey: key,
+        status: 'uploading',
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+      });
       object = await this.storage.put({
         key,
         source: input.part.file,
@@ -146,6 +169,14 @@ export class ConversationAttachmentService {
       });
     } catch (error) {
       if (this.quota && reservation) await this.quota.release(reservation).catch(() => undefined);
+      await this.storage.delete(key).catch(() => undefined);
+      await this.db
+        .update(conversationAttachment)
+        .set({ status: 'failed', errorCode: 'UPLOAD_FAILED' })
+        .where(
+          and(eq(conversationAttachment.id, id), eq(conversationAttachment.status, 'uploading')),
+        )
+        .catch(() => undefined);
       if (error instanceof Error && /exceeds maximum size/i.test(error.message))
         throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
       throw error;
@@ -153,6 +184,8 @@ export class ConversationAttachmentService {
     try {
       if (object.size <= 0 || object.size > this.maxBytes || input.part.file.truncated)
         throw new AgentServiceError('INVALID_ARGUMENT', 'attachment is too large', 413);
+      if (object.sha256 !== input.contentSha256)
+        throw new AgentServiceError('INVALID_ARGUMENT', 'attachment checksum mismatch', 400);
       if (!this.quota) {
         const currentQuota = await this.db
           .select({ total: sql<number>`coalesce(sum(${conversationAttachment.sizeBytes}), 0)` })
@@ -177,25 +210,24 @@ export class ConversationAttachmentService {
           'attachment content does not match its image type',
           415,
         );
-      const now = new Date();
-      await this.db.insert(conversationAttachment).values({
-        id,
-        ownerId: input.userId,
-        websiteId: input.websiteId,
-        sessionId: input.sessionId,
-        originalFilename: input.part.filename,
-        contentType: object.contentType,
-        kind,
-        sizeBytes: object.size,
-        sha256: object.sha256,
-        storageDriver: this.storageDriver,
-        storageKey: object.key,
-        status: this.quota ? 'uploading' : 'ready',
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
-      });
+      const finalizedMetadata = await this.db
+        .update(conversationAttachment)
+        .set({
+          contentType: object.contentType,
+          sizeBytes: object.size,
+          sha256: object.sha256,
+          status: this.quota ? 'uploading' : 'ready',
+        })
+        .where(
+          and(eq(conversationAttachment.id, id), eq(conversationAttachment.status, 'uploading')),
+        );
+      if (finalizedMetadata.rowCount !== 1)
+        throw new AgentServiceError(
+          'ATTACHMENT_INVALID',
+          'attachment upload is no longer active',
+          409,
+        );
       if (this.quota && reservation) {
-        finalizationStarted = true;
         await this.quota.commitAndFinalize({
           ...reservation,
           actualBytes: object.size,
@@ -203,17 +235,22 @@ export class ConversationAttachmentService {
         });
       }
     } catch (error) {
-      if (!finalizationStarted) {
-        await this.storage.delete(object.key).catch(() => undefined);
-        if (this.quota && reservation) await this.quota.release(reservation).catch(() => undefined);
-        await this.db
-          .update(conversationAttachment)
-          .set({ status: 'failed', errorCode: 'UPLOAD_FAILED' })
-          .where(
-            and(eq(conversationAttachment.id, id), eq(conversationAttachment.status, 'uploading')),
-          )
-          .catch(() => undefined);
-      }
+      await this.storage.delete(object.key).catch(() => undefined);
+      if (this.quota && reservation)
+        await this.quota.releaseForAttachment(id).catch(() => undefined);
+      await this.db
+        .update(conversationAttachment)
+        .set({ status: 'failed', errorCode: 'UPLOAD_FAILED' })
+        .where(
+          and(
+            eq(conversationAttachment.id, id),
+            or(
+              eq(conversationAttachment.status, 'uploading'),
+              eq(conversationAttachment.status, 'ready'),
+            ),
+          ),
+        )
+        .catch(() => undefined);
       throw error;
     }
     return {
@@ -223,6 +260,7 @@ export class ConversationAttachmentService {
       mimeType: object.contentType,
       size: object.size,
       sha256: object.sha256,
+      created: true,
     };
   }
 
@@ -266,6 +304,7 @@ export class ConversationAttachmentService {
   }
 
   async cleanupExpired(now = new Date()): Promise<void> {
+    if (this.quota) await this.quota.cleanupExpiredReservations(now);
     const expired = await this.db.query.conversationAttachment.findMany({
       where: and(
         or(
@@ -278,6 +317,7 @@ export class ConversationAttachmentService {
             or(
               eq(conversationAttachment.status, 'uploading'),
               eq(conversationAttachment.status, 'deleting'),
+              eq(conversationAttachment.status, 'failed'),
             ),
           ),
         ),
@@ -295,6 +335,7 @@ export class ConversationAttachmentService {
               eq(conversationAttachment.status, 'ready'),
               eq(conversationAttachment.status, 'uploading'),
               eq(conversationAttachment.status, 'deleting'),
+              eq(conversationAttachment.status, 'failed'),
             ),
           ),
         );
@@ -328,36 +369,43 @@ export class ConversationAttachmentService {
     }
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(
+    id: string,
+    userId: string,
+    websiteId?: string,
+    sessionId?: string,
+    allowAnyOwner = false,
+  ): Promise<void> {
+    const ownership = [
+      eq(conversationAttachment.id, id),
+      ...(allowAnyOwner ? [] : [eq(conversationAttachment.ownerId, userId)]),
+      ...(websiteId ? [eq(conversationAttachment.websiteId, websiteId)] : []),
+      ...(sessionId ? [eq(conversationAttachment.sessionId, sessionId)] : []),
+    ];
     const row = await this.db.query.conversationAttachment.findFirst({
-      where: and(eq(conversationAttachment.id, id), eq(conversationAttachment.ownerId, userId)),
+      where: and(...ownership),
     });
     if (!row) return;
-    await this.db
+    const claimed = await this.db
       .update(conversationAttachment)
       .set({ status: 'deleting' })
       .where(
         and(
-          eq(conversationAttachment.id, id),
-          eq(conversationAttachment.ownerId, userId),
+          ...ownership,
           or(
             eq(conversationAttachment.status, 'ready'),
             eq(conversationAttachment.status, 'uploading'),
           ),
         ),
-      );
+      )
+      .returning({ id: conversationAttachment.id });
+    if (claimed.length === 0) return;
     await this.storage.delete(row.storageKey);
     if (this.quota) await this.quota.releaseForAttachment(row.id);
     await this.db
       .update(conversationAttachment)
       .set({ status: 'deleted', deletedAt: new Date() })
-      .where(
-        and(
-          eq(conversationAttachment.id, id),
-          eq(conversationAttachment.ownerId, userId),
-          eq(conversationAttachment.status, 'deleting'),
-        ),
-      );
+      .where(and(...ownership, eq(conversationAttachment.status, 'deleting')));
   }
 }
 

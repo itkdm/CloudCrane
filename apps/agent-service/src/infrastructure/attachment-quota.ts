@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
   entitlementDefinition,
   entitlementGrant,
@@ -71,6 +71,7 @@ export class DrizzleAttachmentQuotaService {
         .limit(1);
       const definitionId = definition[0]?.id;
       if (!definitionId) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+      let recycledOperationId: string | undefined;
       const existingOperation = await tx
         .select({
           id: operation.id,
@@ -90,24 +91,60 @@ export class DrizzleAttachmentQuotaService {
       if (existingOperation[0]) {
         if (existingOperation[0].requestHash !== input.requestHash)
           throw new AttachmentQuotaError('IDEMPOTENCY_CONFLICT');
-        if (!existingOperation[0].resultResourceId)
+        const existingAttachment = existingOperation[0].resultResourceId
+          ? await tx
+              .select({ status: conversationAttachment.status })
+              .from(conversationAttachment)
+              .where(eq(conversationAttachment.id, existingOperation[0].resultResourceId))
+              .limit(1)
+          : [];
+        if (
+          existingOperation[0].status === 'running' &&
+          existingAttachment[0]?.status === 'uploading'
+        )
           throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
-        const existingReservation = await tx
-          .select({ id: quotaReservation.id, status: quotaReservation.status })
-          .from(quotaReservation)
+        if (
+          existingOperation[0].status === 'succeeded' &&
+          existingAttachment[0]?.status === 'ready'
+        ) {
+          const existingReservation = await tx
+            .select({ id: quotaReservation.id })
+            .from(quotaReservation)
+            .where(
+              and(
+                eq(quotaReservation.operationId as never, existingOperation[0].id),
+                eq(quotaReservation.entitlementDefinitionId as never, definitionId),
+              ),
+            )
+            .limit(1);
+          if (!existingReservation[0]) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+          return {
+            operationId: existingOperation[0].id,
+            reservationId: existingReservation[0].id,
+            attachmentId: existingOperation[0].resultResourceId ?? undefined,
+          };
+        }
+        if (
+          !['failed', 'expired', 'cancelled', 'retryable', 'succeeded'].includes(
+            existingOperation[0].status,
+          )
+        )
+          throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+        recycledOperationId = existingOperation[0].id;
+      }
+      if (recycledOperationId) {
+        await tx
+          .update(quotaReservation)
+          .set({ status: 'released', releasedAt: new Date(), updatedAt: new Date() })
           .where(
             and(
-              eq(quotaReservation.operationId as never, existingOperation[0].id),
-              eq(quotaReservation.entitlementDefinitionId as never, definitionId),
+              eq(quotaReservation.operationId as never, recycledOperationId),
+              or(
+                eq(quotaReservation.status as never, 'reserved'),
+                eq(quotaReservation.status as never, 'committed'),
+              ),
             ),
-          )
-          .limit(1);
-        if (!existingReservation[0]) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
-        return {
-          operationId: existingOperation[0].id,
-          reservationId: existingReservation[0].id,
-          attachmentId: existingOperation[0].resultResourceId,
-        };
+          );
       }
       const now = new Date();
       const grants = await tx
@@ -175,34 +212,76 @@ export class DrizzleAttachmentQuotaService {
       }
       if (decision.outcome === 'pending') throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
 
-      const [createdOperation] = await tx
-        .insert(operation)
-        .values({
-          billingAccountId,
-          websiteId: input.websiteId,
-          type: 'attachment.upload',
-          status: 'running',
-          idempotencyKey: input.idempotencyKey,
-          requestHash: input.requestHash,
-          resultResourceId: input.attachmentId,
-          metadata: { userId: input.userId, sessionId: input.sessionId },
-          startedAt: new Date(),
-        })
-        .returning({ id: operation.id });
-      if (!createdOperation?.id) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
-      const [createdReservation] = await tx
-        .insert(quotaReservation)
-        .values({
-          billingAccountId,
-          operationId: createdOperation.id,
-          entitlementDefinitionId: definitionId,
-          quantity: String(input.quantity),
-          status: 'reserved',
-          expiresAt: new Date(Date.now() + RESERVATION_TTL_MS),
-        })
-        .returning({ id: quotaReservation.id });
+      let operationId = recycledOperationId;
+      if (operationId) {
+        await tx
+          .update(operation)
+          .set({
+            websiteId: input.websiteId,
+            status: 'running',
+            requestHash: input.requestHash,
+            resultResourceId: input.attachmentId,
+            metadata: { userId: input.userId, sessionId: input.sessionId },
+            errorCode: null,
+            errorMessage: null,
+            startedAt: new Date(),
+            finishedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(operation.id as never, operationId));
+      } else {
+        const [createdOperation] = await tx
+          .insert(operation)
+          .values({
+            billingAccountId,
+            websiteId: input.websiteId,
+            type: 'attachment.upload',
+            status: 'running',
+            idempotencyKey: input.idempotencyKey,
+            requestHash: input.requestHash,
+            resultResourceId: input.attachmentId,
+            metadata: { userId: input.userId, sessionId: input.sessionId },
+            startedAt: new Date(),
+          })
+          .returning({ id: operation.id });
+        operationId = createdOperation?.id;
+      }
+      if (!operationId) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
+      const reservationExpiry = new Date(Date.now() + RESERVATION_TTL_MS);
+      const [reusedReservation] = recycledOperationId
+        ? await tx
+            .update(quotaReservation)
+            .set({
+              quantity: String(input.quantity),
+              status: 'reserved',
+              expiresAt: reservationExpiry,
+              releasedAt: null,
+              committedAt: null,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(quotaReservation.operationId as never, operationId),
+                eq(quotaReservation.entitlementDefinitionId as never, definitionId),
+              ),
+            )
+            .returning({ id: quotaReservation.id })
+        : [];
+      const [createdReservation] = reusedReservation?.id
+        ? [reusedReservation]
+        : await tx
+            .insert(quotaReservation)
+            .values({
+              billingAccountId,
+              operationId,
+              entitlementDefinitionId: definitionId,
+              quantity: String(input.quantity),
+              status: 'reserved',
+              expiresAt: reservationExpiry,
+            })
+            .returning({ id: quotaReservation.id });
       if (!createdReservation?.id) throw new AttachmentQuotaError('QUOTA_UNAVAILABLE');
-      return { operationId: createdOperation.id, reservationId: createdReservation.id };
+      return { operationId, reservationId: createdReservation.id };
     });
   }
 
@@ -373,6 +452,31 @@ export class DrizzleAttachmentQuotaService {
               ),
             );
       }
+    });
+  }
+
+  async cleanupExpiredReservations(now = new Date()): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const expired = await tx
+        .update(quotaReservation)
+        .set({ status: 'released', releasedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(quotaReservation.status as never, 'reserved'),
+            lt(quotaReservation.expiresAt, now),
+          ),
+        )
+        .returning({ operationId: quotaReservation.operationId });
+      for (const row of expired)
+        await tx
+          .update(operation)
+          .set({ status: 'failed', finishedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(operation.id as never, row.operationId),
+              eq(operation.status as never, 'running'),
+            ),
+          );
     });
   }
 }

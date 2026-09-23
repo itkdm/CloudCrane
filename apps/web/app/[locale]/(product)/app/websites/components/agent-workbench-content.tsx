@@ -23,6 +23,7 @@ import {
   agentWebSocketUrl,
   command,
   uploadReference,
+  deleteAttachment,
   uploadAttachment,
   parseAgentEvent,
   parseAgentMessage,
@@ -97,11 +98,12 @@ export function AgentWorkbenchContent({
   const [runId, setRunId] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
-  const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [modelCatalog, setModelCatalog] = useState<ModelPreset[]>([]);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string>();
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
+  const attachmentUploadGenerationRef = useRef(0);
+  const removingAttachmentIdsRef = useRef(new Set<string>());
   const [error, setError] = useState<WorkbenchError | undefined>();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState>({ status: 'loading' });
@@ -550,9 +552,26 @@ export function AgentWorkbenchContent({
       setSessionSnapshotVersion(0);
       setRunIdState(undefined);
       setError(undefined);
+      if (currentSessionId && attachments.length > 0)
+        void Promise.allSettled(
+          attachments.map((attachment) =>
+            deleteAttachment(websiteId, currentSessionId, attachment.id),
+          ),
+        );
+      setAttachments([]);
+      setUploadingAttachmentNames([]);
+      attachmentUploadGenerationRef.current += 1;
       setCurrentSessionId(sessionId);
     }
-  }, [sessionId, currentSessionId, flushConversation, queueConversation, setRunIdState]);
+  }, [
+    attachments,
+    currentSessionId,
+    flushConversation,
+    queueConversation,
+    sessionId,
+    setRunIdState,
+    websiteId,
+  ]);
 
   const submitPrompt = useCallback(
     (value: string) => {
@@ -624,6 +643,7 @@ export function AgentWorkbenchContent({
         return false;
       }
       setDraft('');
+      attachmentUploadGenerationRef.current += 1;
       setAttachments([]);
       return true;
     },
@@ -634,13 +654,23 @@ export function AgentWorkbenchContent({
     if (!currentSessionId) return;
     const selectedFiles = files.slice(0, 8 - attachments.length);
     if (selectedFiles.length === 0) return;
-    setAttachmentsUploading(true);
+    const generation = ++attachmentUploadGenerationRef.current;
     setUploadingAttachmentNames(selectedFiles.map((file) => file.name));
     const uploads = selectedFiles.map((file) =>
       uploadAttachment(websiteId, currentSessionId, file),
     );
     void Promise.allSettled(uploads)
       .then((results) => {
+        if (generation !== attachmentUploadGenerationRef.current) {
+          void Promise.allSettled(
+            results.flatMap((result) =>
+              result.status === 'fulfilled'
+                ? [deleteAttachment(websiteId, currentSessionId, result.value.id)]
+                : [],
+            ),
+          );
+          return;
+        }
         const uploaded = results.flatMap((result) =>
           result.status === 'fulfilled' ? [result.value] : [],
         );
@@ -649,8 +679,7 @@ export function AgentWorkbenchContent({
           setError(toWorkbenchError('command', undefined, t('operationIncomplete')));
       })
       .finally(() => {
-        setUploadingAttachmentNames([]);
-        setAttachmentsUploading(false);
+        if (generation === attachmentUploadGenerationRef.current) setUploadingAttachmentNames([]);
       });
   }
 
@@ -1009,7 +1038,7 @@ export function AgentWorkbenchContent({
           draft={draft}
           running={Boolean(runId)}
           error={error}
-          disabled={!currentSessionId || attachmentsUploading}
+          disabled={!currentSessionId}
           manualMaintenanceItems={conversation.manualMaintenanceItems}
           manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
           manualMaintenancePending={manualMaintenancePending}
@@ -1029,9 +1058,17 @@ export function AgentWorkbenchContent({
           attachments={attachments}
           uploadingAttachmentNames={uploadingAttachmentNames}
           onAttachmentSelect={selectAttachments}
-          onAttachmentRemove={(id) =>
-            setAttachments((current) => current.filter((item) => item.id !== id))
-          }
+          onAttachmentRemove={(id) => {
+            if (!currentSessionId) return;
+            if (removingAttachmentIdsRef.current.has(id)) return;
+            removingAttachmentIdsRef.current.add(id);
+            void deleteAttachment(websiteId, currentSessionId, id)
+              .then(() => setAttachments((current) => current.filter((item) => item.id !== id)))
+              .catch((cause) =>
+                setError(toWorkbenchError('command', cause, t('operationIncomplete'))),
+              )
+              .finally(() => removingAttachmentIdsRef.current.delete(id));
+          }}
           modelProfiles={modelProfiles}
           modelCatalog={modelCatalog}
           selectedModelProfileId={selectedModelProfileId}

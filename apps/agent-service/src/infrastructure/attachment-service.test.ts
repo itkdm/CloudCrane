@@ -11,7 +11,9 @@ const row = {
 
 function dbForRemove() {
   const update = vi.fn(() => ({
-    set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    set: vi.fn(() => ({
+      where: vi.fn(() => ({ returning: vi.fn(async () => [{ id: row.id }]) })),
+    })),
   }));
   return {
     db: {

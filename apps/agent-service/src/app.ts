@@ -291,38 +291,120 @@ export function buildAgentServiceApp(
     '/v1/websites/:websiteId/sessions/:sessionId/attachments',
     { bodyLimit: (options.config.attachmentMaxBytes ?? 20 * 1024 * 1024) + 1024 * 1024 },
     async (request, reply) => {
-      if (!attachmentService || !options.auth)
-        throw new AgentServiceError('INTERNAL_ERROR', 'attachment storage is unavailable', 503);
-      if (!isUuid(request.params.websiteId) || !isUuid(request.params.sessionId))
-        throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment parameters', 400);
-      const idempotencyKey = request.headers['idempotency-key'];
-      if (typeof idempotencyKey !== 'string' || !idempotencyKey || idempotencyKey.length > 255)
-        throw new AgentServiceError(
-          'INVALID_ARGUMENT',
-          'idempotency-key header is required for attachment upload',
-          400,
-        );
-      const session = await requireSession(options.auth, headersFromNode(request.headers));
       let result: Awaited<ReturnType<ConversationAttachmentService['upload']>> | undefined;
-      for await (const part of request.parts()) {
-        if (part.type !== 'file' || part.fieldname !== 'file' || result) {
-          if (result) await attachmentService.remove(result.id, session.user.id);
+      let uploadUserId: string | undefined;
+      try {
+        if (!attachmentService || !options.auth)
+          throw new AgentServiceError('INTERNAL_ERROR', 'attachment storage is unavailable', 503);
+        if (!isUuid(request.params.websiteId) || !isUuid(request.params.sessionId))
+          throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment parameters', 400);
+        const idempotencyKeyHeader = request.headers['idempotency-key'];
+        const idempotencyKey =
+          typeof idempotencyKeyHeader === 'string' ? idempotencyKeyHeader.trim() : '';
+        if (!idempotencyKey || idempotencyKey.length > 255)
+          throw new AgentServiceError(
+            'INVALID_ARGUMENT',
+            'idempotency-key header is required for attachment upload',
+            400,
+          );
+        const contentSha256Header = request.headers['x-attachment-sha256'];
+        const contentSha256 =
+          typeof contentSha256Header === 'string' ? contentSha256Header.trim().toLowerCase() : '';
+        if (!/^[a-f0-9]{64}$/.test(contentSha256))
+          throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment checksum', 400);
+        const session = await requireSession(options.auth, headersFromNode(request.headers));
+        uploadUserId = session.user.id;
+        if (!options.db)
+          throw new AgentServiceError('INTERNAL_ERROR', 'database is unavailable', 503);
+        await assertWebsiteAccessForUser(
+          options.db,
+          session.user.id,
+          getUserRole(session),
+          request.params.websiteId,
+        );
+        let multipartInvalid = false;
+        for await (const part of request.parts()) {
+          if (part.type !== 'file' || part.fieldname !== 'file' || result) {
+            multipartInvalid = true;
+            if (part.type === 'file') part.file.resume();
+            continue;
+          }
+          result = await attachmentService.upload({
+            userId: session.user.id,
+            websiteId: request.params.websiteId,
+            sessionId: request.params.sessionId,
+            idempotencyKey,
+            contentSha256,
+            part,
+          });
+        }
+        if (multipartInvalid) {
+          if (result?.created)
+            await attachmentService
+              .remove(
+                result.id,
+                session.user.id,
+                request.params.websiteId,
+                request.params.sessionId,
+              )
+              .catch(() => undefined);
           throw new AgentServiceError(
             'INVALID_ARGUMENT',
             'exactly one file field is required',
             400,
           );
         }
-        result = await attachmentService.upload({
-          userId: session.user.id,
-          websiteId: request.params.websiteId,
-          sessionId: request.params.sessionId,
-          idempotencyKey,
-          part,
-        });
+        if (!result) throw new AgentServiceError('INVALID_ARGUMENT', 'file field is required', 400);
+        const response = {
+          id: result.id,
+          kind: result.kind,
+          name: result.name,
+          mimeType: result.mimeType,
+          size: result.size,
+          sha256: result.sha256,
+        };
+        return reply.code(201).send(response);
+      } catch (error) {
+        request.raw.resume();
+        if (result?.created && uploadUserId && attachmentService)
+          await attachmentService
+            .remove(result.id, uploadUserId, request.params.websiteId, request.params.sessionId)
+            .catch(() => undefined);
+        throw error;
       }
-      if (!result) throw new AgentServiceError('INVALID_ARGUMENT', 'file field is required', 400);
-      return reply.code(201).send(result);
+    },
+  );
+  app.delete<{
+    Params: { websiteId: string; sessionId: string; attachmentId: string };
+  }>(
+    '/v1/websites/:websiteId/sessions/:sessionId/attachments/:attachmentId',
+    async (request, reply) => {
+      if (!attachmentService || !options.auth)
+        throw new AgentServiceError('INTERNAL_ERROR', 'attachment storage is unavailable', 503);
+      if (
+        !isUuid(request.params.websiteId) ||
+        !isUuid(request.params.sessionId) ||
+        !isUuid(request.params.attachmentId)
+      )
+        throw new AgentServiceError('INVALID_ARGUMENT', 'invalid attachment parameters', 400);
+      const session = await requireSession(options.auth, headersFromNode(request.headers));
+      const actorRole = getUserRole(session);
+      if (!options.db)
+        throw new AgentServiceError('INTERNAL_ERROR', 'database is unavailable', 503);
+      await assertWebsiteAccessForUser(
+        options.db,
+        session.user.id,
+        actorRole,
+        request.params.websiteId,
+      );
+      await attachmentService.remove(
+        request.params.attachmentId,
+        session.user.id,
+        request.params.websiteId,
+        request.params.sessionId,
+        actorRole === 'admin',
+      );
+      return reply.code(204).send();
     },
   );
   app.post<{
