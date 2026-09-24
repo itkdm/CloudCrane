@@ -55,6 +55,7 @@ type SessionChange =
     };
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'cloudcrane.sidebar.collapsed';
+const SESSION_PAGE_SIZE = 50;
 
 function readSidebarCollapsedPreference(): boolean {
   if (typeof window === 'undefined') return false;
@@ -79,6 +80,17 @@ type GroupedSessions = {
   status: string;
   previewUrl?: string;
   sessions: Session[];
+  sessionsLoaded: boolean;
+  sessionsLoading: boolean;
+  sessionsError: boolean;
+  nextSessionOffset: number | null;
+};
+
+type SessionListState = {
+  loaded: boolean;
+  loading: boolean;
+  error: boolean;
+  nextOffset: number | null;
 };
 
 export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialState }) {
@@ -92,7 +104,11 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   );
   const [websites, setWebsites] = useState<Website[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionListStates, setSessionListStates] = useState<Record<string, SessionListState>>({});
   const loadRequestRef = useRef(0);
+  const loadedSessionWebsitesRef = useRef(new Set<string>());
+  const nextSessionOffsetsRef = useRef(new Map<string, number | null>());
+  const sessionRequestsRef = useRef(new Map<string, Promise<void>>());
   const deletedSessionIdsRef = useRef(new Set<string>());
   const [createWebsiteOpen, setCreateWebsiteOpen] = useState(false);
   const [selectedTemplateForCreate, setSelectedTemplateForCreate] =
@@ -125,9 +141,93 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     setSidebarCollapsed((current) => (current === storedPreference ? current : storedPreference));
   }, []);
 
+  const loadWebsiteSessions = useCallback(async (websiteId: string, append = false) => {
+    if (append && !loadedSessionWebsitesRef.current.has(websiteId)) return;
+    if (!append && loadedSessionWebsitesRef.current.has(websiteId)) return;
+    const offset = append ? nextSessionOffsetsRef.current.get(websiteId) : 0;
+    if (offset === undefined || offset === null) return;
+    const requestKey = `${websiteId}:${offset}`;
+    const existingRequest = sessionRequestsRef.current.get(requestKey);
+    if (existingRequest) return existingRequest;
+
+    const requestGeneration = loadRequestRef.current;
+    setSessionListStates((current) => ({
+      ...current,
+      [websiteId]: {
+        ...current[websiteId],
+        loaded: current[websiteId]?.loaded ?? false,
+        loading: true,
+        error: false,
+        nextOffset: current[websiteId]?.nextOffset ?? null,
+      },
+    }));
+    const request = (async () => {
+      try {
+        const result = await listAgentSessions(websiteId, { limit: SESSION_PAGE_SIZE, offset });
+        if (requestGeneration !== loadRequestRef.current) return;
+        const page = result.sessions.map((session) => ({
+          ...session,
+          websiteId,
+          title: session.title ?? undefined,
+          pinnedAt: session.pinnedAt,
+          clonedFromSessionId: session.clonedFromSessionId,
+          lastActiveAt: session.lastActiveAt,
+        }));
+        setSessions((current) => {
+          const base = current.filter((session) => !deletedSessionIdsRef.current.has(session.id));
+          const availablePage = page.filter(
+            (session) => !deletedSessionIdsRef.current.has(session.id),
+          );
+          const ids = new Set(base.map((session) => session.id));
+          if (append) return [...base, ...availablePage.filter((session) => !ids.has(session.id))];
+
+          const pageIds = new Set(availablePage.map((session) => session.id));
+          const concurrentSessions = base.filter(
+            (session) => session.websiteId === websiteId && !pageIds.has(session.id),
+          );
+          const otherWebsites = base.filter((session) => session.websiteId !== websiteId);
+          return [...availablePage, ...concurrentSessions, ...otherWebsites];
+        });
+        loadedSessionWebsitesRef.current.add(websiteId);
+        nextSessionOffsetsRef.current.set(websiteId, result.nextOffset ?? null);
+        setSessionListStates((current) => ({
+          ...current,
+          [websiteId]: {
+            loaded: true,
+            loading: false,
+            error: false,
+            nextOffset: result.nextOffset ?? null,
+          },
+        }));
+      } catch {
+        if (requestGeneration !== loadRequestRef.current) return;
+        setSessionListStates((current) => ({
+          ...current,
+          [websiteId]: {
+            loaded: current[websiteId]?.loaded ?? false,
+            loading: false,
+            error: true,
+            nextOffset: current[websiteId]?.nextOffset ?? null,
+          },
+        }));
+      }
+    })();
+    sessionRequestsRef.current.set(requestKey, request);
+    try {
+      await request;
+    } finally {
+      if (sessionRequestsRef.current.get(requestKey) === request)
+        sessionRequestsRef.current.delete(requestKey);
+    }
+  }, []);
+
   const loadWebsites = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     deletedSessionIdsRef.current.clear();
+    loadedSessionWebsitesRef.current.clear();
+    nextSessionOffsetsRef.current.clear();
+    sessionRequestsRef.current.clear();
+    setSessionListStates({});
     setWebsiteLoadState('loading');
     setWebsiteLoadError('');
     try {
@@ -138,42 +238,6 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
       setWebsites(websitesData);
       setSessions([]);
       setWebsiteLoadState('success');
-
-      const sessionResults = await Promise.allSettled(
-        websitesData.filter(canEnterWorkspace).map(async (website) => {
-          const result = await listAgentSessions(website.id);
-          return result.sessions.map((session) => ({
-            ...session,
-            websiteId: website.id,
-            title: session.title ?? undefined,
-            pinnedAt: session.pinnedAt,
-            clonedFromSessionId: session.clonedFromSessionId,
-            lastActiveAt: session.lastActiveAt,
-          }));
-        }),
-      );
-      if (requestId !== loadRequestRef.current) return;
-      const loadedSessions = sessionResults.flatMap((result) =>
-        result.status === 'fulfilled' ? result.value : [],
-      );
-      setSessions((current) => {
-        const deletedSessionIds = deletedSessionIdsRef.current;
-        const visibleLoadedSessions = loadedSessions.filter(
-          (session) => !deletedSessionIds.has(session.id),
-        );
-        const currentById = new Map(current.map((session) => [session.id, session]));
-        const loadedIds = new Set(visibleLoadedSessions.map((session) => session.id));
-        const merged = visibleLoadedSessions.map((session) => ({
-          ...session,
-          ...currentById.get(session.id),
-        }));
-        return [
-          ...merged,
-          ...current.filter(
-            (session) => !loadedIds.has(session.id) && !deletedSessionIds.has(session.id),
-          ),
-        ];
-      });
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
       setWebsites([]);
@@ -208,8 +272,19 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
     if (!canEnterWorkspace(website)) {
       setSelectedSession(null);
       setSettingsWebsiteId(selectedWebsite);
+      return;
     }
-  }, [selectedWebsite, websiteLoadState, websites]);
+    if (view === 'websites') void loadWebsiteSessions(selectedWebsite);
+  }, [loadWebsiteSessions, selectedWebsite, view, websiteLoadState, websites]);
+
+  useEffect(() => {
+    if (view !== 'websites' || !selectedWebsite || !selectedSession) return;
+    if (sessions.some((session) => session.id === selectedSession)) return;
+    const pageState = sessionListStates[selectedWebsite];
+    if (!pageState?.loaded || pageState.loading || pageState.error || pageState.nextOffset === null)
+      return;
+    void loadWebsiteSessions(selectedWebsite, true);
+  }, [loadWebsiteSessions, selectedSession, selectedWebsite, sessionListStates, sessions, view]);
 
   const groupedSessions = useMemo<GroupedSessions[]>(
     () =>
@@ -218,11 +293,15 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         websiteName: website.name,
         status: website.status,
         previewUrl: website.previewUrl,
+        sessionsLoaded: sessionListStates[website.id]?.loaded ?? false,
+        sessionsLoading: sessionListStates[website.id]?.loading ?? false,
+        sessionsError: sessionListStates[website.id]?.error ?? false,
+        nextSessionOffset: sessionListStates[website.id]?.nextOffset ?? null,
         sessions: sessions
           .filter((s) => s.websiteId === website.id)
           .sort(compareSessionsByActivity),
       })),
-    [sessions, websites],
+    [sessionListStates, sessions, websites],
   );
 
   function mergeSession(websiteId: string, next: AgentSession): void {
@@ -529,7 +608,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
         websiteLoadState={websiteLoadState}
         websiteLoadError={websiteLoadError}
         groupedSessions={groupedSessions}
+        selectedWebsiteId={selectedWebsite}
         selectedSession={selectedSession}
+        onGroupToggle={(websiteId, expanded) => {
+          if (expanded) void loadWebsiteSessions(websiteId);
+        }}
+        onLoadSessions={(websiteId) => void loadWebsiteSessions(websiteId)}
+        onLoadMoreSessions={(websiteId) => void loadWebsiteSessions(websiteId, true)}
         onCollapsedChange={handleSidebarCollapsedChange}
         onViewChange={handleViewChange}
         onSessionSelect={handleSessionSelect}

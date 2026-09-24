@@ -100,6 +100,7 @@ export function AgentWorkbenchContent({
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([]);
   const [modelCatalog, setModelCatalog] = useState<ModelPreset[]>([]);
+  const [modelDataLoaded, setModelDataLoaded] = useState(false);
   const [selectedModelProfileId, setSelectedModelProfileId] = useState<string>();
   const [uploadingAttachmentNames, setUploadingAttachmentNames] = useState<string[]>([]);
   const attachmentUploadGenerationRef = useRef(0);
@@ -118,21 +119,31 @@ export function AgentWorkbenchContent({
   const [isResizingPreview, setIsResizingPreview] = useState(false);
 
   useEffect(() => {
+    let active = true;
     void Promise.all([listModelProfiles(), listModelCatalog()])
       .then(([{ profiles }, { presets }]) => {
+        if (!active) return;
         setModelProfiles(profiles);
         setModelCatalog(presets);
-        const storageKey = `cloudcrane:selected-model-profile:${websiteId}`;
-        const storedProfileId = window.localStorage.getItem(storageKey);
-        const selectedProfileId =
-          storedProfileId && profiles.some((profile) => profile.id === storedProfileId)
-            ? storedProfileId
-            : (profiles.find((profile) => profile.isDefault)?.id ?? profiles[0]?.id);
-        setSelectedModelProfileId(selectedProfileId);
-        if (selectedProfileId) window.localStorage.setItem(storageKey, selectedProfileId);
+        setModelDataLoaded(true);
       })
       .catch(() => undefined);
-  }, [websiteId]);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!modelDataLoaded) return;
+    const storageKey = `cloudcrane:selected-model-profile:${websiteId}`;
+    const storedProfileId = window.localStorage.getItem(storageKey);
+    const selectedProfileId =
+      storedProfileId && modelProfiles.some((profile) => profile.id === storedProfileId)
+        ? storedProfileId
+        : (modelProfiles.find((profile) => profile.isDefault)?.id ?? modelProfiles[0]?.id);
+    setSelectedModelProfileId(selectedProfileId);
+    if (selectedProfileId) window.localStorage.setItem(storageKey, selectedProfileId);
+  }, [modelDataLoaded, modelProfiles, websiteId]);
 
   function selectModelProfile(profileId: string) {
     setSelectedModelProfileId(profileId);

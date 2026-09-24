@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { createHash } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { signPreviewToken } from '@cloudcrane/preview-access';
 import { buildPreviewGatewayApp, PREVIEW_SHARE_COOKIE } from './app.js';
 import type { PreviewGatewayConfig } from './config.js';
@@ -170,7 +170,7 @@ describe('Preview Gateway', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/products?share=' + shareToken,
-      headers: { host: 'abc123def456.localhost:4103' },
+      headers: { host: 'abc123def456.localhost:4103', accept: 'text/html' },
     });
     expect(response.statusCode).toBe(302);
     expect(response.headers.location).toBe('/products');
@@ -181,6 +181,44 @@ describe('Preview Gateway', () => {
     expect(cookieHeader).toContain(`${PREVIEW_SHARE_COOKIE}=`);
     expect(lookedUpHash).toBe(createHash('sha256').update(shareToken).digest('hex'));
     expect(recorded).toBe(1);
+    await app.close();
+  });
+
+  it('does not increment share access for static preview resources', async () => {
+    const shareToken = 'share-token';
+    const recordShareAccess = vi.fn(async () => ({
+      id: '00000000-0000-4000-8000-000000000002',
+      websiteId,
+      expiresAt: new Date(Date.now() + 60_000),
+    }));
+    const app = buildPreviewGatewayApp(config, {
+      findByPreviewSlug: async () => ({
+        websiteId,
+        websiteStatus: 'active',
+        workspaceStatus: 'running',
+        previewPort: 1,
+      }),
+      findShareByTokenHash: async () => ({
+        id: '00000000-0000-4000-8000-000000000002',
+        websiteId,
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+      recordShareAccess,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/assets/site.css',
+      headers: {
+        host: 'abc123def456.localhost:4103',
+        cookie: `${PREVIEW_SHARE_COOKIE}=${shareToken}`,
+        accept: 'text/css,*/*;q=0.1',
+        'sec-fetch-dest': 'style',
+      },
+    });
+
+    expect(recordShareAccess).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(502);
     await app.close();
   });
 

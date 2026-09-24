@@ -36,6 +36,10 @@ function createRuntime() {
   return {
     session,
     listSessions: vi.fn(async () => [session]),
+    listSessionsPage: vi.fn(async (limit: number, offset: number) => ({
+      sessions: [session].slice(offset, offset + limit),
+      hasMore: offset + limit < 3,
+    })),
     createSession: vi.fn(async () => session),
     renameSession: vi.fn(async (_id: string, title: string) => ({ ...session, title })),
     setSessionPinned: vi.fn(async (_id: string, pinned: boolean) => ({
@@ -82,6 +86,35 @@ function createApp(runtime: WebsiteAgentRuntime) {
 }
 
 describe('session management REST endpoints', () => {
+  it('returns bounded session pages and a continuation offset', async () => {
+    const runtime = createRuntime();
+    const app = createApp(runtime);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/websites/${websiteId}/sessions?limit=1&offset=1`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ sessions: [], nextOffset: 2 });
+    expect(runtime.listSessionsPage).toHaveBeenCalledWith(1, 1);
+    await app.close();
+  });
+
+  it('rejects invalid session page parameters', async () => {
+    const runtime = createRuntime();
+    const app = createApp(runtime);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/websites/${websiteId}/sessions?limit=-1`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(runtime.listSessionsPage).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('routes rename, pin, clone, and delete through the runtime boundary', async () => {
     const runtime = createRuntime();
     const app = createApp(runtime);

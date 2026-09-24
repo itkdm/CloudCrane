@@ -92,7 +92,7 @@ export function buildAgentServiceApp(
             logger.warn({ ...serializeError(error) }, 'attachment cleanup failed');
           });
         },
-        60 * 60 * 1000,
+        15 * 60 * 1000,
       )
     : undefined;
   const requestStarts = new WeakMap<object, number>();
@@ -558,13 +558,28 @@ export function buildAgentServiceApp(
       .replace('{websiteId}', binding.websiteId);
     return { url: `${origin.replace(/\/$/, '')}/?token=${encodeURIComponent(token)}`, expiresAt };
   });
-  app.get<{ Params: { websiteId: string } }>(
-    '/v1/websites/:websiteId/sessions',
-    async (request) => {
-      const runtime = await getRuntime(options.registry, request.params.websiteId);
-      return { sessions: (await runtime.listSessions()).map(toSessionView) };
-    },
-  );
+  app.get<{
+    Params: { websiteId: string };
+    Querystring: { limit?: string; offset?: string };
+  }>('/v1/websites/:websiteId/sessions', async (request) => {
+    const requestedLimit = Number(request.query.limit ?? 50);
+    const requestedOffset = Number(request.query.offset ?? 0);
+    if (
+      !Number.isInteger(requestedLimit) ||
+      requestedLimit < 1 ||
+      !Number.isInteger(requestedOffset) ||
+      requestedOffset < 0 ||
+      requestedOffset > 1_000_000
+    )
+      throw new AgentServiceError('INVALID_ARGUMENT', 'invalid session page', 400);
+    const limit = Math.min(requestedLimit, 100);
+    const runtime = await getRuntime(options.registry, request.params.websiteId);
+    const page = await runtime.listSessionsPage(limit, requestedOffset);
+    return {
+      sessions: page.sessions.map(toSessionView),
+      nextOffset: page.hasMore ? requestedOffset + limit : null,
+    };
+  });
   app.post<{ Params: { websiteId: string } }>(
     '/v1/websites/:websiteId/sessions',
     async (request) => {

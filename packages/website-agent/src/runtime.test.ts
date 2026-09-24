@@ -39,21 +39,13 @@ async function missingReferenceStat({ path: remotePath }: { path: string }) {
 describe('WebsiteAgentRuntime', () => {
   it('removes the Pi session file when metadata creation fails', async () => {
     const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-session-create-failure-'));
-    const sessionFile = path.join(
-      dataRoot,
-      websiteId,
-      'agent',
-      'sessions',
-      'session.jsonl',
-    );
+    const sessionFile = path.join(dataRoot, websiteId, 'agent', 'sessions', 'session.jsonl');
     await mkdir(path.dirname(sessionFile), { recursive: true });
     await writeFile(sessionFile, 'session metadata');
-    const create = vi
-      .spyOn(SessionManager, 'create')
-      .mockReturnValue({
-        getSessionFile: () => sessionFile,
-        getSessionId: () => 'pi-session-failure',
-      } as never);
+    const create = vi.spyOn(SessionManager, 'create').mockReturnValue({
+      getSessionFile: () => sessionFile,
+      getSessionId: () => 'pi-session-failure',
+    } as never);
     const modelRuntime = await ModelRuntime.create({
       modelsPath: null,
       allowModelNetwork: false,
@@ -632,18 +624,29 @@ describe('WebsiteAgentRuntime', () => {
     let description = 'Use dark green buttons and verify Preview.';
     let failSkillRefresh = false;
     let skillMode: 'normal' | 'oversized' | 'symlink' = 'normal';
+    let activeSkillReads = 0;
+    let peakSkillReads = 0;
     const client = {
       fs: {
-        read: vi.fn(async ({ path: remotePath }: { path: string }) => ({
-          content: remotePath.endsWith('AGENTS.md')
-            ? ''
-            : remotePath.includes('template-publish')
-              ? '---\nname: template-publish\ndescription: Publish the current Website as an immutable template.\n---\n# Template Publish\n'
-              : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
-          sha256: '1'.repeat(64),
-          size: skillMode === 'oversized' ? 262_145 : 128,
-          truncated: false,
-        })),
+        read: vi.fn(async ({ path: remotePath }: { path: string }) => {
+          activeSkillReads += 1;
+          peakSkillReads = Math.max(peakSkillReads, activeSkillReads);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          try {
+            return {
+              content: remotePath.endsWith('AGENTS.md')
+                ? ''
+                : remotePath.includes('template-publish')
+                  ? '---\nname: template-publish\ndescription: Publish the current Website as an immutable template.\n---\n# Template Publish\n'
+                  : `---\nname: frontend-design\ndescription: ${description}\n---\n# Frontend Design\n`,
+              sha256: '1'.repeat(64),
+              size: skillMode === 'oversized' ? 262_145 : 128,
+              truncated: false,
+            };
+          } finally {
+            activeSkillReads -= 1;
+          }
+        }),
         list: vi.fn(async ({ path: remotePath }: { path: string }) => {
           if (failSkillRefresh) throw new Error('temporary workspace listing failure');
           return {
@@ -746,6 +749,8 @@ describe('WebsiteAgentRuntime', () => {
     expect(firstPrompt).toContain('The writable target is `/workspace`.');
 
     expect(firstPrompt).toContain('Publish the current Website as an immutable template.');
+    expect(peakSkillReads).toBeGreaterThan(1);
+    expect(peakSkillReads).toBeLessThanOrEqual(8);
     description = 'Use dark blue buttons and verify Preview.';
     await runtime.prompt(session.id, 'design the page again');
     const secondPrompt = await runtime.getSystemPrompt(session.id);

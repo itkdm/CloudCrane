@@ -57,8 +57,30 @@ const REMOTE_SKILL_FILE_MAX_BYTES = 262_144;
 const REMOTE_SKILLS_TOTAL_MAX_BYTES = 2_097_152;
 const REMOTE_SKILLS_MAX_FILES = 256;
 const REMOTE_SKILLS_MAX_DEPTH = 8;
+const REMOTE_SKILLS_MAX_DIRECTORIES = 512;
+const REMOTE_SKILLS_IO_CONCURRENCY = 8;
 const MAX_TURN_INDEX = 1_000_000;
 const logger = createLogger('website-agent');
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index]!, index);
+      }
+    }),
+  );
+  return results;
+}
 
 function sameContextUsage(
   left: ContextUsageState | null | undefined,
@@ -129,10 +151,12 @@ export type AgentRunIndex = {
 
 export type CreateSessionIndex = Omit<WebsiteSessionIndex, 'id' | 'createdAt' | 'updatedAt'>;
 export type CreateRunIndex = Omit<AgentRunIndex, 'id'> & { id?: string };
+export type WebsiteSessionPage = { sessions: WebsiteSessionIndex[]; hasMore: boolean };
 
 export interface WebsiteAgentStore {
   findSession(websiteId: string, websiteSessionId: string): Promise<WebsiteSessionIndex | null>;
   listSessions(websiteId: string): Promise<WebsiteSessionIndex[]>;
+  listSessionsPage?(websiteId: string, limit: number, offset: number): Promise<WebsiteSessionPage>;
   createSession(input: CreateSessionIndex): Promise<WebsiteSessionIndex>;
   updateSession(websiteSessionId: string, patch: Partial<WebsiteSessionIndex>): Promise<void>;
   deleteSession(websiteId: string, websiteSessionId: string): Promise<void>;
@@ -608,6 +632,16 @@ export class WebsiteAgentRuntime {
 
   async listSessions(): Promise<WebsiteSessionIndex[]> {
     return this.options.store.listSessions(this.options.websiteId);
+  }
+
+  async listSessionsPage(limit: number, offset: number): Promise<WebsiteSessionPage> {
+    if (this.options.store.listSessionsPage)
+      return this.options.store.listSessionsPage(this.options.websiteId, limit, offset);
+    const sessions = await this.listSessions();
+    return {
+      sessions: sessions.slice(offset, offset + limit),
+      hasMore: offset + limit < sessions.length,
+    };
   }
 
   async getSessionSnapshot(websiteSessionId: string): Promise<WebsiteAgentSessionSnapshot> {
@@ -1642,41 +1676,51 @@ export class WebsiteAgentRuntime {
         eligibleFiles.push(file);
       }
       await mkdir(stagingDir, { recursive: true });
-      for (const file of eligibleFiles) {
-        let result;
-        try {
-          result = await this.workspaceClient.fs.read({
-            path: file.remotePath,
-            maxBytes: REMOTE_SKILL_FILE_MAX_BYTES,
-          });
-        } catch {
-          skippedFiles++;
-          incompleteRefresh = true;
-          logger.warn(
-            { websiteId: this.options.websiteId, path: file.relativePath },
-            'remote skill file could not be read; skipping',
+      for (let offset = 0; offset < eligibleFiles.length; offset += REMOTE_SKILLS_IO_CONCURRENCY) {
+        const batch = eligibleFiles.slice(offset, offset + REMOTE_SKILLS_IO_CONCURRENCY);
+        const readResults = await Promise.all(
+          batch.map(async (file) => {
+            try {
+              return {
+                file,
+                result: await this.workspaceClient.fs.read({
+                  path: file.remotePath,
+                  maxBytes: REMOTE_SKILL_FILE_MAX_BYTES,
+                }),
+              };
+            } catch {
+              skippedFiles++;
+              incompleteRefresh = true;
+              logger.warn(
+                { websiteId: this.options.websiteId, path: file.relativePath },
+                'remote skill file could not be read; skipping',
+              );
+              return { file, result: undefined };
+            }
+          }),
+        );
+        const writes: Promise<void>[] = [];
+        for (const { file, result } of readResults) {
+          if (!result || result.truncated || result.size > REMOTE_SKILL_FILE_MAX_BYTES) {
+            if (result) skippedFiles++;
+            incompleteRefresh = true;
+            continue;
+          }
+          totalBytes += result.size - file.size;
+          if (totalBytes > REMOTE_SKILLS_TOTAL_MAX_BYTES) {
+            skippedFiles++;
+            incompleteRefresh = true;
+            continue;
+          }
+          const localPath = path.join(stagingDir, ...file.relativePath.split('/'));
+          writes.push(
+            (async () => {
+              await mkdir(path.dirname(localPath), { recursive: true });
+              await writeFile(localPath, result.content, 'utf8');
+            })(),
           );
-          continue;
         }
-        if (result.truncated) {
-          skippedFiles++;
-          incompleteRefresh = true;
-          continue;
-        }
-        if (result.size > REMOTE_SKILL_FILE_MAX_BYTES) {
-          skippedFiles++;
-          incompleteRefresh = true;
-          continue;
-        }
-        totalBytes += result.size - file.size;
-        if (totalBytes > REMOTE_SKILLS_TOTAL_MAX_BYTES) {
-          skippedFiles++;
-          incompleteRefresh = true;
-          continue;
-        }
-        const localPath = path.join(stagingDir, ...file.relativePath.split('/'));
-        await mkdir(path.dirname(localPath), { recursive: true });
-        await writeFile(localPath, result.content, 'utf8');
+        await Promise.all(writes);
       }
       if (incompleteRefresh) throw new Error('remote skill mirror would be incomplete');
       try {
@@ -1729,28 +1773,53 @@ export class WebsiteAgentRuntime {
     relativeDir: string,
     files: Array<{ remotePath: string; relativePath: string; size: number }>,
   ): Promise<void> {
-    const depth = relativeDir ? relativeDir.split('/').length : 0;
-    if (depth > REMOTE_SKILLS_MAX_DEPTH)
-      throw new Error('remote skill directory exceeds the maximum depth');
-    const result = await this.workspaceClient.fs.list({ path: remoteDir });
-    for (const entry of result.entries) {
-      const prefix = remoteDir.endsWith('/') ? remoteDir : `${remoteDir}/`;
-      if (!entry.path.startsWith(prefix))
-        throw new Error(`invalid remote skill path: ${entry.path}`);
-      const name = entry.path.slice(prefix.length);
-      if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..')
-        throw new Error(`invalid remote skill path: ${entry.path}`);
-      const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
-      if (entry.type === 'directory') {
-        await this.collectRemoteSkillFiles(entry.path, relativePath, files);
-      } else if (entry.type === 'symlink') {
-        throw new Error(`remote skill path is a symlink: ${relativePath}`);
-      } else if (entry.type === 'file') {
-        if (files.length >= REMOTE_SKILLS_MAX_FILES)
-          throw new Error('remote skills exceed the maximum file count');
-        files.push({ remotePath: entry.path, relativePath, size: entry.size });
-      }
+    let frontier = [{ remoteDir, relativeDir }];
+    let directoryCount = 1;
+    while (frontier.length > 0) {
+      const descendants = await mapWithConcurrency(
+        frontier,
+        REMOTE_SKILLS_IO_CONCURRENCY,
+        async (directory) => {
+          const depth = directory.relativeDir ? directory.relativeDir.split('/').length : 0;
+          if (depth > REMOTE_SKILLS_MAX_DEPTH)
+            throw new Error('remote skill directory exceeds the maximum depth');
+          const result = await this.workspaceClient.fs.list({ path: directory.remoteDir });
+          const prefix = directory.remoteDir.endsWith('/')
+            ? directory.remoteDir
+            : `${directory.remoteDir}/`;
+          const childDirectories: Array<{ remoteDir: string; relativeDir: string }> = [];
+          for (const entry of result.entries) {
+            if (!entry.path.startsWith(prefix))
+              throw new Error(`invalid remote skill path: ${entry.path}`);
+            const name = entry.path.slice(prefix.length);
+            if (!name || name.includes('/') || name.includes('\\') || name === '.' || name === '..')
+              throw new Error(`invalid remote skill path: ${entry.path}`);
+            const childRelativeDir = directory.relativeDir
+              ? `${directory.relativeDir}/${name}`
+              : name;
+            if (entry.type === 'directory') {
+              directoryCount += 1;
+              if (directoryCount > REMOTE_SKILLS_MAX_DIRECTORIES)
+                throw new Error('remote skills exceed the maximum directory count');
+              childDirectories.push({ remoteDir: entry.path, relativeDir: childRelativeDir });
+            } else if (entry.type === 'symlink') {
+              throw new Error(`remote skill path is a symlink: ${childRelativeDir}`);
+            } else if (entry.type === 'file') {
+              if (files.length >= REMOTE_SKILLS_MAX_FILES)
+                throw new Error('remote skills exceed the maximum file count');
+              files.push({
+                remotePath: entry.path,
+                relativePath: childRelativeDir,
+                size: entry.size,
+              });
+            }
+          }
+          return childDirectories;
+        },
+      );
+      frontier = descendants.flat();
     }
+    files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   }
 
   private async openOrRecreateSession(record: WebsiteSessionIndex): Promise<SessionManager> {
@@ -1811,6 +1880,13 @@ export function createInMemoryWebsiteAgentStore(): WebsiteAgentStore {
           );
         })
         .map((session) => ({ ...session }));
+    },
+    async listSessionsPage(websiteId, limit, offset) {
+      const sessions = await this.listSessions(websiteId);
+      return {
+        sessions: sessions.slice(offset, offset + limit),
+        hasMore: offset + limit < sessions.length,
+      };
     },
     async createSession(input) {
       const now = new Date().toISOString();

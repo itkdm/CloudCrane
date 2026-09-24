@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import {
   entitlementDefinition,
   entitlementGrant,
@@ -467,16 +467,16 @@ export class DrizzleAttachmentQuotaService {
           ),
         )
         .returning({ operationId: quotaReservation.operationId });
-      for (const row of expired)
+      const operationIds = [...new Set(expired.map((row) => row.operationId))];
+      for (let offset = 0; offset < operationIds.length; offset += 500) {
+        const batch = operationIds.slice(offset, offset + 500);
         await tx
           .update(operation)
           .set({ status: 'failed', finishedAt: now, updatedAt: now })
           .where(
-            and(
-              eq(operation.id as never, row.operationId),
-              eq(operation.status as never, 'running'),
-            ),
+            and(inArray(operation.id as never, batch), eq(operation.status as never, 'running')),
           );
+      }
     });
   }
 }

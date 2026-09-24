@@ -38,6 +38,10 @@ type GroupedSessions = {
   status: string;
   previewUrl?: string;
   sessions: Session[];
+  sessionsLoaded: boolean;
+  sessionsLoading: boolean;
+  sessionsError: boolean;
+  nextSessionOffset: number | null;
 };
 
 type SessionDialogTarget = {
@@ -52,7 +56,11 @@ type UnifiedSidebarProps = {
   websiteLoadState: 'loading' | 'success' | 'error';
   websiteLoadError: string;
   groupedSessions: GroupedSessions[];
+  selectedWebsiteId: string | null;
   selectedSession: string | null;
+  onGroupToggle: (websiteId: string, expanded: boolean) => void;
+  onLoadSessions: (websiteId: string) => void;
+  onLoadMoreSessions: (websiteId: string) => void;
   onCollapsedChange: (collapsed: boolean) => void;
   onViewChange: (view: WorkspaceView) => void;
   onSessionSelect: (websiteId: string, sessionId: string) => void;
@@ -72,7 +80,11 @@ export function UnifiedSidebar({
   websiteLoadState,
   websiteLoadError,
   groupedSessions,
+  selectedWebsiteId,
   selectedSession,
+  onGroupToggle,
+  onLoadSessions,
+  onLoadMoreSessions,
   onCollapsedChange,
   onViewChange,
   onSessionSelect,
@@ -176,12 +188,19 @@ export function UnifiedSidebar({
       for (const group of groupedSessions) {
         if (!(group.websiteId in current)) {
           next ??= { ...current };
-          next[group.websiteId] = true;
+          next[group.websiteId] = group.websiteId === selectedWebsiteId;
         }
       }
       return next ?? current;
     });
-  }, [groupedSessions]);
+  }, [groupedSessions, selectedWebsiteId]);
+
+  useEffect(() => {
+    if (!selectedWebsiteId) return;
+    setExpandedGroups((current) =>
+      current[selectedWebsiteId] === true ? current : { ...current, [selectedWebsiteId]: true },
+    );
+  }, [selectedWebsiteId]);
 
   useEffect(() => {
     const selectedGroup = groupedSessions.find((group) =>
@@ -196,7 +215,9 @@ export function UnifiedSidebar({
   }, [groupedSessions, selectedSession]);
 
   function toggleGroup(websiteId: string) {
-    setExpandedGroups((current) => ({ ...current, [websiteId]: !current[websiteId] }));
+    const expanded = !(expandedGroups[websiteId] ?? false);
+    setExpandedGroups((current) => ({ ...current, [websiteId]: expanded }));
+    onGroupToggle(websiteId, expanded);
   }
 
   function toggleSessionList(websiteId: string) {
@@ -304,7 +325,7 @@ export function UnifiedSidebar({
                 : group.sessions.filter(
                     (session, index) => index < 5 || session.id === selectedSession,
                   );
-              const hasMoreSessions = visibleSessions.length < group.sessions.length;
+              const hasMoreSessions = group.nextSessionOffset !== null;
               return (
                 <div key={group.websiteId} className="session-group">
                   <div className="session-group-header">
@@ -341,7 +362,13 @@ export function UnifiedSidebar({
                     <button
                       type="button"
                       className="session-new-button"
-                      onClick={() => onNewSession(group.websiteId)}
+                      onClick={() => {
+                        setExpandedGroups((current) => ({
+                          ...current,
+                          [group.websiteId]: true,
+                        }));
+                        onNewSession(group.websiteId);
+                      }}
                       title={workbenchT('newSession')}
                       aria-label={`${workbenchT('newSession')}: ${group.websiteName}`}
                     >
@@ -359,7 +386,29 @@ export function UnifiedSidebar({
                     </button>
                   </div>
                   {expanded ? (
-                    group.sessions.length === 0 ? (
+                    !group.sessionsLoaded ? (
+                      group.sessionsLoading ? (
+                        <div className="session-empty" role="status">
+                          <LoaderCircle className="spin" size={13} aria-hidden="true" />
+                          {workbenchT('loadingSessions')}
+                        </div>
+                      ) : group.sessionsError ? (
+                        <div className="session-empty" role="alert">
+                          <span>{workbenchT('sessionsLoadFailed')}</span>
+                          <button type="button" onClick={() => onLoadSessions(group.websiteId)}>
+                            {websiteT('retry')}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="session-list-toggle"
+                          onClick={() => onLoadSessions(group.websiteId)}
+                        >
+                          {workbenchT('loadSessions')}
+                        </button>
+                      )
+                    ) : group.sessions.length === 0 ? (
                       <div className="session-empty">{workbenchT('noSessions')}</div>
                     ) : (
                       <div className="session-list">
@@ -535,15 +584,28 @@ export function UnifiedSidebar({
                             </div>
                           );
                         })}
-                        {group.sessions.length > 5 ? (
+                        {group.sessions.length > 5 || hasMoreSessions ? (
                           <button
                             type="button"
                             className="session-list-toggle"
-                            onClick={() => toggleSessionList(group.websiteId)}
+                            disabled={group.sessionsLoading}
+                            onClick={() => {
+                              if (hasMoreSessions) {
+                                setExpandedSessionLists((current) => ({
+                                  ...current,
+                                  [group.websiteId]: true,
+                                }));
+                                onLoadMoreSessions(group.websiteId);
+                              } else {
+                                toggleSessionList(group.websiteId);
+                              }
+                            }}
                           >
                             {hasMoreSessions
                               ? workbenchT('showMoreSessions')
-                              : workbenchT('showFewerSessions')}
+                              : sessionsExpanded
+                                ? workbenchT('showFewerSessions')
+                                : workbenchT('showMoreSessions')}
                           </button>
                         ) : null}
                       </div>

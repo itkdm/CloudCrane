@@ -15,6 +15,8 @@ const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp
 const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.markdown']);
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
 const SESSION_ATTACHMENT_QUOTA = 50 * 1024 * 1024;
+const EXPIRED_ATTACHMENT_BATCH_SIZE = 100;
+const MAX_CONCURRENT_ATTACHMENT_DELETES = 8;
 
 export type AttachmentUploadPart = {
   type: 'file';
@@ -322,50 +324,59 @@ export class ConversationAttachmentService {
           ),
         ),
       ),
-      limit: 100,
+      limit: EXPIRED_ATTACHMENT_BATCH_SIZE,
     });
-    for (const row of expired) {
-      const claim = await this.db
-        .update(conversationAttachment)
-        .set({ status: 'deleting' })
-        .where(
-          and(
-            eq(conversationAttachment.id, row.id),
-            or(
-              eq(conversationAttachment.status, 'ready'),
-              eq(conversationAttachment.status, 'uploading'),
-              eq(conversationAttachment.status, 'deleting'),
-              eq(conversationAttachment.status, 'failed'),
-            ),
+    let nextIndex = 0;
+    const workerCount = Math.min(MAX_CONCURRENT_ATTACHMENT_DELETES, expired.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const index = nextIndex++;
+          if (index >= expired.length) return;
+          await this.cleanupExpiredRow(expired[index]!, now);
+        }
+      }),
+    );
+  }
+
+  private async cleanupExpiredRow(
+    row: (typeof conversationAttachment)['$inferSelect'],
+    now: Date,
+  ): Promise<void> {
+    const claim = await this.db
+      .update(conversationAttachment)
+      .set({ status: 'deleting' })
+      .where(
+        and(
+          eq(conversationAttachment.id, row.id),
+          or(
+            eq(conversationAttachment.status, 'ready'),
+            eq(conversationAttachment.status, 'uploading'),
+            eq(conversationAttachment.status, 'deleting'),
+            eq(conversationAttachment.status, 'failed'),
           ),
+        ),
+      );
+    if (claim.rowCount !== 1) return;
+    try {
+      await this.storage.delete(row.storageKey);
+      if (this.quota) await this.quota.releaseForAttachment(row.id);
+      await this.db
+        .update(conversationAttachment)
+        .set({ status: 'deleted', deletedAt: now })
+        .where(
+          and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
         );
-      if (claim.rowCount !== 1) continue;
-      try {
-        await this.storage.delete(row.storageKey);
-        if (this.quota) await this.quota.releaseForAttachment(row.id);
-        await this.db
-          .update(conversationAttachment)
-          .set({ status: 'deleted', deletedAt: now })
-          .where(
-            and(
-              eq(conversationAttachment.id, row.id),
-              eq(conversationAttachment.status, 'deleting'),
-            ),
-          );
-      } catch {
-        await this.db
-          .update(conversationAttachment)
-          .set({
-            status: (row.status ?? 'ready') === 'ready' ? 'ready' : row.status,
-            errorCode: 'STORAGE_DELETE_FAILED',
-          })
-          .where(
-            and(
-              eq(conversationAttachment.id, row.id),
-              eq(conversationAttachment.status, 'deleting'),
-            ),
-          );
-      }
+    } catch {
+      await this.db
+        .update(conversationAttachment)
+        .set({
+          status: (row.status ?? 'ready') === 'ready' ? 'ready' : row.status,
+          errorCode: 'STORAGE_DELETE_FAILED',
+        })
+        .where(
+          and(eq(conversationAttachment.id, row.id), eq(conversationAttachment.status, 'deleting')),
+        );
     }
   }
 

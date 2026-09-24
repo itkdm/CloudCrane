@@ -61,12 +61,19 @@ function agentEndpoint(path: string): string {
   return `${serviceUrl.replace(/\/$/, '')}${path}`;
 }
 
-export async function listAgentSessions(websiteId: string) {
-  const response = await fetch(agentEndpoint(`/v1/websites/${websiteId}/sessions`), {
+export async function listAgentSessions(
+  websiteId: string,
+  options: { limit?: number; offset?: number } = {},
+) {
+  const query = new URLSearchParams();
+  if (options.limit !== undefined) query.set('limit', String(options.limit));
+  if (options.offset !== undefined) query.set('offset', String(options.offset));
+  const suffix = query.size ? `?${query.toString()}` : '';
+  const response = await fetch(agentEndpoint(`/v1/websites/${websiteId}/sessions${suffix}`), {
     credentials: 'include',
   });
   if (!response.ok) throw new Error(await errorMessage(response));
-  return (await response.json()) as { sessions: AgentSession[] };
+  return (await response.json()) as { sessions: AgentSession[]; nextOffset?: number | null };
 }
 
 export async function listModelProfiles() {

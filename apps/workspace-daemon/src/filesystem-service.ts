@@ -15,6 +15,7 @@ import { WorkspaceDaemonError } from './errors.js';
 import { WorkspacePathResolver } from './workspace-path-resolver.js';
 
 const DEFAULT_MAX_READ_BYTES = 1_048_576;
+const MAX_CONCURRENT_DIRECTORY_STATS = 32;
 
 export class FilesystemService {
   constructor(private readonly resolver: WorkspacePathResolver) {}
@@ -55,9 +56,18 @@ export class FilesystemService {
     const filePath = await this.resolver.resolve(request.path);
     let currentSha: string | undefined;
     try {
-      currentSha = (await this.read({ path: request.path, maxBytes: 10_485_760 })).sha256;
+      const info = await lstat(filePath);
+      if (info.isSymbolicLink())
+        throw new WorkspaceDaemonError('PATH_OUT_OF_SCOPE', 'Symbolic links are not allowed');
+      if (!info.isFile()) throw new WorkspaceDaemonError('INVALID_ARGUMENT', 'Path must be a file');
+      if (request.expectedSha256 !== undefined)
+        currentSha = (await this.read({ path: request.path, maxBytes: 10_485_760 })).sha256;
     } catch (error) {
-      if (!(error instanceof WorkspaceDaemonError) || error.code !== 'FILE_NOT_FOUND') throw error;
+      if (
+        !isNotFound(error) &&
+        (!(error instanceof WorkspaceDaemonError) || error.code !== 'FILE_NOT_FOUND')
+      )
+        throw error;
     }
     if (request.expectedSha256 !== undefined && currentSha !== request.expectedSha256) {
       throw new WorkspaceDaemonError('FILE_CHANGED', 'File changed since it was read', {
@@ -77,8 +87,10 @@ export class FilesystemService {
         /* already renamed */
       }
     }
-    const content = Buffer.from(request.content, 'utf8');
-    return { sha256: createHash('sha256').update(content).digest('hex'), size: content.byteLength };
+    return {
+      sha256: createHash('sha256').update(request.content, 'utf8').digest('hex'),
+      size: Buffer.byteLength(request.content, 'utf8'),
+    };
   }
 
   async stat(request: { path: string }): Promise<FsStatResponse> {
@@ -105,8 +117,20 @@ export class FilesystemService {
       directory: true,
     });
     const names = await readdir(directoryPath);
-    const entries = await Promise.all(
-      names.map((name) => this.stat({ path: `${request.path.replace(/\/$/, '')}/${name}` })),
+    const entries = new Array<FsStatResponse>(names.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(MAX_CONCURRENT_DIRECTORY_STATS, names.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const index = nextIndex++;
+          if (index >= names.length) return;
+          const name = names[index]!;
+          entries[index] = await this.stat({
+            path: `${request.path.replace(/\/$/, '')}/${name}`,
+          });
+        }
+      }),
     );
     return { path: request.path, entries };
   }
@@ -116,4 +140,13 @@ export class FilesystemService {
     await mkdir(directoryPath, { recursive: request.recursive });
     return { path: request.path };
   }
+}
+
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'ENOENT'
+  );
 }

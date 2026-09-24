@@ -45,6 +45,7 @@ describe('AgentSocketTransport', () => {
   const runtime = {
     openSession: async () => session,
     listSessions: async () => [session],
+    listSessionsPage: async () => ({ sessions: [session], hasMore: false }),
     createSession: async () => session,
     getSessionSnapshot: async () => ({
       session,

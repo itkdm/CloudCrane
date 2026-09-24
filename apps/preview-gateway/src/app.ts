@@ -224,7 +224,9 @@ async function authenticateShare(
   if (!share || share.websiteId !== binding.websiteId) {
     return { status: 401, message: 'preview authorization is required' };
   }
-  const accessed = await store.recordShareAccess(share.id);
+  const accessed = isPreviewDocumentRequest(request)
+    ? await store.recordShareAccess(share.id)
+    : share;
   if (!accessed) return { status: 401, message: 'preview authorization is required' };
   if (queryShare) {
     const target = new URL(request.url, `http://${publicHost}`);
@@ -247,6 +249,14 @@ async function authenticateShare(
     readOnly: true,
     shareId: share.id,
   };
+}
+
+function isPreviewDocumentRequest(request: FastifyRequest): boolean {
+  if (request.method !== 'GET') return false;
+  const destination = request.headers['sec-fetch-dest'];
+  if (typeof destination === 'string') return destination === 'document';
+  const accept = request.headers.accept;
+  return typeof accept === 'string' && accept.toLowerCase().includes('text/html');
 }
 
 function parsePreviewHost(

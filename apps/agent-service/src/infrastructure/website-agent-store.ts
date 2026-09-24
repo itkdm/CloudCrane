@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import {
   agentRun,
   auditEvent,
@@ -14,6 +14,7 @@ import type {
   CreateSessionIndex,
   WebsiteAgentStore,
   WebsiteSessionIndex,
+  WebsiteSessionPage,
   WebsiteSessionStatus,
 } from '@cloudcrane/website-agent';
 import { createLogger, getLogContext, serializeError } from '@cloudcrane/shared';
@@ -77,6 +78,29 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
         sql`${websiteSession.id} desc`,
       );
     return rows.map(mapSession);
+  }
+
+  async listSessionsPage(
+    websiteId: string,
+    limit: number,
+    offset: number,
+  ): Promise<WebsiteSessionPage> {
+    const rows = await this.platform.db
+      .select()
+      .from(websiteSession)
+      .where(eq(websiteSession.websiteId, websiteId))
+      .orderBy(
+        sql`${websiteSession.pinnedAt} desc nulls last`,
+        sql`${websiteSession.lastActiveAt} desc nulls last`,
+        sql`${websiteSession.createdAt} desc`,
+        sql`${websiteSession.id} desc`,
+      )
+      .limit(limit + 1)
+      .offset(offset);
+    return {
+      sessions: rows.slice(0, limit).map(mapSession),
+      hasMore: rows.length > limit,
+    };
   }
 
   async createSession(input: CreateSessionIndex): Promise<WebsiteSessionIndex> {
@@ -225,58 +249,63 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
   }
 
   async recoverStaleRuns(websiteId: string): Promise<void> {
+    const endedAt = new Date();
     const staleRuns = await this.platform.db
-      .select({ id: agentRun.id, startedAt: agentRun.startedAt })
-      .from(agentRun)
-      .where(
-        and(
-          eq(agentRun.websiteId, websiteId),
-          or(eq(agentRun.status, 'PENDING'), eq(agentRun.status, 'RUNNING')),
-        ),
-      );
-    await this.platform.db
       .update(agentRun)
-      .set({ status: 'INTERRUPTED', endedAt: new Date() })
+      .set({ status: 'INTERRUPTED', endedAt })
       .where(
         and(
           eq(agentRun.websiteId, websiteId),
           or(eq(agentRun.status, 'PENDING'), eq(agentRun.status, 'RUNNING')),
         ),
-      );
-    for (const run of staleRuns) {
-      const [pendingAudit] = await this.platform.db
-        .select({ id: auditEvent.id, occurredAt: auditEvent.occurredAt })
-        .from(auditEvent)
-        .where(
-          and(
-            eq(auditEvent.agentRunId, run.id),
-            eq(auditEvent.operation, 'agent.run'),
-            or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
-          ),
-        )
-        .limit(1);
-      if (pendingAudit) {
-        try {
-          await finishAuditEvent(this.platform.db, pendingAudit.id, {
+      )
+      .returning({ id: agentRun.id, startedAt: agentRun.startedAt });
+    if (staleRuns.length === 0) return;
+
+    try {
+      for (let offset = 0; offset < staleRuns.length; offset += 500) {
+        const batch = staleRuns.slice(offset, offset + 500);
+        const durationCases = batch.flatMap((run) =>
+          run.startedAt
+            ? [
+                sql`when ${run.id}::uuid then ${Math.max(0, endedAt.getTime() - run.startedAt.getTime())}`,
+              ]
+            : [],
+        );
+        const durationExpression = sql<
+          number | null
+        >`case ${auditEvent.agentRunId} ${sql.join(durationCases, sql` `)} else ${auditEvent.durationMs} end`;
+        await this.platform.db
+          .update(auditEvent)
+          .set({
+            finishedAt: endedAt,
             status: 'UNKNOWN',
-            durationMs: run.startedAt
-              ? Math.max(0, Date.now() - run.startedAt.getTime())
-              : undefined,
+            durationMs: durationExpression,
             errorCode: 'AGENT_RUN_INTERRUPTED',
             resultSummary: { status: 'INTERRUPTED' },
-          });
-        } catch (error) {
-          createLogger('website-agent.audit').error(
-            {
-              event: 'audit.finalization.failed',
-              auditEventId: pendingAudit.id,
-              outcome: 'unknown',
-              ...serializeError(error),
-            },
-            'stale agent run audit finalization failed',
+          })
+          .where(
+            and(
+              inArray(
+                auditEvent.agentRunId,
+                batch.map((run) => run.id),
+              ),
+              eq(auditEvent.operation, 'agent.run'),
+              or(eq(auditEvent.status, 'PENDING'), eq(auditEvent.status, 'RUNNING')),
+            ),
           );
-        }
       }
+    } catch (error) {
+      createLogger('website-agent.audit').error(
+        {
+          event: 'audit.finalization.failed',
+          websiteId,
+          staleRunCount: staleRuns.length,
+          outcome: 'unknown',
+          ...serializeError(error),
+        },
+        'stale agent run audits could not be finalized',
+      );
     }
   }
 }
