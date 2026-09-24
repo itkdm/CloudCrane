@@ -592,6 +592,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
         findWebsiteWorkspace: async () => ({
           websiteId,
           workspaceId,
+          previewSlug,
           websiteStatus: 'active',
           workspaceStatus: 'running',
           previewPort,
