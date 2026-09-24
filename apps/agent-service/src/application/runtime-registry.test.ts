@@ -46,12 +46,15 @@ describe('WebsiteRuntimeRegistry', () => {
     const shutdown = vi.fn(async () => undefined);
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: { findWebsiteWorkspace: vi.fn(async () => binding) },
-      createRuntime: vi.fn(async () => ({
-        shutdown,
-        recoverStaleRuns: vi.fn(async () => {
-          throw new Error('database unavailable');
-        }),
-      }) as unknown as WebsiteAgentRuntime),
+      createRuntime: vi.fn(
+        async () =>
+          ({
+            shutdown,
+            recoverStaleRuns: vi.fn(async () => {
+              throw new Error('database unavailable');
+            }),
+          }) as unknown as WebsiteAgentRuntime,
+      ),
     });
 
     await expect(registry.get(binding.websiteId)).rejects.toThrow('database unavailable');

@@ -17,7 +17,9 @@ export function loadGatewayConfig(env = process.env): GatewayConfig {
       throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN is required in production');
     if (!env.RUNNER_AUTH_TOKEN) throw new Error('RUNNER_AUTH_TOKEN is required in production');
     if (env.WORKSPACE_GATEWAY_CLIENT_TOKEN === 'dev-client-token')
-      throw new Error('WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production');
+      throw new Error(
+        'WORKSPACE_GATEWAY_CLIENT_TOKEN must not use the development default in production',
+      );
     if (env.RUNNER_AUTH_TOKEN === 'dev-runner-token')
       throw new Error('RUNNER_AUTH_TOKEN must not use the development default in production');
   }

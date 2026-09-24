@@ -50,7 +50,12 @@ function safeKey(key: string): string {
 export class LocalAttachmentStorage implements AttachmentStorage {
   constructor(private readonly root: string) {}
 
-  async put(input: { key: string; source: NodeJS.ReadableStream; contentType: string; maxBytes?: number }): Promise<AttachmentObject> {
+  async put(input: {
+    key: string;
+    source: NodeJS.ReadableStream;
+    contentType: string;
+    maxBytes?: number;
+  }): Promise<AttachmentObject> {
     const key = safeKey(input.key);
     const target = path.resolve(this.root, key);
     if (!target.startsWith(`${path.resolve(this.root)}${path.sep}`))
@@ -71,7 +76,11 @@ export class LocalAttachmentStorage implements AttachmentStorage {
       },
     });
     try {
-      await pipeline(input.source, counted, createWriteStream(temporary, { mode: 0o600, flags: 'wx' }));
+      await pipeline(
+        input.source,
+        counted,
+        createWriteStream(temporary, { mode: 0o600, flags: 'wx' }),
+      );
       await rename(temporary, target);
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined);
@@ -115,7 +124,12 @@ export class OssAttachmentStorage implements AttachmentStorage {
     });
   }
 
-  async put(input: { key: string; source: NodeJS.ReadableStream; contentType: string; maxBytes?: number }): Promise<AttachmentObject> {
+  async put(input: {
+    key: string;
+    source: NodeJS.ReadableStream;
+    contentType: string;
+    maxBytes?: number;
+  }): Promise<AttachmentObject> {
     const key = safeKey(input.key);
     const hash = createHash('sha256');
     let size = 0;
