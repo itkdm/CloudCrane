@@ -23,7 +23,7 @@ async function waitForHealth(client: WorkspaceDaemonClient): Promise<void> {
 }
 
 describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
-  it('runs the daemon and preserves Workspace state across runtime recreation', async () => {
+  it('preserves Workspace state across restart and removes it when the runtime is destroyed', async () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
     const config = loadRunnerConfig();
     const docker = new Docker();
@@ -245,6 +245,9 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
       await expect(restartedClient.runtimeInfo()).resolves.toMatchObject({
         preview: { status: 'ready', port: 8080 },
       });
+      expect((await restartedClient.read({ path: '/workspace/persistence.txt' })).content).toBe(
+        'updated',
+      );
       await provider.destroyRuntime(workspaceId);
       created = false;
       const recreated = await provider.create(workspaceId);
@@ -254,9 +257,9 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         5_000,
       );
       await waitForHealth(recreatedClient);
-      expect((await recreatedClient.read({ path: '/workspace/persistence.txt' })).content).toBe(
-        'updated',
-      );
+      await expect(
+        recreatedClient.read({ path: '/workspace/persistence.txt' }),
+      ).rejects.toMatchObject({ code: 'FILE_NOT_FOUND' });
       expect(recreated.containerRef).toBeTruthy();
     } finally {
       if (created) await provider.destroyRuntime(workspaceId).catch(() => undefined);
