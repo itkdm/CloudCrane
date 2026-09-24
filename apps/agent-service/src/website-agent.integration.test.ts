@@ -38,6 +38,8 @@ import { WebsiteRuntimeRegistry } from './application/runtime-registry.js';
 const enabled = process.env.CLOUDCRANE_AGENT_RUNTIME_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000501';
 const workspaceId = '00000000-0000-4000-8000-000000000502';
+const previewSlug = 'agnt12345678';
+const previewHost = `${previewSlug}.localhost:4103`;
 const runnerId = '00000000-0000-4000-8000-000000000503';
 const clientToken = 'agent-runtime-client-token';
 const runnerToken = 'agent-runtime-runner-token';
@@ -119,11 +121,19 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
       .values({
         id: websiteId,
         name: 'agent-runtime-integration',
-        previewSlug: 'agnt12345678',
+        previewSlug,
         status: 'active',
         cmsType: 'pbootcms',
       })
-      .onConflictDoNothing();
+      .onConflictDoUpdate({
+        target: website.id,
+        set: {
+          name: 'agent-runtime-integration',
+          previewSlug,
+          status: 'active',
+          cmsType: 'pbootcms',
+        },
+      });
     await platform.db
       .insert(workspace)
       .values({ id: workspaceId, websiteId, provider: 'docker', status: 'missing' })
@@ -694,7 +704,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
           previewOperations.push(operation);
           const path = operation === 'navigate' ? (message.payload?.path ?? '/') : '/';
           const next: PreviewObservation = {
-            url: `http://abc123def456.localhost:4103${path}`,
+            url: `http://${previewHost}${path}`,
             path,
             title: 'After',
             viewport: { width: 1280, height: 720, devicePixelRatio: 1 },
@@ -749,11 +759,14 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
     });
     const preview = JSON.parse((await descriptor).body) as { url: string };
     const previewUrl = new URL(preview.url);
-    const firstPreview = await requestPreview(`/?token=${previewUrl.searchParams.get('token')}`);
+    const firstPreview = await requestPreview(
+      `/?token=${previewUrl.searchParams.get('token')}`,
+      previewUrl.host,
+    );
     expect(firstPreview.status).toBe(302);
     const previewCookie = firstPreview.headers['set-cookie']?.[0]?.split(';')[0];
     expect(previewCookie).toBeTruthy();
-    const finalPreview = await requestPreview('/', previewCookie);
+    const finalPreview = await requestPreview('/', previewUrl.host, previewCookie);
     expect(finalPreview.status).toBe(200);
     expect(finalPreview.body).toContain('<h1>After</h1>');
     expect(finalPreview.body).toContain('/__cloudcrane/preview-bridge.js');
@@ -763,7 +776,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
   }, 120_000);
 });
 
-function requestPreview(pathname: string, cookie?: string) {
+function requestPreview(pathname: string, host: string, cookie?: string) {
   return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>(
     (resolve, reject) => {
       const request = http.request(
@@ -772,7 +785,7 @@ function requestPreview(pathname: string, cookie?: string) {
           port: 4103,
           path: pathname,
           headers: {
-            host: `abc123def456.localhost:4103`,
+            host,
             ...(cookie ? { cookie } : {}),
           },
         },
