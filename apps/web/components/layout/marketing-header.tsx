@@ -34,10 +34,6 @@ export function MarketingHeader() {
           <nav aria-label={t('mainNavigation')}>
             <a href="#capability">{t('features')}</a>
             <a href="#pricing">{t('pricing')}</a>
-            <a href="https://muban.itkdm.com">{t('templates')}</a>
-            <span className="marketing-nav-disabled" aria-disabled="true">
-              {t('docs')}
-            </span>
           </nav>
         </div>
         <div className="marketing-header-actions">
