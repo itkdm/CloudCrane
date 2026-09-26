@@ -31,34 +31,44 @@ function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
     setPending(true);
     setError(null);
     setNotice(null);
-    const result =
-      mode === 'sign-in'
-        ? await authClient.signIn.email({ email, password, callbackURL: callbackUrl })
-        : await authClient.signUp.email({ name, email, password, callbackURL: callbackUrl });
-    setPending(false);
-    if (result.error) setError(result.error.message ?? t('operationError'));
-    else if (mode === 'sign-up' && !result.data?.user) setError(t('operationError'));
-    else if (mode === 'sign-up') {
-      if (process.env.NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION === 'false')
-        window.location.assign(callbackUrl);
-      else setNotice(t('signUpSuccess'));
-    } else window.location.assign(callbackUrl);
+    try {
+      const result =
+        mode === 'sign-in'
+          ? await authClient.signIn.email({ email, password, callbackURL: callbackUrl })
+          : await authClient.signUp.email({ name, email, password, callbackURL: callbackUrl });
+      if (result.error) setError(result.error.message ?? t('operationError'));
+      else if (mode === 'sign-up' && !result.data?.user) setError(t('operationError'));
+      else if (mode === 'sign-up') {
+        if (process.env.NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION === 'false')
+          window.location.assign(callbackUrl);
+        else setNotice(t('signUpSuccess'));
+      } else window.location.assign(callbackUrl);
+    } catch {
+      setError(t('operationError'));
+    } finally {
+      setPending(false);
+    }
   }
 
   async function signInWithGoogle() {
     setPending(true);
     setError(null);
-    const result = await authClient.signIn.social({
-      provider: 'google',
-      callbackURL: callbackUrl,
-    });
-    if (result.error) {
+    try {
+      const result = await authClient.signIn.social({
+        provider: 'google',
+        callbackURL: callbackUrl,
+      });
+      if (result.error) {
+        setError(
+          result.error.message === 'Provider not found'
+            ? t('googleUnavailable')
+            : (result.error.message ?? t('googleError')),
+        );
+      }
+    } catch {
+      setError(t('googleError'));
+    } finally {
       setPending(false);
-      setError(
-        result.error.message === 'Provider not found'
-          ? t('googleUnavailable')
-          : (result.error.message ?? t('googleError')),
-      );
     }
   }
 
