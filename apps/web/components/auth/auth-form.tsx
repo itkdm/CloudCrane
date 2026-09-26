@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { authClient } from '@/lib/auth-client';
+import { safeCallbackUrl } from '@/lib/safe-callback-url';
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   return (
@@ -138,13 +139,6 @@ function AuthFormContent({ mode }: { mode: 'sign-in' | 'sign-up' }) {
       </section>
     </main>
   );
-}
-
-function safeCallbackUrl(value: string | null, locale: string): string {
-  const fallback = `/${locale}/app/websites`;
-  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('://'))
-    return fallback;
-  return value;
 }
 
 function GoogleIcon() {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  createAuth,
   assertSameOrigin,
   assertWebsiteAccessForUser,
   AuthorizationError,
@@ -8,7 +9,40 @@ import {
   validateAuthRuntimeConfig,
 } from './index.js';
 
+const betterAuthMock = vi.hoisted(() => vi.fn((options: unknown) => options));
+
+vi.mock('@better-auth/drizzle-adapter', () => ({
+  drizzleAdapter: vi.fn(() => ({})),
+}));
+vi.mock('better-auth', () => ({ betterAuth: betterAuthMock }));
+vi.mock('better-auth/plugins', () => ({ admin: vi.fn(() => ({})) }));
+
 describe('CloudCrane authorization primitives', () => {
+  it('uses the proxy-overwritten client IP header for auth rate limits', () => {
+    const previousSecret = process.env.BETTER_AUTH_SECRET;
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.BETTER_AUTH_SECRET = 'test-secret-with-at-least-thirty-two-characters';
+    process.env.NODE_ENV = 'production';
+
+    try {
+      betterAuthMock.mockClear();
+      createAuth({} as never);
+      expect(betterAuthMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          advanced: expect.objectContaining({
+            ipAddress: { ipAddressHeaders: ['x-real-ip'] },
+          }),
+          rateLimit: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    } finally {
+      if (previousSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = previousSecret;
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it('rejects anonymous, expired, or revoked sessions before resource access', async () => {
     const auth = {
       api: { getSession: async () => null },

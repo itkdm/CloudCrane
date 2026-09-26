@@ -56,6 +56,10 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
       database: {
         joins: false,
       },
+      ipAddress: {
+        // Production Nginx overwrites X-Real-IP from $remote_addr; never trust client X-Forwarded-For.
+        ipAddressHeaders: ['x-real-ip'],
+      },
     },
     rateLimit: {
       enabled: process.env.NODE_ENV === 'production',
