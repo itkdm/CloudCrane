@@ -52,7 +52,7 @@ export function StartBuildingLink({
         setNavigating(true);
       }}
     >
-      {children}
+      <span className="marketing-button-label">{children}</span>
       <NavigationStatus navigating={navigating} pendingLabel={pendingLabel} />
     </Link>
   );
