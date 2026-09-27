@@ -53,6 +53,7 @@
     "sendResetLink": "Send reset link",
     "updatePassword": "Update password",
     "resetRequestError": "Request failed. Please try again.",
+    "resetUpdateError": "Password update failed. Please try again.",
     "resetRequestNotice": "If an account exists for this email, a password reset link will be sent.",
     "resetInvalid": "The link is invalid or expired. Request a new one.",
     "resetSuccess": "Password updated. Please sign in again.",
@@ -61,6 +62,7 @@
     "verificationLoading": "Verifying your email…",
     "verificationInvalid": "The verification link is invalid.",
     "verificationExpired": "The verification link is invalid or expired.",
+    "verificationError": "Verification failed. Please try again.",
     "verificationSuccess": "Email verified. Continue to your workspace.",
     "invalidResetLink": "The password reset link is invalid."
   },

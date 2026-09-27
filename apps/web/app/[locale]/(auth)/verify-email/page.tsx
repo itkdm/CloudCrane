@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { authClient } from '@/lib/auth-client';
+import { captureAuthRequest } from '@/lib/auth-request';
 
 export default function VerifyEmailPage() {
   const locale = useLocale();
@@ -14,8 +15,9 @@ export default function VerifyEmailPage() {
       setStatus(t('verificationInvalid'));
       return;
     }
-    void authClient.verifyEmail({ query: { token } }).then((result) => {
-      setStatus(result.error ? t('verificationExpired') : t('verificationSuccess'));
+    void captureAuthRequest(() => authClient.verifyEmail({ query: { token } })).then((outcome) => {
+      if (!outcome.ok) setStatus(t('verificationError'));
+      else setStatus(outcome.value.error ? t('verificationExpired') : t('verificationSuccess'));
     });
   }, [t]);
   return (

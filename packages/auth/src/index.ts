@@ -57,7 +57,7 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         joins: false,
       },
       ipAddress: {
-        // Production Nginx overwrites X-Real-IP from $remote_addr; never trust client X-Forwarded-For.
+        // Production Nginx overwrites X-Real-IP from its validated remote address; never trust client X-Forwarded-For.
         ipAddressHeaders: ['x-real-ip'],
       },
     },
@@ -86,32 +86,22 @@ export function createAuth(db: Db): ReturnType<typeof betterAuth> {
         );
       },
       sendResetPassword: async ({ user, url }) => {
-        try {
-          await sendEmail({
-            to: user.email,
-            subject: '重置 CloudCrane 密码',
-            text: `请使用以下链接重置密码：${url}`,
-            html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
-          });
-        } catch (error: unknown) {
-          logEmailFailure(error);
-          throw error;
-        }
+        void sendEmail({
+          to: user.email,
+          subject: '重置 CloudCrane 密码',
+          text: `请使用以下链接重置密码：${url}`,
+          html: `<p>请使用以下链接重置密码：</p><p><a href="${url}">${url}</a></p>`,
+        }).catch(logEmailFailure);
       },
     },
     emailVerification: {
       sendVerificationEmail: async ({ user, url }) => {
-        try {
-          await sendEmail({
-            to: user.email,
-            subject: '验证 CloudCrane 邮箱',
-            text: `请使用以下链接验证邮箱：${url}`,
-            html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
-          });
-        } catch (error: unknown) {
-          logEmailFailure(error);
-          throw error;
-        }
+        void sendEmail({
+          to: user.email,
+          subject: '验证 CloudCrane 邮箱',
+          text: `请使用以下链接验证邮箱：${url}`,
+          html: `<p>请使用以下链接验证邮箱：</p><p><a href="${url}">${url}</a></p>`,
+        }).catch(logEmailFailure);
       },
       sendOnSignUp: requireEmailVerification,
       sendOnSignIn: requireEmailVerification,

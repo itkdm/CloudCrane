@@ -124,6 +124,60 @@ describe('CloudCrane authorization primitives', () => {
     ).not.toThrow();
   });
 
+  it('does not wait for email delivery when handling signup and password reset', async () => {
+    const previousSecret = process.env.BETTER_AUTH_SECRET;
+    const previousApiKey = process.env.RESEND_API_KEY;
+    const previousFrom = process.env.AUTH_EMAIL_FROM;
+    const previousFetch = globalThis.fetch;
+    const pendingSends: Array<(response: Response | PromiseLike<Response>) => void> = [];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(() => new Promise<Response>((resolve) => pendingSends.push(resolve)));
+    process.env.BETTER_AUTH_SECRET = 'test-secret-with-at-least-thirty-two-characters';
+    process.env.RESEND_API_KEY = 'test-key';
+    process.env.AUTH_EMAIL_FROM = 'CloudCrane <auth@example.com>';
+    globalThis.fetch = fetchMock;
+
+    try {
+      betterAuthMock.mockClear();
+      createAuth({} as never);
+      const options = betterAuthMock.mock.calls[0]?.[0] as {
+        emailAndPassword: {
+          sendResetPassword: (input: { user: { email: string }; url: string }) => Promise<void>;
+        };
+        emailVerification: {
+          sendVerificationEmail: (input: { user: { email: string }; url: string }) => Promise<void>;
+        };
+      };
+
+      await expect(
+        options.emailAndPassword.sendResetPassword({
+          user: { email: 'person@example.com' },
+          url: 'https://example.com/reset',
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        options.emailVerification.sendVerificationEmail({
+          user: { email: 'person@example.com' },
+          url: 'https://example.com/verify',
+        }),
+      ).resolves.toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(pendingSends).toHaveLength(2);
+
+      for (const resolveSend of pendingSends) resolveSend(new Response(null, { status: 500 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = previousSecret;
+      if (previousApiKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previousApiKey;
+      if (previousFrom === undefined) delete process.env.AUTH_EMAIL_FROM;
+      else process.env.AUTH_EMAIL_FROM = previousFrom;
+    }
+  });
+
   it('allows the owner and an explicit admin override', async () => {
     const db = {
       query: {
