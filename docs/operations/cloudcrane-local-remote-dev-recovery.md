@@ -56,11 +56,11 @@ ECS PostgreSQL :5432
 仍使用 ECS：
 
 ```text
-浏览器 → http://localhost:3000
+浏览器 → http://localhost:3001（本地备用端口）
              ├─ SSH 隧道 → ECS PostgreSQL 5432
              ├─ SSH 隧道 → ECS Agent Service 4101
              ├─ SSH 隧道 → ECS Workspace Gateway 4102
-             └─ SSH 隧道 → ECS Preview Gateway 4103
+             └─ Preview → canonical *.preview.itkdm.com 域名
 ```
 
 ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息只保存在 ECS 私密环境中，不复制到 Git 或普通日志。
@@ -79,6 +79,7 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
 
    ```powershell
    ssh -N `
+     -L 3000:127.0.0.1:3000 `
      -L 15432:127.0.0.1:5432 `
      -L 4101:127.0.0.1:4101 `
      -L 4102:127.0.0.1:4102 `
@@ -86,15 +87,16 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
      xunmao-sg219
    ```
 
-3. 在启动当前 PowerShell 进程中设置远程数据库连接字符串。密码只从 ECS 私密环境读取，不要回显、写入仓库或提交：
+3. 默认 ECS Web 流程无需在本地设置 `DATABASE_URL`。只有备用本地 Web 流程需要通过数据库隧道连接 ECS PostgreSQL；密码只从 ECS 私密环境读取，不要回显、写入仓库或提交：
 
    ```powershell
+   # 仅备用本地 Web 流程设置；默认 ECS Web 流程不设置 DATABASE_URL。
    $env:DATABASE_URL = 'postgresql://<remote-user>:<remote-password>@127.0.0.1:15432/<remote-database>'
-   $env:WEB_ORIGIN = 'http://localhost:3000'
+   $env:WEB_ORIGIN = 'http://localhost:3001'
    # 默认 ECS Web 流程不需要在本地设置这些变量。
    # 仅使用备用“本地 Web + ECS 后端”流程时设置：
-   $env:NEXT_PUBLIC_AGENT_SERVICE_URL = 'http://localhost:14101'
-   $env:WORKSPACE_GATEWAY_ENDPOINT = 'http://127.0.0.1:14102'
+   $env:NEXT_PUBLIC_AGENT_SERVICE_URL = 'http://localhost:4101'
+   $env:WORKSPACE_GATEWAY_ENDPOINT = 'http://127.0.0.1:4102'
    $env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://{previewSlug}.preview.itkdm.com/'
    $env:PREVIEW_PUBLIC_PROTOCOL = 'https'
    $env:PREVIEW_COOKIE_SECURE = 'true'
@@ -102,9 +104,9 @@ ECS 内部服务只监听回环地址；远程 PostgreSQL 的真实连接信息�
 
 ### 本地 Web 与正式 Preview 地址的边界
 
-`localhost:3000` 只是本地 Web 的访问地址，不代表 Website Preview 也应该使用
+`localhost:3001` 是备用本地 Web 的访问地址，不代表 Website Preview 也应该使用
 `localhost`。当本地 Web 通过 SSH 隧道连接 ECS 的数据库、Agent Service、Workspace
-Gateway 和 Preview Gateway 时，Preview 仍应使用正式的 canonical host：
+Gateway 时，Preview 仍应使用正式的 canonical host：
 
 ```powershell
 $env:PREVIEW_GATEWAY_ORIGIN_TEMPLATE = 'https://{previewSlug}.preview.itkdm.com/'
@@ -141,20 +143,20 @@ required`。先刷新 Workbench 获取新的 Preview URL，再复测；若新 UR
 且 `__cloudcrane/preview-bridge.js` 也返回 200，说明域名、TLS、Gateway 和工作区链路
 正常，问题是旧凭证过期而不是 DNS 或网站内容故障。
 
-4. 默认验收直接使用 ECS acceptance tmux 服务，不启动本地 Web。
-   只有备用本地 Web 流程才用当前项目的镜像依赖启动：
+4. 默认验收直接使用 ECS acceptance 服务，不启动本地 Web。
+   只有备用本地 Web 流程才启动本地 Web，并使用 3001 端口：
 
    ```powershell
-   pnpm exec turbo dev --env-mode=loose
+   pnpm --filter @cloudcrane/web dev -- --port 3001
    ```
 
-5. 验证顺序：
+5. 仅在已按备用本地 Web 流程设置远程 `DATABASE_URL` 时，执行数据库验证：
 
    ```powershell
    pnpm --filter @cloudcrane/db db:verify
    ```
 
-   然后打开 [http://localhost:3000/app/websites](http://localhost:3000/app/websites)，确认原 Website 列表出现。Workbench、Chat、Workspace 和 Preview 的用户流程继续使用 DEVTOOLS MCP 验证。
+   然后按所选流程打开 `http://localhost:3000/app/websites`（默认 ECS Web）或 `http://localhost:3001/app/websites`（备用本地 Web），确认原 Website 列表出现。Workbench、Chat、Workspace 和 Preview 的用户流程继续使用 DEVTOOLS MCP 验证。
 
 ## 排查清单
 
@@ -166,7 +168,7 @@ Get-NetTCPConnection -State Listen
 15432 隧道。若 3000 未监听，SSH 到 ECS Web 的转发未建立；若 4101 未监听，浏览器无法连接
 Agent Service；若 Website 列表为空，先检查 ECS Web 的私密环境和数据库连接。
 
-备用本地 Web 流程才使用 14101、14102、14103 和 15432，并要求本地 Web 进程及远程数据库
+备用本地 Web 流程使用本地 3001、4101、4102 和 15432，并要求本地 Web 进程及远程数据库
 环境变量均正确设置。
 
 ECS 侧应检查：

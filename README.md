@@ -2,9 +2,9 @@
 
 CloudCrane（筑云鹤）是一个面向个人与企业用户的自助式 Website Coding Agent 平台：每个网站拥有长期存在的独立 Workspace，Agent 可以持续参与网站的开发、修改、验证、预览和维护。
 
-项目目前处于早期开发阶段，核心架构已基本确定，正在进入 MVP 实现。当前产品定义与技术方案请参阅 [docs/](docs/) 中的架构基线文档。
+项目目前处于早期开发阶段，核心架构已基本确定，正在进入 MVP 实现。文档分类与阅读顺序见 [文档索引](docs/README.md)。
 
-Preview 子域、TLS、Nginx、ECS 环境与日常部署操作请参阅 [CloudCrane Preview 运维手册](docs/cloudcrane-operations-preview.md)。
+Preview 子域、TLS、Nginx、ECS 环境与日常部署操作请参阅 [CloudCrane Preview 运维手册](docs/operations/cloudcrane-operations-preview.md)。
 
 ## 本地开发要求
 

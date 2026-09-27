@@ -4,7 +4,7 @@
 
 ## 决策
 
-- 认证使用固定版本 Better Auth `1.7.5`，数据库使用现有 PostgreSQL/Drizzle。
+- 认证使用固定版本 Better Auth `1.7.6`（与当前 `apps/web/package.json` 一致），数据库使用现有 PostgreSQL/Drizzle。
 - 邮箱密码、邮箱验证、密码重置和 Google OAuth 由 Better Auth 统一处理。
 - Better Auth 核心表位于平台数据库；Web 通过 `/api/auth/[...all]` 暴露同源 API。
 - `user.role=admin` 是平台管理员身份；管理员可查看全部 Website，但仍需经过统一授权函数。

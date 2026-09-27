@@ -1,10 +1,10 @@
 # CloudCrane 权限、套餐、权益与可替换支付架构方案
 
-状态：调研与交叉审查确认的架构方案（2026-09-23）
+状态：架构方案；实现状态按 2026-09-27 仓库代码核对
 
 范围：第一阶段的设计与落地边界，以及本轮已落地的数据库/Core 原型；不包含支付账户配置或商业价格最终确认。
 
-> 实施状态（2026-09-23）：已落地 `packages/billing` 的权益解析/配额决策原型、Billing Account/Plan/Entitlement/Operation/Usage/Provider Inbox 表结构、Workspace 唯一约束、Website 到个人 Billing Account 的绑定、Provider-neutral adapter 接口、Website 创建/删除的 `Operation + Idempotency-Key` 闭环，以及基于免费目录的附件存储 `Quota Reservation + commit/release` 接入。通用 Website 配额准入、Webhook Inbox worker、Waffo adapter、付费套餐初始化和管理后台仍未完成，当前实现不能被当作完整生产计费能力。
+> 实施状态（2026-09-27）：当前代码已包含 `packages/billing` 的权益解析与配额决策能力、Billing Account/Plan/Entitlement/Operation/Usage/Provider Connection/Provider Event Inbox schema、Workspace-Website 唯一约束、Website 到个人 Billing Account 的绑定、Provider-neutral adapter 接口、Website 创建/删除 operation 幂等流程，以及附件存储的 `Quota Reservation + commit/release` 接入。仍未完成通用 Website 配额准入、Provider Webhook 验签与 Inbox worker、Waffo adapter、付费套餐初始化和管理后台；这些原型与基础设施不代表完整生产计费能力。
 
 ## 1. 最终结论
 
@@ -37,7 +37,7 @@ Waffo 可以作为第一阶段支付供应商，但只能是 `PaymentProviderAda
 
 ## 2. 交叉调研与审查结论
 
-本方案经过两路独立子智能体完成初始调研，并将合并草案再次交给两路子智能体独立审查。两路审查均判定“总体分层正确，但不能直接按初稿实现”，关键结论一致：
+本节记录 2026-09-23 初始调研和交叉审查时的发现，表中“当前”均指该次审查时点；已被后续实现解决的项以第 3 节当前代码事实为准：
 
 | 主题 | 代码架构审查 | 支付/生态审查 | 最终处理 |
 |---|---|---|---|
@@ -54,27 +54,27 @@ Waffo 可以作为第一阶段支付供应商，但只能是 `PaymentProviderAda
 
 ## 3. 当前代码事实与影响
 
-当前平台 PostgreSQL 已拥有 Website、Workspace、Session、Agent Run、模板、分享、附件和审计表，但尚不存在 Plan、Subscription、Entitlement、Usage、Quota Reservation、Payment Event 或 Billing Account。
+当前平台 PostgreSQL 已拥有 Website、Workspace、Session、Agent Run、模板、分享、附件、审计及 Billing/Entitlement 表。当前 schema 包含 Billing Account/Member、Plan/Version、Entitlement Definition/Grant、Subscription、Operation、Quota Reservation、Usage Event/Aggregate、Provider Connection 和 Provider Event Inbox。Inbox 与计费表结构已存在，但不能据此推断 Webhook 处理流程或支付接入已完成。
 
 关键事实：
 
 - Website 的当前授权根是 `website.owner_id`，普通用户只能访问自己的 Website；管理员有统一授权函数的覆盖权限。
 - `website.owner_id` 当前可空，用户删除时为 `SET NULL`；旧 Website 不能自动推给第一个新用户。
-- 创建流程先写 Website/Workspace，再调用外部 Runtime；失败依靠补偿删除，不是一个跨系统事务。
-- `workspace.website_id` 当前没有唯一约束，但应用查询隐含“一 Website 一个 Workspace”。
-- Website 创建没有业务 `Idempotency-Key`；`audit_event.idempotency_key` 只是审计字段，不能防重复。
-- Website 删除存在并发销毁、外部 Runtime 成功而数据库删除失败、数据库删除后 finalize 失败等不确定状态。
+- 创建流程通过持久化 Operation 与 `Idempotency-Key` 协调数据库和外部 Runtime；这不是跨系统原子事务，失败和重试仍需遵循 operation 状态。
+- `workspace.website_id` 已有唯一约束，当前数据模型固定为一个 Website 对应一个 Workspace。
+- Website 创建/删除 API 要求业务 `Idempotency-Key`，并使用持久化 Operation 处理并发和重复请求；`audit_event.idempotency_key` 本身仍不是业务幂等机制。
+- Website 删除已接入持久化 Operation；外部 Runtime 与数据库之间仍不存在分布式事务，必须把结果不确定和恢复路径作为运行边界处理。
 - 附件当前有本地/OSS 存储适配器；生产路径已通过账户级 `Quota Reservation` 串行化附件存储准入，并在对象写入后按实际大小 commit、失败/删除/过期时 release。未注入配额服务的单元测试仍保留旧 Session 限制作为测试替身，不能作为生产授权逻辑。
 - Production Runtime、Release、Domain 和正式站点计量实体尚未落地。因此“正式网站数”不能直接等价于当前 Workspace 数。
 
 相关代码位置：
 
-- [控制面 schema](../packages/db/src/schema.ts)
-- [Website 创建与清理](../apps/web/lib/server/website-provisioning.ts)
-- [Website API](../apps/web/app/api/websites/route.ts)
-- [Website 鉴权](../packages/auth/src/index.ts)
-- [附件服务](../apps/agent-service/src/infrastructure/attachment-service.ts)
-- [附件存储适配器](../packages/attachment-storage/src/index.ts)
+- [控制面 schema](../../packages/db/src/schema.ts)
+- [Website 创建与清理](../../apps/web/lib/server/website-provisioning.ts)
+- [Website API](../../apps/web/app/api/websites/route.ts)
+- [Website 鉴权](../../packages/auth/src/index.ts)
+- [附件服务](../../apps/agent-service/src/infrastructure/attachment-service.ts)
+- [附件存储适配器](../../packages/attachment-storage/src/index.ts)
 - [认证授权 ADR](./cloudcrane-authentication-authorization-adr.md)
 
 ## 4. 领域模型
@@ -363,30 +363,25 @@ Waffo 官方公开资料与 SDK 资料表明其存在订阅、Checkout、Webhook
 
 以上只是当前产品讨论的示例，不是最终售价或商业承诺。任何增加模板、磁盘、流量、Agent Run、团队成员、域名、备份和发布次数的规则，都通过 feature/entitlement 增加，不修改业务代码中的套餐分支。
 
-## 8. 必须先做的工程前置
+## 8. 尚未完成的生产化工作
 
-在接入真正支付或开放付费套餐之前，按以下顺序处理：
+以下清单聚焦当前仍未完成的工作。已落地的账户绑定、基础 Billing Core/schema、Website 创建/删除 operation、Workspace 唯一约束和附件配额预留不再列为待办。
 
-### P0：一致性基础
+### 资源配额与运维闭环
 
-1. 审计并清理重复 Workspace，给 `workspace.website_id` 增加唯一约束；如果未来确实需要多 Workspace，则显式增加 `kind/is_primary`，不能继续 `.limit(1)`。
-2. 增加 Website 创建 operation 和 `Idempotency-Key`，保存 request hash、预留和结果资源。
-3. 增加 Website 删除 operation，原子 claim `deleting`，完整销毁所有外部 Workspace，支持恢复、重试和重复请求。
-4. 将附件配额改为 reservation + 实际大小 finalize + 失败释放 + 超时回收，消除现有 TOCTOU。
-5. 建立幂等 `ensurePersonalBillingAccount`；账户关闭不级联历史计费与用量。
+1. 实现通用 Website/资源配额准入，并定义超额后的产品行为；当前附件配额 reservation 不等于所有资源的统一准入。
+2. 完善 Website 删除 operation 的失败恢复、重复请求与外部 Runtime 不确定结果处理，并为这些边界补齐持久化回归验证。
 
-### P1：内部 Billing Core
+### Billing Core 生产化
 
-1. 建立 `billing_account`、member、plan/plan_version、feature/entitlement、subscription、grant。
-2. 固定 UsageEvent 契约：单位、账期、幂等、迟到、冲正、重算和保留。
-3. 建立 `provider_connection`、external reference、provider_event_inbox。
-4. 将所有资源准入统一迁移到 EntitlementResolver + QuotaDecisionService；删除重复的旧配额判定路径。
-5. 建立 capability policy，明确 active/grace/restricted 下每项操作的行为。
+1. 固定 UsageEvent 的单位、账期、幂等、迟到、冲正、重算和保留语义，并实现所需投影/重算流程。
+2. 将所有资源准入逐步统一到 EntitlementResolver + QuotaDecisionService；清理仍存在的重复配额路径。
+3. 建立 capability policy，明确 active/grace/restricted 下各操作的行为；当前不应把 schema 原型当作已生效商业策略。
 
-### P2：Waffo 第一适配器
+### 支付 Provider 接入（待账户合约确认）
 
-1. 用测试环境验证 checkout、首次付款、续费、失败付款、取消、恢复、升级、降级、退款、重复/乱序 Webhook。
-2. 实现 raw-body 验签、事件 Inbox、异步投影、重试/死信、主动 reconcile。
+1. 以实际 Provider 合约确认并验证 checkout、付款、续费、失败、取消、恢复、升级、降级、退款及重复/乱序 Webhook。
+2. 实现 raw-body 验签、基于现有 Inbox schema 的事件接收与异步投影、重试/死信和主动 reconcile。
 3. 为每个 adapter 操作传递内部 operation/idempotency key，并防止旧变更覆盖新订阅状态。
 4. 不把 Waffo Secret 放进 Website、Workspace、Agent 或 Preview。
 

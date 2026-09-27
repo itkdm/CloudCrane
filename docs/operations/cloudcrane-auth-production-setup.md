@@ -13,7 +13,7 @@ Gmail 收件箱只能用于接收测试邮件。当前项目的认证邮件由 R
 
 ## Resend（邮箱验证和密码找回）
 
-1. 在 Resend 创建账号并验证发信域名。没有域名时，也可以先使用 Resend 控制台允许的已验证测试发件人做联调。
+1. 在 Resend 创建账号并验证发信域名。测试发件人是否可用取决于 Resend 当前账户与产品规则，以控制台显示为准。
 2. 创建 API Key。
 3. 在本地 `D:/develop/project/pbootcmsAgent/.env.private.local` 写入：
 
@@ -30,10 +30,11 @@ NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION=true
 
 ## Google 登录
 
-在 Google Cloud Console 创建 OAuth Client ID，类型选择 Web application，并添加对应环境的授权重定向地址：
+在 Google Cloud Console 创建 OAuth Client ID，类型选择 Web application，并按所用环境添加授权重定向地址：
 
 ```text
 http://localhost:3000/api/auth/callback/google
+http://localhost:3001/api/auth/callback/google
 https://你的生产域名/api/auth/callback/google
 ```
 
@@ -45,7 +46,7 @@ GOOGLE_CLIENT_SECRET=仅写入本地私密文件的真实值
 BETTER_AUTH_URL=http://localhost:3000
 ```
 
-通过 SSH 隧道联调时，浏览器访问的是 `http://localhost:3000`，所以本地测试只能使用上面的 localhost 回调。正式域名启用后，再在 Google Cloud Console 添加正式 HTTPS 回调，并同步修改服务器的 `BETTER_AUTH_URL`。
+通过 SSH 隧道联调时，只有当浏览器确实访问 `http://localhost:3000` 且 Better Auth 服务端 `BETTER_AUTH_URL` 与此一致，才使用 3000 的 localhost 回调。本地 Web + ECS 后端备用流程使用 3001 时，回调域名、端口和 `BETTER_AUTH_URL` 都应改为 `http://localhost:3001`。正式环境使用正式 HTTPS 域名。
 
 ## 新加坡服务器部署检查
 
@@ -62,7 +63,7 @@ AUTH_REQUIRE_EMAIL_VERIFICATION
 NEXT_PUBLIC_AUTH_REQUIRE_EMAIL_VERIFICATION
 ```
 
-修改私密环境后，在服务器重新构建并重启 Web 服务，使 Next.js 服务端读取新配置。随后通过 `http://localhost:3000` 做真实验收：
+修改私密环境后，在服务器重新构建并重启 Web 服务，使 Next.js 服务端读取新配置。正式环境通过 `https://app.itkdm.com` 验收；只有按本地远程开发恢复记录建立 ECS 隧道时，才使用 `http://localhost:3000`：
 
 - 注册新账号并收到验证邮件；
 - 点击验证链接后登录；
@@ -78,4 +79,3 @@ NEXT_PUBLIC_AGENT_SERVICE_URL=http://localhost:4101
 ```
 
 在 Resend 和 Google OAuth 凭据补齐前，邮箱验证、密码找回和 Google 登录只能完成页面与错误路径检查，不能声称真实邮件或 OAuth 流程已通过。
-

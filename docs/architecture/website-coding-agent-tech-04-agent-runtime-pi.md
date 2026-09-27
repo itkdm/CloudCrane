@@ -5,7 +5,7 @@
 > 更新时间：2026-08-30  
 >
 > 前置文档：
-> - `website-coding-agent-product-definition-v0.1.md`
+> - `../product/website-coding-agent-product-definition-v0.1.md`
 > - `website-coding-agent-tech-01-workspace.md`
 > - `website-coding-agent-tech-02-remote-execution-gateway.md`
 > - `website-coding-agent-tech-03-preview-production-release-persistence.md`

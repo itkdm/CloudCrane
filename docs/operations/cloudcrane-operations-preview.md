@@ -1,6 +1,6 @@
 # CloudCrane（筑云鹤）Preview 运维手册
 
-> **服务器状态（2026-09-18）**：原阿里云 ECS 已因服务器到期完全废弃，其中的公网 IP、服务状态和部署路径不能继续作为真实环境依据。当前统一使用新加坡服务器 SSH 别名 `xunmao-sg219`，公网 IPv4 为 `186.244.238.219`。DNS、TLS 和公网 Preview 路由仍需按本手册重新配置和验证。
+> **状态记录（最后更新：2026-09-18）**：原阿里云 ECS 已废弃。此前记录的新加坡服务器 SSH 别名为 `xunmao-sg219`，公网 IPv4 为 `186.244.238.219`；本仓库无法证明该服务器、DNS、TLS 或公网 Preview 路由目前仍有效。执行操作前应独立核实当前服务器和 DNS 状态。
 
 本文记录当前 CloudCrane MVP 的公网 Preview 运维配置。它只适用于 Preview，不代表 Production、模板导入、发布或域名绑定已经实现。
 
@@ -24,7 +24,7 @@ https://{previewSlug}.preview.itkdm.com/
 | --- | --- | --- | --- | --- |
 | A | `*.preview` | 当前 Preview Gateway ECS 公网 IPv4 | Auto | DNS only（灰云） |
 
-原阿里云 ECS 公网 IPv4 `39.97.34.189` 已失效。当前新加坡服务器公网 IPv4 为 `186.244.238.219`，必须将 DNS 记录更新为该地址，并在服务器上重新检查解析结果。
+历史记录中的阿里云 ECS 公网 IPv4 `39.97.34.189` 已废弃。若仍使用此前记录的新加坡服务器，公网 IPv4 为 `186.244.238.219`；先核实服务器当前地址，再决定是否更新 DNS。
 
 不要修改以下记录：
 
@@ -47,7 +47,7 @@ Preview 使用：
 *.preview.itkdm.com
 ```
 
-当前 ECS 证书路径：
+部署记录中的证书路径（须在服务器上核实文件和有效期）：
 
 ```text
 /etc/letsencrypt/live/cloudcrane-itkdm/fullchain.pem
@@ -72,7 +72,7 @@ Certbot 会提示添加类似下面的 TXT 记录：
 
 必须等权威 DNS 能查到 TXT 后，再回到 Certbot 按 Enter 继续。TXT 值不要写进 Git、日志或本手册。DNS-01 是申请 wildcard 证书的正确验证方式。[Certbot DNS challenge 文档](https://eff-certbot.readthedocs.io/en/stable/using.html)
 
-当前证书是通过 `--manual` 方式申请的，不会自动续期。后续运维应改为 Cloudflare DNS API 的最小权限 token 配合 Certbot DNS plugin 或 auth hook；token 只能保存在 ECS 私密环境或 Secret 管理系统，不得提交仓库。生产主站和 Preview 共用 `cloudcrane-itkdm` 证书，具体入口见 `docs/cloudcrane-production-deploy.md`。
+历史部署记录称该证书通过 `--manual` 方式申请，无法据此判断当前线上证书或续期配置。执行续期前应检查服务器上的证书、Certbot 配置和定时任务。token 只能保存在服务器私密环境或 Secret 管理系统，不得提交仓库。仓库 Nginx 模板为主站和 Preview 配置了同一证书路径；线上实际配置仍需核实，入口说明见 [`cloudcrane-production-deploy.md`](cloudcrane-production-deploy.md)。
 
 ## 4. Nginx
 
@@ -83,7 +83,7 @@ deploy/nginx/cloudcrane-production.conf
 ```
 
 该文件已经同时包含主站、`/agent/` 和 Preview 的 server block。不要再同时启用
-`deploy/nginx/cloudcrane-preview.conf`；它仅作为旧的独立 Preview 部署替代模板，
+`deploy/nginx/cloudcrane-preview.conf`；该文件已标记为 deprecated，仅作为独立 Preview 部署替代模板，
 与生产模板二选一，否则会产生重复的 `*.preview.itkdm.com` server_name 和证书命中不确定性。
 
 ECS 安装位置：
@@ -144,7 +144,7 @@ PREVIEW_COOKIE_SECURE=true
 
 ## 6. ECS 服务重启
 
-当前验收服务由 `scripts/server-acceptance-start.sh` 以 tmux 管理。部署新代码或修改私密环境后，在 `/opt/cloudcrane` 执行：
+仓库的 `scripts/server-acceptance-start.sh` 以 tmux 启动验收服务，默认会话名为 `cloudcrane-acceptance`。部署新代码或修改私密环境后，先确认服务器实际使用 tmux 还是 systemd；仓库的 systemd unit 仅为模板，说明见 [`systemd README`](../../deploy/systemd/README.md)。若确认使用该 tmux 脚本，在 `/opt/cloudcrane` 执行：
 
 ```bash
 tmux ls

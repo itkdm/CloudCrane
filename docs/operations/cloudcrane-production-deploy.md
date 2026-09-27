@@ -1,13 +1,13 @@
 # CloudCrane 生产入口部署
 
-当前生产入口使用新加坡服务器 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。Cloudflare 的 `itkdm.com` Zone 保留现有 apex 和其他站点记录，只新增/更新 CloudCrane 专用记录：
+部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
 | 记录 | 类型 | 内容 | 代理 |
 | --- | --- | --- | --- |
 | `app.itkdm.com` | A | `186.244.238.219` | 已代理 |
 | `*.preview.itkdm.com` | A | `186.244.238.219` | 仅 DNS |
 
-Web 主站使用 `https://app.itkdm.com`；Preview 使用 `https://{previewSlug}.preview.itkdm.com/`。slug 是数据库持久化的 12 位小写字母数字串。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
+预期 Web 主站为 `https://app.itkdm.com`；Preview 使用 `https://{previewSlug}.preview.itkdm.com/`。slug 是数据库持久化的 12 位小写字母数字串。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
 
 ## 服务器入口
 
@@ -16,6 +16,15 @@ Nginx 配置模板：
 ```text
 deploy/nginx/cloudcrane-production.conf
 ```
+
+`app.itkdm.com` 经过 Cloudflare 代理。生产 HTTPS server 只信任 Cloudflare 官方
+IPv4/IPv6 代理网段提供的 `CF-Connecting-IP`，并将解析后的客户端地址写入
+`X-Real-IP` 供 Better Auth 限流使用。Cloudflare 公布的网段会更新；部署或排障时应
+对照 [官方 IPv4 列表](https://www.cloudflare.com/ips-v4) 和
+[IPv6 列表](https://www.cloudflare.com/ips-v6) 更新 Nginx 配置，并先运行 `nginx -t`。
+不要只设 `real_ip_header CF-Connecting-IP` 而不限制受信任的来源网段，否则直连源站的
+请求可以伪造该头。主站的 HTTP/HTTPS vhost 也会拒绝非 Cloudflare 来源，避免公开的
+源站 IP 绕过 Cloudflare；Preview 使用 DNS-only 记录，仍由自己的 vhost 接受公网流量。
 
 发布包含数据库迁移时，先执行 `pnpm --filter @cloudcrane/db db:migrate`，再执行
 `pnpm --filter @cloudcrane/db db:backfill-preview-slugs`。回填完成并确认 `preview_slug`
@@ -49,7 +58,7 @@ Cloudflare SSL/TLS 模式为“完全（严格）”。服务器使用 Let’s E
 
 证书覆盖 `app.itkdm.com`、`*.itkdm.com` 和 `*.preview.itkdm.com`。当前证书通过 DNS-01 手动申请，不能依赖 Certbot 默认定时器自动续期；到期前必须配置 Cloudflare DNS API 最小权限 Token 与 `--manual-auth-hook`，或重新执行 DNS-01。证书私钥、DNS Token 和 TXT 验证值禁止提交 Git。
 
-主机日志轮转：tmux 生产进程写入 `/var/log/cloudcrane/*.log`，部署时同步安装仓库模板：
+若服务器采用仓库 tmux 验收脚本，脚本会将窗口输出写入 `/var/log/cloudcrane/*.log`；部署时可同步安装仓库轮转模板：
 
 ```bash
 sudo install -m 0644 deploy/logrotate/cloudcrane /etc/logrotate.d/cloudcrane
@@ -75,7 +84,7 @@ TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
 
-正式线上启动只使用一个 tmux 会话：
+仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动验收服务；脚本默认会话名为 `cloudcrane-acceptance`。生产主机当前实际采用的进程管理方式需先核实。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，该模板本身不证明服务器已安装或启用 systemd 服务。
 
 ```bash
 CLOUDCRANE_TMUX_SESSION=cloudcrane-production bash ./scripts/server-acceptance-start.sh
@@ -101,9 +110,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 远程服务验收；如果使用它验收，必须显式覆盖 `NEXT_PUBLIC_AGENT_SERVICE_URL` 为
 `http://localhost:4101`，因为生产构建中的 `/agent` 依赖 Nginx 的路径反代。
 
-线上切换时只保留一套服务：先停止旧的 tmux 服务，再从当前提交构建并启动新服务，
-最后通过 Nginx 入口检查 Web、Agent、Preview 和 WebSocket。不要同时启动旧目录和新目录
-的同端口服务，也不要用相对路径启动脚本绕过正式反向代理。
+线上切换时只保留一套服务：确认当前进程管理方式和运行目录后，先停止旧服务，再从当前提交构建并启动新服务，最后通过 Nginx 入口检查 Web、Agent、Preview 和 WebSocket。不要同时启动旧目录和新目录的同端口服务，也不要用相对路径启动脚本绕过正式反向代理。
 
 本次线上故障排查得到的关键结论：浏览器请求 `/agent/v1/...` 返回 307 后变成
 `/<locale>/agent/v1/...`，说明请求落入 Next 国际化中间件而不是 Nginx 的 `/agent/`
@@ -119,7 +126,7 @@ set -a
 . ./.env.private.local
 set +a
 pnpm build
-tmux kill-session -t cloudcrane-acceptance || true
+tmux kill-session -t "${CLOUDCRANE_TMUX_SESSION:-cloudcrane-acceptance}" || true
 bash ./scripts/server-acceptance-start.sh
 sudo nginx -t
 sudo systemctl reload nginx
