@@ -267,6 +267,7 @@ export class DockerProductionProvider implements ProductionProvider {
     const root = this.root(websiteId);
     if (await this.exists(root)) {
       await this.restoreHostOwnership(websiteId, root);
+      await this.makeWritable(root);
       await rm(root, { recursive: true, force: true });
     }
   }
@@ -295,7 +296,14 @@ export class DockerProductionProvider implements ProductionProvider {
       name: `cloudcrane-production-owner-${websiteId}-${Date.now()}`,
       User: '0:0',
       Entrypoint: ['/bin/chown'],
-      Cmd: ['-R', '1000:1000', '/shared'],
+      Cmd: [
+        '-R',
+        '1000:1000',
+        '/shared/data',
+        '/shared/upload',
+        '/shared/config',
+        '/shared/runtime',
+      ],
       HostConfig: {
         Binds: [`${path.join(root, 'shared')}:/shared:rw`],
         NetworkMode: 'none',

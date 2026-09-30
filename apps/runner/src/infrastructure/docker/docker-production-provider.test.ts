@@ -106,6 +106,14 @@ describe('DockerProductionProvider', () => {
         CapDrop: ['ALL'],
         CapAdd: ['CHOWN', 'DAC_READ_SEARCH'],
       });
+      expect(createContainer.mock.calls[0]?.[0]?.Cmd).toEqual([
+        '-R',
+        '1000:1000',
+        '/shared/data',
+        '/shared/upload',
+        '/shared/config',
+        '/shared/runtime',
+      ]);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
