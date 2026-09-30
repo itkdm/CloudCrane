@@ -90,7 +90,7 @@ describe('DockerProductionProvider', () => {
         productionPort: 43127,
         containerRef: 'container-id',
       });
-      const options = createContainer.mock.calls[1]?.[0];
+      const options = createContainer.mock.calls[0]?.[0];
       expect(options?.HostConfig).toMatchObject({
         PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
         Privileged: false,
@@ -101,20 +101,7 @@ describe('DockerProductionProvider', () => {
       });
       expect(options?.WorkingDir).toBe('/site');
       expect(options?.HostConfig?.Binds?.some((bind) => bind.includes('docker.sock'))).toBe(false);
-      expect(createContainer.mock.calls[0]?.[0]?.HostConfig).toMatchObject({
-        NetworkMode: 'none',
-        ReadonlyRootfs: true,
-        CapDrop: ['ALL'],
-        CapAdd: ['CHOWN', 'DAC_READ_SEARCH'],
-      });
-      expect(createContainer.mock.calls[0]?.[0]?.Cmd).toEqual([
-        '-R',
-        '1000:1000',
-        '/shared/data',
-        '/shared/upload',
-        '/shared/config',
-        '/shared/runtime',
-      ]);
+      expect(createContainer).toHaveBeenCalledOnce();
     } finally {
       await rm(base, { recursive: true, force: true });
     }

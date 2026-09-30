@@ -55,7 +55,6 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertSlug(productionSlug);
     const root = this.root(websiteId);
     await this.ensureLayout(root);
-    await this.provisionSharedOwnership(websiteId, root);
     const slugPath = path.join(root, '.production-slug');
     if (await this.exists(slugPath)) {
       if ((await readFile(slugPath, 'utf8')) !== productionSlug)
@@ -292,7 +291,6 @@ export class DockerProductionProvider implements ProductionProvider {
   ): Promise<void> {
     const marker = path.join(root, 'shared', '.ownership-v1');
     if (!force && (await this.exists(marker))) return;
-    if (!(await this.exists(marker))) await writeFileSecure(marker, 'v1\n');
     const helper = await this.docker.createContainer({
       Image: this.config.productionImage,
       name: `cloudcrane-production-owner-${websiteId}-${Date.now()}`,
@@ -323,6 +321,7 @@ export class DockerProductionProvider implements ProductionProvider {
       const result = await helper.wait();
       if (result.StatusCode !== 0)
         throw new Error(`Production shared ownership setup failed (${result.StatusCode})`);
+      if (!(await this.exists(marker))) await writeFileSecure(marker, 'v1\n');
     } finally {
       await helper.remove({ force: true }).catch(() => undefined);
     }
@@ -369,6 +368,10 @@ export class DockerProductionProvider implements ProductionProvider {
     const database = path.join(shared, 'data', 'pbootcms.db');
     const initialDatabase = path.join(releaseDirectory, 'data', 'pbootcms.db');
     if (firstPublish) {
+      if (await this.exists(path.join(shared, '.ownership-v1')))
+        throw new Error(
+          'PRODUCTION_STATE_CONFLICT: shared production state is already provisioned',
+        );
       if (await this.exists(database))
         throw new Error('PRODUCTION_STATE_CONFLICT: persistent database already exists');
       if (
@@ -399,15 +402,9 @@ export class DockerProductionProvider implements ProductionProvider {
       );
       await writeFileSecure(path.join(shared, 'config', 'database.php'), renderedDatabaseConfig);
       await this.provisionSharedOwnership(manifest.sourceWebsiteId, root, true);
-    } else if (!(await this.exists(database))) {
-      throw new Error('PRODUCTION_STATE_CONFLICT: existing production database is missing');
+    } else if (!(await this.exists(path.join(shared, '.ownership-v1')))) {
+      throw new Error('PRODUCTION_STATE_CONFLICT: production shared state is not provisioned');
     }
-    const siteConfig = path.join(shared, 'config', 'config.php');
-    if (!(await this.exists(siteConfig)) && firstPublish)
-      throw new Error('PRODUCTION_STATE_CONFLICT: site configuration was not initialized');
-    const databaseConfig = path.join(shared, 'config', 'database.php');
-    if (!(await this.exists(databaseConfig)))
-      await writeFileSecure(databaseConfig, await this.renderDatabaseConfig());
   }
 
   private async renderDatabaseConfig(): Promise<string> {
