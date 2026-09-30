@@ -33,6 +33,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
     const firstReleaseId = '00000000-0000-4000-8000-000000000072';
     const secondReleaseId = '00000000-0000-4000-8000-000000000073';
     let runtimeCreated = false;
+    let runtimeContainerRef: string | undefined;
 
     const writeRelease = async (releaseId: string, firstPublish: boolean) => {
       const archivePath = path.join(artifacts, `release-${releaseId}.zip`);
@@ -113,8 +114,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         "<?php file_put_contents('/site/shared/data/runtime-marker.txt', 'production-owned', LOCK_EX); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-one';\n",
       );
 
-      await provider.ensureRuntime(websiteId, productionSlug);
+      const runtime = await provider.ensureRuntime(websiteId, productionSlug);
       runtimeCreated = true;
+      runtimeContainerRef = runtime.containerRef ?? undefined;
       const first = await writeRelease(firstReleaseId, true);
       expect(first).toMatchObject({
         status: 'authorization_required',
@@ -191,6 +193,18 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           'utf8',
         ),
       ).toContain('release-two');
+    } catch (error) {
+      if (runtimeContainerRef) {
+        const logs = await docker
+          .getContainer(runtimeContainerRef)
+          .logs({ stdout: true, stderr: true, tail: 40 })
+          .catch(() => Buffer.from('unable to retrieve production container logs'));
+        const details = Buffer.isBuffer(logs) ? logs.toString('utf8') : String(logs);
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\n${details}`, {
+          cause: error,
+        });
+      }
+      throw error;
     } finally {
       if (runtimeCreated) await provider.destroyRuntime(websiteId).catch(() => undefined);
       await rm(base, { recursive: true, force: true });
