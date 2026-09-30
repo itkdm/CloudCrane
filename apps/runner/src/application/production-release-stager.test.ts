@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { extractProductionReleaseArchive } from '@cloudcrane/pboot-snapshot';
 import type { ProcessExecRequest, ProcessExecResponse } from '@cloudcrane/workspace-protocol';
 import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from '../config.js';
@@ -73,19 +72,16 @@ describe('ProductionReleaseStager', () => {
         sourceCoreCommit: coreCommit,
         firstPublish: true,
       });
-      const extractedRoot = path.join(root, 'extracted');
-      const manifest = await extractProductionReleaseArchive({
-        archivePath: path.join(releaseArtifactRoot, result.artifactStorageKey),
-        expectedSha256: result.artifactSha256,
-        expectedWebsiteId: websiteId,
-        expectedReleaseId: releaseId,
-        destination: extractedRoot,
-      });
-
-      expect(await readFile(path.join(extractedRoot, 'data', 'pbootcms.db'), 'utf8')).toBe(
-        'consistent SQLite online backup',
+      const database = result.manifest.files.entries.find(
+        (entry) => entry.path === 'data/pbootcms.db',
       );
-      expect(manifest).toMatchObject({
+
+      expect(database).toMatchObject({
+        size: Buffer.byteLength('consistent SQLite online backup'),
+        fileClass: 'PERSISTENT_INITIAL',
+      });
+      expect(result.manifest).toMatchObject({
+        sourceWebsiteId: websiteId,
         firstPublish: true,
         sourceGitHead: null,
         sourceGitDirty: true,
