@@ -1,6 +1,6 @@
 # CloudCrane 生产入口部署
 
-> **发布方式状态（2026-09-30）**：仓库已新增 GitHub Actions 自动部署 workflow，`CLOUDCRANE_DEPLOY_SSH_KEY` Secret 已配置；本轮 push 后等待首次部署验证。首次验证完成前，推送 `main` 尚不能视为自动上线已验收。本文下面的 SSH 命令仍是手动发布流程；不要与 workflow 并发发布。
+> **发布方式状态（2026-09-30）**：GitHub Actions 自动部署已完成首次端到端验证。CI `#404` 和 Deploy production `#1` 均成功，生产运行 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`；内部及公开健康检查通过。本文下面的 SSH 命令仍是手动发布流程；不要与 workflow 并发发布。
 
 部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
