@@ -64,6 +64,42 @@ describe('workspace gateway app', () => {
     await app.close();
   });
 
+  it('protects the independent production operation route with the client credential', async () => {
+    const app = buildGatewayApp(config, store);
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/production/websites/${websiteId}/operations`,
+      payload: {},
+    });
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('rejects production operations whose workspace binding does not match the website', async () => {
+    const app = buildGatewayApp(config, store);
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/production/websites/${websiteId}/operations`,
+      headers: { authorization: 'Bearer client' },
+      payload: {
+        operation: 'production.status',
+        payload: {},
+        requestId: '00000000-0000-4000-8000-000000000010',
+        traceId: '00000000-0000-4000-8000-000000000011',
+        websiteId,
+        workspaceId: '00000000-0000-4000-8000-000000000012',
+        deadlineMs: 1000,
+      },
+    });
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({
+      error: { code: 'WEBSITE_WORKSPACE_MISMATCH' },
+    });
+    await app.close();
+  });
+
   it('accepts an authenticated runner and completes the registration handshake', async () => {
     const app = buildGatewayApp(config, store);
     await app.listen({ port: 0, host: '127.0.0.1' });

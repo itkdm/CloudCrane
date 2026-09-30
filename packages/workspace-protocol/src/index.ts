@@ -5,6 +5,8 @@ export * from './errors.js';
 export * from './remote.js';
 export * from './runner/messages.js';
 export * from './workspace/operations.js';
+export * from './production/operations.js';
+export * from './production/remote.js';
 
 export const envelopeSchema = z.object({
   type: z.string().min(1),

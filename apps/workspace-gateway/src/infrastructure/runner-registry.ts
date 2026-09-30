@@ -1,5 +1,5 @@
 import {
-  isMutationOperation,
+  isRunnerMutationOperation,
   runnerResultSchema,
   type RemoteError,
   type RunnerOperation,
@@ -93,7 +93,7 @@ export class RunnerRegistry {
           pendingForSocket.delete(operation.requestId);
           reject(
             new RunnerDispatchError(
-              isMutationOperation(operation.operation) ? 'UNKNOWN_RESULT' : 'REQUEST_TIMEOUT',
+              isRunnerMutationOperation(operation) ? 'UNKNOWN_RESULT' : 'REQUEST_TIMEOUT',
               'runner response timed out',
               pending.accepted,
             ),
@@ -147,7 +147,7 @@ export class RunnerRegistry {
       clearTimeout(pending.timer);
       pending.reject(
         new RunnerDispatchError(
-          isMutationOperation(pending.operation.operation) ? 'UNKNOWN_RESULT' : fallbackCode,
+          isRunnerMutationOperation(pending.operation) ? 'UNKNOWN_RESULT' : fallbackCode,
           message,
           pending.accepted,
         ),

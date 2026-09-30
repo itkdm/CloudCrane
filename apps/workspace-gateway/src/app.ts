@@ -1,5 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { clientOperationSchema } from '@cloudcrane/workspace-protocol';
+import {
+  clientOperationSchema,
+  productionClientOperationSchema,
+} from '@cloudcrane/workspace-protocol';
 import {
   createLogger,
   enterLogContext,
@@ -11,6 +14,7 @@ import {
 import { performance } from 'node:perf_hooks';
 import { GatewayRemoteError } from './errors.js';
 import { WorkspaceDispatchService } from './application/dispatch-service.js';
+import { ProductionDispatchService } from './application/production-dispatch-service.js';
 import { attachRunnerTransport } from './transport.js';
 import type { GatewayConfig } from './config.js';
 import type { ControlPlaneStore } from './ports/control-plane-store.js';
@@ -24,6 +28,7 @@ export function buildGatewayApp(
 ): FastifyInstance {
   const app = Fastify({ bodyLimit: 16 * 1024 * 1024 });
   const dispatch = new WorkspaceDispatchService(store, registry);
+  const productionDispatch = new ProductionDispatchService(store, registry);
   const requestStarts = new WeakMap<object, number>();
   app.addHook('onRequest', async (request) => {
     requestStarts.set(request, performance.now());
@@ -112,6 +117,71 @@ export function buildGatewayApp(
         return reply
           .code(400)
           .send({ error: { code: 'INVALID_ARGUMENT', message: 'invalid workspace operation' } });
+      }
+    },
+  );
+  app.post<{ Params: { websiteId: string }; Body: unknown }>(
+    '/v1/production/websites/:websiteId/operations',
+    async (request, reply) => {
+      if (request.headers.authorization !== `Bearer ${config.clientToken}`)
+        return reply
+          .code(401)
+          .send({ error: { code: 'UNAUTHORIZED', message: 'invalid client token' } });
+      try {
+        const operation = productionClientOperationSchema.parse(request.body);
+        if (operation.websiteId !== request.params.websiteId)
+          return reply.code(400).send({
+            error: { code: 'INVALID_ARGUMENT', message: 'website id does not match route' },
+          });
+        logger.info(
+          {
+            event: 'production.operation.started',
+            operation: operation.operation,
+            websiteId: operation.websiteId,
+            workspaceId: operation.workspaceId,
+            agentRunId: operation.agentRunId,
+          },
+          'production operation started',
+        );
+        const result = await runWithTraceContext(
+          {
+            traceparent:
+              typeof request.headers.traceparent === 'string'
+                ? request.headers.traceparent
+                : undefined,
+          },
+          () => productionDispatch.execute(operation),
+        );
+        logger.info(
+          {
+            event: 'production.operation.finished',
+            operation: operation.operation,
+            websiteId: operation.websiteId,
+            outcome: 'succeeded',
+          },
+          'production operation completed',
+        );
+        return reply.send({ result });
+      } catch (error) {
+        if (error instanceof GatewayRemoteError)
+          logger.warn(
+            {
+              event: 'production.operation.finished',
+              outcome: 'failed',
+              errorCode: error.remote.code,
+              errorType: error.constructor.name,
+            },
+            'production operation failed',
+          );
+        if (error instanceof GatewayRemoteError)
+          return reply.code(error.statusCode).send({ error: error.remote });
+        logger.warn(
+          { event: 'production.operation.finished', outcome: 'failed', ...serializeError(error) },
+          'production operation rejected',
+        );
+        return reply
+          .code(400)
+          .send({ error: { code: 'INVALID_ARGUMENT', message: 'invalid production operation' } });
       }
     },
   );

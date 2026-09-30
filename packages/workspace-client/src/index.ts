@@ -9,6 +9,8 @@ import {
   remoteErrorSchema,
 } from '@cloudcrane/workspace-protocol';
 
+export * from './production-client.js';
+
 export type WorkspaceClientContext = {
   websiteId: string;
   workspaceId: string;

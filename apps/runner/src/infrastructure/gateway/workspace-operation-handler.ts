@@ -1,12 +1,35 @@
-import type { RunnerOperation } from '@cloudcrane/workspace-protocol';
+import type {
+  ProductionRunnerOperation,
+  RunnerOperation,
+  WorkspaceRunnerOperation,
+} from '@cloudcrane/workspace-protocol';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import { WorkspaceRuntimeService } from '../../application/workspace-runtime-service.js';
 import type { WorkspaceRuntime } from '../../ports/workspace-provider.js';
 
+export interface ProductionOperationExecutor {
+  execute(operation: ProductionRunnerOperation): Promise<unknown>;
+}
+
 export class WorkspaceOperationHandler {
-  constructor(private readonly runtime: WorkspaceRuntimeService) {}
+  constructor(
+    private readonly runtime: WorkspaceRuntimeService,
+    private readonly production?: ProductionOperationExecutor,
+  ) {}
+
+  supportsProductionOperations(): boolean {
+    return this.production !== undefined;
+  }
 
   async execute(operation: RunnerOperation): Promise<unknown> {
+    if (operation.type === 'production.operation') {
+      if (!this.production) throw new Error('production operation handler is unavailable');
+      return this.production.execute(operation);
+    }
+    return this.executeWorkspace(operation);
+  }
+
+  private async executeWorkspace(operation: WorkspaceRunnerOperation): Promise<unknown> {
     const deadlineAt = Date.now() + operation.deadlineMs;
     switch (operation.operation) {
       case 'runtime.create':

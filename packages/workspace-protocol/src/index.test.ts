@@ -10,8 +10,13 @@ import {
   runnerRegisterSchema,
   runnerRegisteredSchema,
   runnerOperationSchema,
+  isRunnerMutationOperation,
 } from './runner/messages.js';
 import { isMutationOperation, workspaceOperationSchema } from './workspace/operations.js';
+import {
+  isProductionMutationOperation,
+  productionOperationSchema,
+} from './production/operations.js';
 
 describe('workspace envelope', () => {
   it('accepts the shared envelope fields', () => {
@@ -129,5 +134,40 @@ describe('workspace envelope', () => {
       }),
     ).toMatchObject({ outcome: 'UNKNOWN' });
     expect(() => remoteErrorSchema.parse({ code: 'NOPE', message: 'bad' })).toThrow();
+  });
+
+  it('validates production operation contracts separately from workspace operations', () => {
+    const common = {
+      requestId: '00000000-0000-4000-8000-000000000020',
+      traceId: '00000000-0000-4000-8000-000000000021',
+      websiteId: '00000000-0000-4000-8000-000000000022',
+      workspaceId: '00000000-0000-4000-8000-000000000023',
+      deadlineMs: 120_000,
+      idempotencyKey: 'publish-1',
+    };
+    const operation = {
+      operation: 'production.deploy' as const,
+      payload: {
+        releaseId: '00000000-0000-4000-8000-000000000024',
+        artifactStorageKey: 'release-00000000-0000-4000-8000-000000000024.zip',
+        artifactSha256: 'a'.repeat(64),
+        artifactSize: 1024,
+        firstPublish: false,
+      },
+    };
+    expect(productionOperationSchema.parse(operation)).toEqual(operation);
+    expect(isProductionMutationOperation('production.deploy')).toBe(true);
+    expect(isProductionMutationOperation('production.status')).toBe(false);
+    expect(() =>
+      productionOperationSchema.parse({
+        ...operation,
+        payload: { ...operation.payload, artifactStorageKey: '../outside.zip' },
+      }),
+    ).toThrow();
+    const runnerOperation = { type: 'production.operation' as const, ...common, ...operation };
+    const parsedRunnerOperation = runnerOperationSchema.parse(runnerOperation);
+    expect(parsedRunnerOperation).toMatchObject({ type: 'production.operation' });
+    expect(isRunnerMutationOperation(parsedRunnerOperation)).toBe(true);
+    expect(common.websiteId).not.toBe(common.workspaceId);
   });
 });

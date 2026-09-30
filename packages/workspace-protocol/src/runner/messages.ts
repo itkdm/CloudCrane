@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { remoteErrorSchema } from '../errors.js';
-import { workspaceOperationVariants } from '../workspace/operations.js';
+import { isProductionMutationOperation } from '../production/operations.js';
+import { productionRunnerOperationSchema } from '../production/remote.js';
+import { isMutationOperation, workspaceOperationVariants } from '../workspace/operations.js';
 
 export const runnerRegisterSchema = z.object({
   type: z.literal('runner.register'),
@@ -38,7 +40,7 @@ const operationCommonSchema = z.object({
   idempotencyKey: z.string().min(1).max(255).optional(),
 });
 
-export const runnerOperationSchema = z.discriminatedUnion('operation', [
+const workspaceRunnerOperationSchema = z.discriminatedUnion('operation', [
   operationCommonSchema.extend({
     type: z.literal('workspace.operation'),
     ...workspaceOperationVariants[0].shape,
@@ -97,6 +99,11 @@ export const runnerOperationSchema = z.discriminatedUnion('operation', [
   }),
 ] as const);
 
+export const runnerOperationSchema = z.union([
+  workspaceRunnerOperationSchema,
+  productionRunnerOperationSchema,
+]);
+
 export const runnerAcceptedSchema = z.object({
   type: z.literal('runner.accepted'),
   requestId: z.string().uuid(),
@@ -130,4 +137,11 @@ export type RunnerRegister = z.infer<typeof runnerRegisterSchema>;
 export type RunnerRegistered = z.infer<typeof runnerRegisteredSchema>;
 export type RunnerHeartbeat = z.infer<typeof runnerHeartbeatSchema>;
 export type RunnerOperation = z.infer<typeof runnerOperationSchema>;
+export type WorkspaceRunnerOperation = z.infer<typeof workspaceRunnerOperationSchema>;
 export type RunnerResult = z.infer<typeof runnerResultSchema>;
+
+export function isRunnerMutationOperation(operation: RunnerOperation): boolean {
+  return operation.type === 'production.operation'
+    ? isProductionMutationOperation(operation.operation)
+    : isMutationOperation(operation.operation);
+}

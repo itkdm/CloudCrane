@@ -20,6 +20,14 @@ export const remoteErrorCodeSchema = z.enum([
   'PROCESS_ABORTED',
   'OUTPUT_TRUNCATED',
   'ABORTED',
+  'WEBSITE_BUSY',
+  'PRODUCTION_NOT_FOUND',
+  'PRODUCTION_AUTHORIZATION_REQUIRED',
+  'ENTITLEMENT_REQUIRED',
+  'QUOTA_EXCEEDED',
+  'RELEASE_NOT_FOUND',
+  'VERIFICATION_FAILED',
+  'INVALID_STATE',
 ]);
 
 export const remoteErrorSchema = z.object({

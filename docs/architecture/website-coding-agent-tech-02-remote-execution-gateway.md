@@ -371,6 +371,8 @@ heartbeat
 container status
 ```
 
+Production Publish 使用同一条受信任 Runner 连接，但不伪装为 Workspace filesystem/process operation：Control Plane 通过单独的 `POST /v1/production/websites/:websiteId/operations` 路由发送 `production.operation` envelope，Runner wire 使用独立的 production operation schema。该路由单独校验 website/workspace/runner 绑定与 capability，并为 mutation 建立审计；只读 `production.status` 不创建 mutation audit。Production executor 尚未接入 Runner 时，不广播 production capabilities，Gateway 必须拒绝调度，不可降级为 Workspace operation。该传输边界已实现，Production Runtime Provider 和用户可调用的发布 API 尚未实现。
+
 Runner 可以访问：
 
 ```text

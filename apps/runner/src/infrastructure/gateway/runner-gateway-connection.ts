@@ -13,7 +13,7 @@ import {
   remoteErrorCodeSchema,
   runnerOperationSchema,
   runnerRegisteredSchema,
-  isMutationOperation,
+  isRunnerMutationOperation,
   type RemoteError,
   type RunnerOperation,
 } from '@cloudcrane/workspace-protocol';
@@ -22,7 +22,7 @@ import { WorkspaceOperationHandler } from './workspace-operation-handler.js';
 import { WorkspaceDaemonClientError } from '../daemon/workspace-daemon-client.js';
 
 const logger = createLogger('runner-gateway-connection');
-const capabilities = [
+const workspaceCapabilities = [
   'runtime.create',
   'runtime.start',
   'runtime.stop',
@@ -37,6 +37,14 @@ const capabilities = [
   'process.exec',
   'process.cancel',
   'snapshot.stage',
+];
+const productionCapabilities = [
+  'release.stage',
+  'production.ensure',
+  'production.deploy',
+  'production.status',
+  'production.authorize',
+  'production.destroy',
 ];
 
 export class RunnerGatewayConnection {
@@ -74,7 +82,10 @@ export class RunnerGatewayConnection {
           runnerId: this.config.runnerId,
           name: `runner-${this.config.runnerId.slice(0, 8)}`,
           version: '0.1.0',
-          capabilities,
+          capabilities: [
+            ...workspaceCapabilities,
+            ...(this.handler.supportsProductionOperations() ? productionCapabilities : []),
+          ],
         }),
       );
     });
@@ -218,7 +229,7 @@ export class RunnerGatewayConnection {
           durationMs: Date.now() - started,
           outcome:
             remote.code === 'UNKNOWN_RESULT' ||
-            (remote.code === 'REQUEST_TIMEOUT' && isMutationOperation(operation.operation))
+            (remote.code === 'REQUEST_TIMEOUT' && isRunnerMutationOperation(operation))
               ? 'unknown'
               : 'failed',
           errorCode: remote.code,
@@ -234,7 +245,7 @@ export class RunnerGatewayConnection {
           durationMs: Date.now() - started,
           outcome:
             remote.code === 'UNKNOWN_RESULT' ||
-            (remote.code === 'REQUEST_TIMEOUT' && isMutationOperation(operation.operation))
+            (remote.code === 'REQUEST_TIMEOUT' && isRunnerMutationOperation(operation))
               ? 'UNKNOWN'
               : 'FAILED',
         }),
