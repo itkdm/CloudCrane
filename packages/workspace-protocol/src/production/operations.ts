@@ -21,6 +21,8 @@ export const productionOperationPayloadSchemas = {
   }),
   'production.deploy': z.object({
     releaseId: z.string().uuid(),
+    productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+    sequence: z.number().int().positive(),
     artifactStorageKey: z.string().regex(/^release-[0-9a-f-]+\.zip$/i),
     artifactSha256: z.string().regex(/^[0-9a-f]{64}$/),
     artifactSize: z
@@ -96,8 +98,9 @@ export const productionOperationResultSchemas = {
   }),
   'production.deploy': z.object({
     releaseId: z.string().uuid(),
+    productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
     sequence: z.number().int().positive(),
-    status: z.literal('active'),
+    status: z.enum(['authorization_required', 'active']),
     activatedAt: z.string().datetime({ offset: true }),
   }),
   'production.status': z.object({

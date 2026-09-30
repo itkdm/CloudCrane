@@ -11,6 +11,7 @@ import {
   classifySnapshotPath,
   classifyProductionReleasePath,
   collectProductionReleaseInventory,
+  extractProductionReleaseArchive,
   collectSiteStateInventory,
   compareVersions,
   detectCoreDrift,
@@ -327,6 +328,27 @@ describe('Pboot production release artifacts', () => {
     );
     expect(result.size).toBe(archive.byteLength);
     expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const destination = path.join(root, 'extracted');
+    const extractedManifest = await extractProductionReleaseArchive({
+      archivePath: output,
+      expectedSha256: result.sha256,
+      expectedWebsiteId: 'f9f454c2-3fa8-48da-a869-182584c10a6b',
+      expectedReleaseId: 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53',
+      destination,
+    });
+    expect(extractedManifest).toMatchObject({ firstPublish: false, files: { count: 2 } });
+    expect(
+      await readFile(path.join(destination, 'template', 'default', 'index.html'), 'utf8'),
+    ).toBe('published');
+    await expect(
+      extractProductionReleaseArchive({
+        archivePath: output,
+        expectedSha256: '0'.repeat(64),
+        expectedWebsiteId: 'f9f454c2-3fa8-48da-a869-182584c10a6b',
+        expectedReleaseId: 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53',
+        destination: path.join(root, 'bad-hash'),
+      }),
+    ).rejects.toThrow('SHA-256 mismatch');
     await expect(
       buildProductionReleaseArchive({
         workspaceRoot: workspace,

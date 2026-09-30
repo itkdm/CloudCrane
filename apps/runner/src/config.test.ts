@@ -14,8 +14,21 @@ describe('runner production configuration', () => {
       WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
       TEMPLATE_ARTIFACT_ROOT: '/srv/cloudcrane/templates',
       WORKSPACE_MANAGED_PBOOT_BASE_ROOT: '/srv/cloudcrane/pbootcms-base',
+      RELEASE_ARTIFACT_ROOT: '/srv/cloudcrane/release-artifacts',
     });
 
     expect(config.referenceRoot).toBe('/srv/cloudcrane/references');
+    expect(config.productionRoot).toBe('/var/lib/cloudcrane/production');
+    expect(config.productionImage).toBe('cloudcrane-production-pboot:v1');
+    expect(config.releaseArtifactRoot).toBe('/srv/cloudcrane/release-artifacts');
+  });
+
+  it('accepts production runtime storage and image configuration', () => {
+    const config = loadRunnerConfig({
+      PRODUCTION_ROOT: '/site-data/production',
+      PRODUCTION_IMAGE: 'registry.example/cloudcrane/production-pboot:stable',
+    });
+    expect(config.productionRoot).toBe('/site-data/production');
+    expect(config.productionImage).toBe('registry.example/cloudcrane/production-pboot:stable');
   });
 });

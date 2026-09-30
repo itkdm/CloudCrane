@@ -71,6 +71,8 @@ export class ProductionClient {
   deployRelease(
     payload: {
       releaseId: string;
+      productionSlug: string;
+      sequence: number;
       artifactStorageKey: string;
       artifactSha256: string;
       artifactSize: number;

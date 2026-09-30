@@ -849,6 +849,13 @@ Real-time Dev/Prod DB Sync
 - ADR-054：Production Release V1 使用流式 ZIP 与 `manifest.json`；选择依据是仓库已依赖的 `fflate` 支持流式 ZIP，且可在不新增外部压缩运行时的情况下实现 SHA-256 和路径校验。制品格式与 Template Snapshot 相互独立。
 - ADR-055：首次 Publish 可初始化 `data/**`、`static/upload/**` 和 `config/config.php`；后续普通 Release 永不覆盖这三类 Production 状态。
 
+## Implementation Status (2026-10-01)
+
+- 已部署 Production runtime/release schema，已实现流式 Release ZIP builder、SHA-256/manifest 校验及受限 ZIP 解压器。
+- Runner 已增加独立 `DockerProductionProvider` 和 PHP 8.4 + Nginx production image。Provider 为每个 Website 创建独立网络/容器，runtime 代码只读、rootfs 只读、无额外 Linux capability，随机 HTTP 端口仅绑定 `127.0.0.1`；`current` 通过同目录临时 symlink + rename 原子切换。First publish 初始化共享数据，后续 Release 不从 Artifact 解出持久路径。
+- Runtime/provider 尚未接入 Runner 的 Production operation executor。GitHub-hosted Docker integration 已加入首发/后续发布、共享数据保留和容器边界用例，等待首次 CI 执行结果。SQLite Online Backup、正式 Authorization、Production Gateway/Host 路由、Publish API/UI、Storage OSS、删除和失败恢复完整路径仍未闭环。当前不能对用户开放 Publish。
+- 当前 GitHub-hosted Docker integration 仅构建 Production Docker image 作为 CI 验证，尚未将 image 交付到 ECS Runner。平台生产环境不能用本机 Docker 验收代替 ECS/CI 验收；本机没有以 Docker 服务作为默认开发依赖。
+
 ---
 
 # 31. 当前最终架构

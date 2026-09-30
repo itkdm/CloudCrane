@@ -16,8 +16,9 @@ describe('ProductionClient', () => {
         JSON.stringify({
           result: {
             releaseId: '00000000-0000-4000-8000-000000000004',
+            productionSlug: 'production-website',
             sequence: 2,
-            status: 'active',
+            status: 'authorization_required',
             activatedAt: '2026-10-01T00:00:00.000Z',
           },
         }),
@@ -28,6 +29,8 @@ describe('ProductionClient', () => {
     const result = await client.deployRelease(
       {
         releaseId: '00000000-0000-4000-8000-000000000004',
+        productionSlug: 'production-website',
+        sequence: 2,
         artifactStorageKey: 'release-00000000-0000-4000-8000-000000000004.zip',
         artifactSha256: 'b'.repeat(64),
         artifactSize: 2048,
@@ -36,7 +39,7 @@ describe('ProductionClient', () => {
       { idempotencyKey: 'deploy-attempt-1' },
     );
 
-    expect(result).toMatchObject({ sequence: 2, status: 'active' });
+    expect(result).toMatchObject({ sequence: 2, status: 'authorization_required' });
     const [url, init] = fetcher.mock.calls[0]!;
     expect(url).toBe(`http://gateway.test/v1/production/websites/${context.websiteId}/operations`);
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer client-token');

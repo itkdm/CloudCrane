@@ -372,9 +372,16 @@ importers:
       fflate:
         specifier: '>=0.8.3'
         version: 0.8.3
+      unzipper:
+        specifier: 0.12.3
+        version: 0.12.3
       zod:
         specifier: 4.5.4
         version: 4.5.4
+    devDependencies:
+      '@types/unzipper':
+        specifier: ^0.10.11
+        version: 0.10.11
 
   packages/pi-adapter:
     dependencies:

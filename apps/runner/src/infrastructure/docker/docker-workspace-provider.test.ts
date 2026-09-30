@@ -19,6 +19,9 @@ vi.mock('../../daemon/workspace-daemon-client.js', () => ({
 const config = {
   runnerId: 'test-runner',
   workspaceRoot: '/tmp/cloudcrane',
+  productionRoot: '/tmp/cloudcrane-production',
+  productionImage: 'test-production-image',
+  releaseArtifactRoot: '/tmp/cloudcrane-releases',
   workspaceImage: 'test-image',
   daemonPort: 7070,
   cpuLimit: 1_000_000,

@@ -88,6 +88,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: docker build -f docker/workspace-pboot/Dockerfile -t website-workspace-pboot:v1 .
+      - run: docker build -f docker/production-pboot/Dockerfile -t cloudcrane-production-pboot:v1 .
       - run: pnpm --filter @cloudcrane/db db:migrate
       - run: pnpm --filter @cloudcrane/runner... build
       - run: pnpm --filter @cloudcrane/workspace-gateway... build
@@ -104,7 +105,7 @@ jobs:
       - name: Run Docker integration test
         run: |
           set +e
-          output=$(pnpm --filter @cloudcrane/runner exec vitest run --exclude dist/** --exclude .next/** src/docker.integration.test.ts src/reference.integration.test.ts 2>&1)
+          output=$(pnpm --filter @cloudcrane/runner exec vitest run --exclude dist/** --exclude .next/** src/docker.integration.test.ts src/production.integration.test.ts src/reference.integration.test.ts 2>&1)
           status=$?
           printf '%s\n' "$output"
           if [ "$status" -ne 0 ]; then

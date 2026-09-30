@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { lstat, link, mkdir, open, readdir, readFile, rm } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { lstat, link, mkdir, open, readdir, readFile, rm, chmod } from 'node:fs/promises';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { Zip, ZipDeflate } from 'fflate';
+import unzipper from 'unzipper';
 import { z } from 'zod';
 import { assertTrustedPbootRelease } from './pboot-releases.js';
 import {
@@ -340,4 +343,113 @@ export async function buildProductionReleaseArchive(input: {
 
 export function parseProductionReleaseManifest(value: unknown): ProductionReleaseManifest {
   return productionReleaseManifestSchema.parse(value);
+}
+
+export async function extractProductionReleaseArchive(input: {
+  archivePath: string;
+  expectedSha256: string;
+  expectedWebsiteId: string;
+  expectedReleaseId: string;
+  destination: string;
+}): Promise<ProductionReleaseManifest> {
+  const archivePath = path.resolve(input.archivePath);
+  const archiveInfo = await lstat(archivePath);
+  if (!archiveInfo.isFile() || archiveInfo.isSymbolicLink())
+    throw new Error('production release archive is not a regular file');
+  if (archiveInfo.size <= 0 || archiveInfo.size > SNAPSHOT_MAX_ARCHIVE_BYTES)
+    throw new Error('production release archive exceeds size limit');
+  const archiveHash = createHash('sha256');
+  for await (const chunk of createReadStream(archivePath)) archiveHash.update(chunk);
+  if (archiveHash.digest('hex') !== input.expectedSha256)
+    throw new Error('production release archive SHA-256 mismatch');
+
+  const directory = await unzipper.Open.file(archivePath);
+  if (directory.files.length > SNAPSHOT_MAX_FILE_COUNT + 1)
+    throw new Error('production release archive contains too many entries');
+  const manifestEntry = directory.files.find((entry) => entry.path === 'manifest.json');
+  if (!manifestEntry || manifestEntry.type !== 'File' || manifestEntry.uncompressedSize > 1_048_576)
+    throw new Error('production release manifest is missing or invalid');
+  let manifest: ProductionReleaseManifest;
+  try {
+    manifest = productionReleaseManifestSchema.parse(
+      JSON.parse((await manifestEntry.buffer()).toString('utf8')),
+    );
+  } catch (error) {
+    throw new Error('production release manifest is invalid', { cause: error });
+  }
+  if (
+    manifest.sourceWebsiteId !== input.expectedWebsiteId ||
+    manifest.releaseId !== input.expectedReleaseId
+  )
+    throw new Error('production release identity does not match the requested deployment');
+  assertTrustedPbootRelease(manifest.sourcePbootVersion, manifest.sourceCoreCommit);
+  if (directory.files.length !== manifest.files.count + 1)
+    throw new Error('production release entry count does not match the manifest');
+
+  const expected = new Map(manifest.files.entries.map((file) => [file.path, file]));
+  if (expected.size !== manifest.files.count)
+    throw new Error('production release manifest contains duplicate paths');
+  const destination = path.resolve(input.destination);
+  await mkdir(destination, { recursive: false });
+  let expandedBytes = 0;
+  const seen = new Set<string>();
+  try {
+    for (const entry of directory.files) {
+      if (entry === manifestEntry) continue;
+      if (entry.type !== 'File' || !entry.path.startsWith('payload/'))
+        throw new Error(`production release contains an unsupported ZIP entry: ${entry.path}`);
+      const relative = normalizeReleasePath(entry.path.slice('payload/'.length));
+      if (seen.has(relative))
+        throw new Error(`production release contains duplicate path: ${relative}`);
+      seen.add(relative);
+      const record = expected.get(relative);
+      if (
+        !record ||
+        entry.uncompressedSize !== record.size ||
+        record.size > SNAPSHOT_MAX_FILE_BYTES ||
+        classifyProductionReleasePath(relative, manifest.firstPublish) !== record.fileClass
+      )
+        throw new Error(`production release payload does not match manifest: ${relative}`);
+      expandedBytes += record.size;
+      if (expandedBytes > SNAPSHOT_MAX_EXPANDED_BYTES)
+        throw new Error('production release expanded size exceeds limit');
+      const target = path.resolve(destination, relative);
+      if (!target.startsWith(`${destination}${path.sep}`))
+        throw new Error(`production release path escaped destination: ${relative}`);
+      await mkdir(path.dirname(target), { recursive: true });
+      const hash = createHash('sha256');
+      let size = 0;
+      const verifier = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          size += chunk.length;
+          if (size > record.size)
+            return callback(new Error('production release payload size mismatch'));
+          hash.update(chunk);
+          callback(null, chunk);
+        },
+      });
+      await pipeline(
+        entry.stream(),
+        verifier,
+        createWriteStream(target, { flags: 'wx', mode: 0o444 }),
+      );
+      if (size !== record.size || hash.digest('hex') !== record.sha256)
+        throw new Error(`production release payload integrity check failed: ${relative}`);
+      await chmod(target, 0o444);
+    }
+    if (seen.size !== expected.size)
+      throw new Error('production release manifest references missing payload files');
+    const makeReadOnly = async (directoryPath: string): Promise<void> => {
+      for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+        if (entry.isDirectory()) await makeReadOnly(path.join(directoryPath, entry.name));
+      }
+      await chmod(directoryPath, 0o555);
+    };
+    await makeReadOnly(destination);
+    return manifest;
+  } catch (error) {
+    await chmod(destination, 0o700).catch(() => undefined);
+    await rm(destination, { recursive: true, force: true });
+    throw error;
+  }
 }

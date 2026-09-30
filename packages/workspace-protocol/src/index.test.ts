@@ -149,6 +149,8 @@ describe('workspace envelope', () => {
       operation: 'production.deploy' as const,
       payload: {
         releaseId: '00000000-0000-4000-8000-000000000024',
+        productionSlug: 'production-website',
+        sequence: 1,
         artifactStorageKey: 'release-00000000-0000-4000-8000-000000000024.zip',
         artifactSha256: 'a'.repeat(64),
         artifactSize: 1024,

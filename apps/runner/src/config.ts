@@ -6,6 +6,9 @@ export type RunnerConfig = {
   referenceRoot?: string;
   templateArtifactRoot?: string;
   managedPbootBaseRoot?: string;
+  productionRoot: string;
+  productionImage: string;
+  releaseArtifactRoot: string;
   workspaceImage: string;
   daemonPort: number;
   cpuLimit: number;
@@ -30,6 +33,13 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
     templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
     managedPbootBaseRoot: env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT,
+    productionRoot: env.PRODUCTION_ROOT ?? '/var/lib/cloudcrane/production',
+    productionImage: env.PRODUCTION_IMAGE ?? 'cloudcrane-production-pboot:v1',
+    releaseArtifactRoot:
+      env.RELEASE_ARTIFACT_ROOT ??
+      (env.NODE_ENV === 'production'
+        ? '/var/lib/cloudcrane/release-artifacts'
+        : '.cloudcrane-data/releases'),
     workspaceImage: env.WORKSPACE_IMAGE ?? 'website-workspace-pboot:v1',
     daemonPort: 7070,
     cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),
