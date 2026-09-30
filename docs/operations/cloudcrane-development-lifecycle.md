@@ -101,9 +101,9 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 ### 当前已知实现
 
-- `.github/workflows/ci.yml` 配置了 push-to-main 和 Pull Request CI；GitHub Actions 的 `#404` 已对 `973d9bb` 全绿。
-- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已在 GitHub Settings 配置；Deploy production `#1` 将功能提交 `973d9bb` 部署到生产，文档复核提交 `6f3afed` 的 CI `#405` 和 Deploy production `#2` 也成功。
-- [生产部署手册](cloudcrane-production-deploy.md)记录的是人工 SSH 更新代码、构建、重启和 Nginx 检查，不是自动 CD。
+- `.github/workflows/ci.yml` 配置了 push-to-main 和 Pull Request CI；截至 2026-10-01，CI `#410` 对 `661f87d` 的质量、数据库迁移和 Docker 集成作业全绿。
+- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已配置；Deploy production `#7` 已部署 `661f87d`，服务器 SHA 文件与提交一致，公开 Web 和 Agent 健康入口返回 200。
+- [生产部署手册](cloudcrane-production-deploy.md)仍保留人工 SSH 运维/恢复指引；日常发布由上述 CD 自动执行。
 - 2026-09-30 只读检查确认生产主机 `xunmao-sg219` 使用 tmux 会话 `cloudcrane-production` 管理 `web`、`agent`、`gateway`、`runner` 和 `preview` 窗口；对应 systemd unit 当前均 inactive。HTTP 健康检查返回 200，Nginx 配置检查通过。
 - 当前 CloudCrane 平台公网入口确定使用 Nginx：主机 Nginx active、Caddy inactive；Nginx 转发 `app.itkdm.com` 和 `*.preview.itkdm.com`，配置包含 WebSocket Upgrade 头。证书覆盖这两个域名，当前有效至 2026-12-17；但 Certbot renewal 配置使用 `manual` authenticator，未配置 auth hook。timer active 不等于无人值守续期已验证，需在证书到期前修复并演练续期。
 - `scripts/deploy-production.sh` 为每个版本建独立 git worktree，备份 PostgreSQL，再构建、迁移、重启 tmux 服务并检查 Web、Agent、Workspace、Preview；健康失败时尝试恢复上一应用版本。数据库备份保存在 `/var/backups/cloudcrane/postgres/`，需由运维定期确认备份可恢复及磁盘空间。
@@ -114,8 +114,8 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 ## 尚待解决的文档冲突与部署问题
 
-- **Gateway 范围已澄清**：CloudCrane 平台公网入口使用 Nginx；Tech-03 的 Caddy ADR 描述尚未实现的 Website Production Runtime Gateway，即用户网站自定义域名入口，不是当前 `app.itkdm.com` / Preview 的平台入口。两者是不同部署角色。Nginx 适合当前固定平台域名和路径反代；未来用户域名的动态路由、每域名证书签发/续期仍需单独设计，不能把当前 Nginx 配置直接视为已实现该能力。
-- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布架构；Tech-07 将其列为 MVP 暂不实现；当前 `cloudcrane-production-deploy.md` 发布的是 CloudCrane 平台自身。三者不是同一种“上线”，本文按此区分。
+- **生产入口已定为 Nginx**：平台入口和未来 Website Production Gateway 都采用 Nginx，但职责不同。现有 Nginx 只服务平台固定域名；用户网站的动态 Host 路由、证书签发/续期、安全配置生成仍未实现，不能将当前配置视为已具备这些能力。
+- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布；`.github/workflows/deploy-production.yml` 发布的是 CloudCrane 平台自身。Production Publish V1 正在按阶段实现：当前已部署数据库运行时/Release 表，Release Manifest 与 ZIP builder 已完成代码和测试；Gateway、生产容器、发布 API、授权 UI 与端到端发布流程尚未完成，因此还不能对用户开放。
 - **Workspace egress 已核实**：2026-10-01 生产主机上的 Workspace 网络为 `bridge` 且 `internal=false`，`DOCKER-USER` 没有自定义规则，UFW inactive；从运行中的 Workspace 请求 `https://example.com` 得到 HTTP 200，因此至少公网 HTTPS 可达，未配置域名级 egress allowlist。Workspace 使用独立网络、容器以非 root 用户运行且未挂载 Docker socket，降低了其他风险，但不等于出站过滤。对 `100.100.100.200:80` 的主机和容器 TCP 探测均超时；没有找到显式阻断规则，因此不能据此证明 ECS metadata 已被策略封锁。Tech-02 允许 V1 按需使用公网，但明确要求阻断 metadata；这台主机目前没有可核实的显式 metadata deny 规则，应作为安全整改项。
 - **数据库回滚边界**：部署脚本在迁移前生成 PostgreSQL custom-format 备份，并在健康检查失败时尝试恢复上一版应用；它不会自动恢复数据库，以免删除部署后产生的新数据。Schema migration 必须保持旧版本可兼容，恢复数据库需按运维手册人工评估和执行。
 - **生产 Compose 配置管理**：实际的 `docker/compose/docker-compose.server.yml` 含内嵌 PostgreSQL 密码，只应留在服务器并由 `.gitignore` 排除，不能提交真实文件。仓库提供 `docker-compose.server.example.yml` 与 `postgres.env.example` 作为无密钥模板；建议后续将当前内嵌密码协调迁移到权限为 600 的 `docker/compose/postgres.env`。现有数据库密码迁移必须同时处理 PostgreSQL 角色和应用连接配置，不能只改 Compose 环境变量。

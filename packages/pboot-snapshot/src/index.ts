@@ -354,3 +354,5 @@ export async function assertNoSymlinks(root: string): Promise<void> {
   if (symlink) throw new Error(`snapshot payload contains symlink: ${symlink[0]}`);
   await lstat(root);
 }
+
+export * from './production-release.js';

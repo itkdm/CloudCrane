@@ -280,9 +280,9 @@ V1 使用阿里云 OSS：
 ```text
 releases/
   website-123/
-    r_101.tar.zst
-    r_102.tar.zst
-    r_103.tar.zst
+    r_101.zip
+    r_102.zip
+    r_103.zip
 ```
 
 未来 Workspace ECS 与 Production ECS 可以完全分离。
@@ -295,7 +295,7 @@ PbootCMS 不按一级目录粗暴区分，而是定义四类：
 
 ```text
 VERSIONED
-PERSISTENT
+PERSISTENT_INITIAL
 ENVIRONMENT
 RUNTIME
 ```
@@ -329,6 +329,7 @@ static/upload/
 ```
 
 Production 是唯一真源。
+`data/**` 和 `static/upload/**` 只在首次 Publish 初始化；后续 Release 不携带这些路径，避免用 Workspace 状态覆盖 Production。
 
 ## ENVIRONMENT
 
@@ -342,7 +343,7 @@ Workspace 与 Production 分别维护。
 
 ## Site Config
 
-`config/config.php` V1 默认视为 Site Config。第一次上线初始化；以后需要修改时作为明确 Config Change 发布。
+`config/config.php` V1 视为 Site Config。首次 Publish 初始化；后续普通 Release 不携带该文件。以后需要修改时走明确的 Config Change 操作。
 
 ## RUNTIME
 
@@ -395,6 +396,10 @@ environment:
 runtime:
   - runtime/**
 ```
+
+V1 实现使用 `manifest.json`，每个条目记录相对路径、字节数、SHA-256 和文件分类。Release ZIP 以流式方式生成，避免将整个站点文件同时载入内存。Artifact 最大 500 MiB，展开总量最大 1 GiB，单文件最大 100 MiB，最多 20,000 个文件。生产端必须验证 manifest、路径、文件数/大小和哈希后再解压。
+
+Release ZIP 与 Template Snapshot 是不同的制品：Template Snapshot 用于网站状态迁移；Production Release 是不可变代码版本，首次发布时才包含要初始化的 Persistent 数据。
 
 未来 WordPress 使用自己的 Manifest。
 
@@ -688,16 +693,16 @@ A → 47.xx.xx.xx
 
 本节的 Gateway 指用户 Website Production Runtime 的入口，不是 CloudCrane 平台自身的 `app.itkdm.com` / Preview 公网入口。当前 CloudCrane 平台入口已选择 Nginx。
 
-Website Production Runtime 尚未实现。其未来 Gateway 需处理：
+Website Production Runtime 尚未实现。V1 选择 Nginx 作为生产入口，Gateway 需处理：
 
 ```text
 80
 443
 Host Routing
-Automatic HTTPS
+HTTPS / 证书状态
 ```
 
-Container 端口不直接公网暴露。
+Container 端口不直接公网暴露。Nginx 只转发到受管 Production Container 的 loopback 绑定端口；未知 Host 必须拒绝。证书签发/续期及动态 Host 配置还需在 Gateway 实现阶段完成端到端验证。
 
 ---
 
@@ -776,7 +781,7 @@ DNS Verify
 ↓
 Pboot Production Authorization
 ↓
-Caddy HTTPS
+Nginx HTTPS
 ↓
 Production Active
 ```
@@ -837,10 +842,12 @@ Real-time Dev/Prod DB Sync
 - ADR-047：Preview 使用平台备案域名的 Wildcard 子域名。
 - ADR-048：V1 用户自行负责域名购买、ICP备案和阿里云接入。
 - ADR-049：正式域名通过 A Record 指向平台 EIP。
-- ADR-050：Website Production Runtime 的原始 V1 方案推荐 Caddy 和 Automatic HTTPS；平台公网入口 Nginx 属于独立部署角色。用户域名上线前需重新评估动态 Host 路由、证书签发/续期和安全配置生成能力。
+- ADR-050：Website Production Runtime V1 使用 Nginx 作为公网入口；Container 不直接公网暴露。动态 Host 路由、证书签发/续期、安全配置生成须由 Production Gateway 统一管理。
 - ADR-051：公网仅开放 80/443，内部 Runtime / Runner / Daemon 不直接暴露。
 - ADR-052：PbootCMS 域名授权严格遵循官方机制，商业化前解决平台授权问题。
 - ADR-053：CloudCrane 平台当前公网 Ingress 使用 Nginx；与 ADR-050 的 Website Production Runtime Gateway 属于不同部署角色。
+- ADR-054：Production Release V1 使用流式 ZIP 与 `manifest.json`；选择依据是仓库已依赖的 `fflate` 支持流式 ZIP，且可在不新增外部压缩运行时的情况下实现 SHA-256 和路径校验。制品格式与 Template Snapshot 相互独立。
+- ADR-055：首次 Publish 可初始化 `data/**`、`static/upload/**` 和 `config/config.php`；后续普通 Release 永不覆盖这三类 Production 状态。
 
 ---
 
@@ -851,7 +858,7 @@ Real-time Dev/Prod DB Sync
                             │
                           EIP
                             │
-              Caddy Website Runtime Gateway (future)
+              Nginx Website Production Gateway (future)
                             │
             ┌───────────────┴───────────────┐
             │                               │

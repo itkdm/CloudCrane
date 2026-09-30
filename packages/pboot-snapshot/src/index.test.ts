@@ -5,9 +5,12 @@ import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import {
   assertSnapshotCanRestore,
+  buildProductionReleaseArchive,
   buildSnapshotArchive,
   buildSnapshotManifest,
   classifySnapshotPath,
+  classifyProductionReleasePath,
+  collectProductionReleaseInventory,
   collectSiteStateInventory,
   compareVersions,
   detectCoreDrift,
@@ -235,5 +238,121 @@ describe('Pboot snapshot boundaries', () => {
         targetDbSchemaVersion: '3.2.26',
       }),
     ).not.toThrow();
+  });
+});
+
+describe('Pboot production release artifacts', () => {
+  it('keeps database, site config, and uploads only in the first-publish payload', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-inventory-'));
+    await mkdir(path.join(root, 'config'), { recursive: true });
+    await mkdir(path.join(root, 'data'), { recursive: true });
+    await mkdir(path.join(root, 'static', 'upload'), { recursive: true });
+    await mkdir(path.join(root, 'runtime'), { recursive: true });
+    await writeFile(path.join(root, 'config', 'config.php'), 'site config');
+    await writeFile(path.join(root, 'config', 'database.php'), 'workspace database settings');
+    await writeFile(path.join(root, 'data', 'pbootcms.db'), 'sqlite bytes');
+    await writeFile(path.join(root, 'static', 'upload', 'logo.png'), 'image');
+    await mkdir(path.join(root, 'data', 'backup'), { recursive: true });
+    await writeFile(path.join(root, 'data', 'backup', 'backup.zip'), 'backup');
+    await writeFile(path.join(root, 'runtime', 'cache.php'), 'runtime');
+
+    const first = await collectProductionReleaseInventory(root, true);
+    expect(first.map(({ path: entryPath, fileClass }) => [entryPath, fileClass])).toEqual([
+      ['config/config.php', 'PERSISTENT_INITIAL'],
+      ['data/pbootcms.db', 'PERSISTENT_INITIAL'],
+      ['static/upload/logo.png', 'PERSISTENT_INITIAL'],
+    ]);
+    expect((await collectProductionReleaseInventory(root, false)).map((file) => file.path)).toEqual(
+      [],
+    );
+    expect(classifyProductionReleasePath('config/database.php', true)).toBe('EXCLUDED');
+    expect(() => classifyProductionReleasePath('../outside.php', true)).toThrow(
+      'invalid production release path',
+    );
+  });
+
+  it('builds a streamed immutable release archive with verified file hashes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-archive-'));
+    const base = path.join(root, 'base');
+    const workspace = path.join(root, 'workspace');
+    const output = path.join(root, 'artifacts', 'release.zip');
+    await mkdir(path.join(base, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, 'template', 'default'), { recursive: true });
+    await mkdir(path.join(workspace, 'runtime'), { recursive: true });
+    await writeFile(path.join(base, 'apps', 'core.php'), 'managed');
+    await writeFile(path.join(workspace, 'apps', 'core.php'), 'managed');
+    await writeFile(
+      path.join(base, '.cloudcrane-base'),
+      'pbootcms=3.2.26\nsourceCommit=8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea\n',
+    );
+    await writeFile(path.join(workspace, 'template', 'default', 'index.html'), 'published');
+    await writeFile(path.join(workspace, 'runtime', 'cache'), 'excluded');
+
+    const result = await buildProductionReleaseArchive({
+      workspaceRoot: workspace,
+      managedBaseRoot: base,
+      sourceWebsiteId: 'f9f454c2-3fa8-48da-a869-182584c10a6b',
+      sourcePbootVersion: '3.2.26',
+      sourceCoreCommit: '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea',
+      sourceGitHead: null,
+      sourceGitDirty: true,
+      firstPublish: false,
+      releaseId: 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53',
+      createdAt: '2026-10-01T00:00:00.000Z',
+      outputPath: output,
+    });
+    const archive = await readFile(output);
+    const entries = unzipSync(archive);
+    expect(Object.keys(entries).sort()).toEqual([
+      'manifest.json',
+      'payload/apps/core.php',
+      'payload/template/default/index.html',
+    ]);
+    const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json']));
+    expect(manifest).toMatchObject({
+      artifactType: 'cloudcrane-pboot-production-release',
+      firstPublish: false,
+      sourceGitDirty: true,
+      files: {
+        count: 2,
+        entries: [
+          { path: 'apps/core.php', fileClass: 'VERSIONED' },
+          { path: 'template/default/index.html', fileClass: 'VERSIONED' },
+        ],
+      },
+    });
+    expect(new TextDecoder().decode(entries['payload/template/default/index.html'])).toBe(
+      'published',
+    );
+    expect(result.size).toBe(archive.byteLength);
+    expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
+    await expect(
+      buildProductionReleaseArchive({
+        workspaceRoot: workspace,
+        managedBaseRoot: base,
+        sourceWebsiteId: 'f9f454c2-3fa8-48da-a869-182584c10a6b',
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea',
+        sourceGitHead: null,
+        sourceGitDirty: true,
+        firstPublish: false,
+        releaseId: 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        outputPath: output,
+      }),
+    ).rejects.toThrow('output already exists');
+  });
+
+  it('rejects symlinks and secrets in release payload files', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-invalid-'));
+    await writeFile(path.join(root, '.env.local'), 'secret');
+    await expect(collectProductionReleaseInventory(root, false)).rejects.toThrow('sensitive file');
+    await import('node:fs/promises').then(({ rm }) => rm(path.join(root, '.env.local')));
+    await writeFile(path.join(root, 'target.php'), 'site');
+    await symlink('target.php', path.join(root, 'link.php'));
+    await expect(collectProductionReleaseInventory(root, false)).rejects.toThrow(
+      'contains symlink',
+    );
   });
 });
