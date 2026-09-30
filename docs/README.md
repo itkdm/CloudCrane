@@ -15,4 +15,6 @@
 2. 阅读 [实施基线](architecture/website-coding-agent-tech-07-implementation-baseline-mvp.md) 和它引用的 Tech-01 至 Tech-06 文档。
 3. 按开发、部署或验收需要查阅相应目录中的专题文档。
 
+日常修改、Git 提交/推送、CI 与生产发布状态从[工程生命周期说明](operations/cloudcrane-development-lifecycle.md)开始。该文档同时标出当前已实现流程与尚未配置的自动部署目标。
+
 架构工作应以仓库当前确认的 Tech-01 至 Tech-07 文档为基线；运维手册描述的服务器状态和凭据需要在实际操作前重新核实。

@@ -15,6 +15,7 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 
 - 开始任何实现、调试、测试或部署前，先检查 `git status --short --branch`、当前分支、`git log`、remote 和相关文件；需要基于远程最新代码时先执行 `git fetch origin`，默认在 `main` 上工作。
 - 保留用户已有改动；不使用 `git reset --hard`、`git checkout --`、force push 或覆盖未知远程历史。切换分支前确认工作区干净，提交前检查 staged files 和 `git diff --check`。
+- 本项目默认直接在 `main` 工作。用户已明确要求：明确功能点完成、适用检查通过且 diff 审查完成后，自动创建 Conventional Commit 并推送 `main`，无需再次询问；若工作区有未完成/无关改动、检查失败或远端状态异常，先处理并报告。
 - 先界定本轮任务和验收标准，只做最小必要改动。发现架构冲突、缺少凭据、远程状态不明或需要扩大范围时，停止并报告，不擅自替代设计。
 - 项目当前处于开发阶段：不要为旧协议、旧客户端或兼容路由保留没有明确收益的兼容层；发现真实生效路径后优先直接收敛、重构和删除重复实现。只有存在已确认的外部消费者或迁移窗口时，才增加兼容逻辑，并在变更说明中记录理由。
 - 搜索文件优先使用 `rg` / `rg --files`；文件修改使用 `apply_patch`。不要用脚本把秘密写入仓库，也不要把临时运行产物混入提交。
@@ -22,6 +23,7 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 ### 本地验收与远程服务硬规则
 
 - CloudCrane 默认真实联调、DEVTOOLS 验收和网站列表检查必须使用 ECS 完整服务栈：先确认 SSH 隧道正常，再访问 `http://localhost:3000`。其中 Web、Agent、Workspace Gateway、Preview Gateway 和 PostgreSQL 均应对应远程服务。
+- 根目录 README 的 `pnpm dev` 是本机开发入口，不是默认真实联调或用户流程验收入口；不要据此判断远程 Website 列表、ECS 数据库或线上状态。
 - 不得把本地 `3001` 或其它端口的裸启动 Next Web 当作默认验收入口。特别是未加载远程 `DATABASE_URL`、Agent、Workspace Gateway 等环境变量时，禁止用它判断网站列表、数据库或部署是否正常；发现误启动时必须明确标记为本地备用进程，不得让用户继续使用该地址验收。
 - 只有用户明确要求“本地 Web + ECS 后端”时，才允许启动本地 Web；启动前必须按 [本地远程开发恢复记录](docs/operations/cloudcrane-local-remote-dev-recovery.md) 配置当前进程的远程数据库、Agent、Workspace Gateway、Preview 和必要 Token，并检查变量只存在不回显值。启动后仍需用 DEVTOOLS 验证实际请求链路。
 - 每次启动、重启、调试或验收前，必须先检查 `3000`、SSH 转发端口和现有 Web 进程；不要为了显示 Website 列表切换到本机数据库。若 `localhost:3000` 与本地备用端口同时存在，默认只认 `3000` 的远程验收链路。
@@ -36,20 +38,21 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 
 ## 工具与真实验收
 
-- UI、Chat、Preview、Workspace 生命周期、Agent Prompt、刷新/重连等用户流程，必须通过 DEVTOOLS MCP 连接真实服务验证。优先使用 `list_pages`、`navigate_page`、最新 `take_snapshot`、`list_network_requests` 和 `list_console_messages`；每次点击或填写前重新获取 snapshot，使用最新 uid。
-- 涉及 Web UI 的验收必须额外使用 DEVTOOLS MCP 截取截图，并检查截图中的实际视觉布局、裁切、滚动位置、间距、对齐和响应式表现；仅凭 DOM 快照、Network 或 Console 结果不得宣称 UI 验收完成。最终报告应说明截图验证结论，必要时附上截图证据路径。
-- DEVTOOLS MCP 不可用时必须原样报告：`E2E blocked: DEVTOOLS MCP unavailable`。不能用 curl、Playwright 或普通浏览器替代并声称完成 CloudCrane UI E2E；curl/SSH 只用于辅助的服务器健康与只读状态检查。
-- 真实验收要检查可见 DOM、用户反馈、Console、Network、刷新/重开后的持久化状态和关键错误路径。遇到授权失败、服务不可用或 Agent 未完成，不得人工绕过、自动开新窗口、自动刷新掩盖问题。
+- UI、Chat、Preview、Workspace 生命周期、Agent Prompt、刷新/重连等用户流程，优先通过 DEVTOOLS MCP 连接真实服务验证。DEVTOOLS 不可用时的内置浏览器回退规则见下文。
+- 涉及 Web UI 的验收必须用选定的验收工具截取截图，并检查实际视觉布局、裁切、滚动位置、间距、对齐和响应式表现；DEVTOOLS MCP 不可用时按约定使用 Codex 内置浏览器截图。仅凭 DOM 快照、Network 或 Console 结果不得宣称 UI 验收完成。最终报告说明截图验证结论，必要时附上截图证据路径。
+- DEVTOOLS MCP 是首选验收工具。按用户明确确认的项目约定，DEVTOOLS MCP 不可用时可使用 Codex 内置浏览器检查可见 UI、用户反馈、刷新后的可见状态并截取截图；报告必须说明使用了哪种工具及其证据边界。内置浏览器无法替代 DEVTOOLS 的 Network/Console 等证据时，相关链路验收仍标为未完成。curl/SSH 只用于辅助的服务器健康与只读状态检查。
+- 真实验收要检查可见 DOM、用户反馈、Console、Network、刷新/重开后的持久化状态和关键错误路径；验收工具无法提供的证据应明确标为未验证。遇到授权失败、服务不可用或 Agent 未完成，不得人工绕过、自动开新窗口、自动刷新掩盖问题。
 - 日志和最终报告不得包含密码、Cookie、Token、授权码、完整 Prompt、Session JSONL、文件内容或未过滤外部 stdout；报告使用状态、计数、哈希或脱敏路径。
 
 ## 质量与交付
 
 - 适用时执行：`pnpm format:check`、`pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`git diff --check`。区分本地环境阻塞、测试失败和远程 CI 尚未完成，不把未验证内容写成 PASS。
 - 回归测试覆盖行为、错误路径、权限边界、协议和持久化；不要删除原有断言或用过度宽松的 mock 让测试“通过”。
-- 提交信息使用清晰的 Conventional Commit；提交前汇报 Base SHA、改动文件、验证命令、未完成项和 Git 状态。除非用户明确要求，不自动 commit、push、部署或修改外部 DNS/Secret。
+- 提交信息使用清晰的 Conventional Commit；提交前汇报 Base SHA、改动文件、验证命令、未完成项和 Git 状态。明确功能点完成后按本文件的项目授权自动 commit/push；部署和修改外部 DNS/Secret 仍须用户明确授权。
+- 生产发布目标是 main 更新后由 CI/CD 自动部署；只有仓库中实际配置并验证了 CD workflow 后，才可把 push 描述为会自动上线。当前实现状态与未决项记录在 [工程生命周期说明](docs/operations/cloudcrane-development-lifecycle.md)。
 
 ## Skill 路由
 
 - 所有 CloudCrane 工程工作优先阅读本文件；如果本地存在 `.agents/skills/cloudcrane-engineering/SKILL.md`，再按其中路由阅读相关 references。不要把被 `.gitignore` 忽略的 `.agents/` 当作远程仓库的必需文件，也不要为了满足该路径创建或提交本地技能副本。
 - 涉及架构、数据库 schema、协议、Agent、Workspace、Runner、Gateway 或 Web UI 时，按 Skill 路由阅读 `docs/architecture/` 下对应 Tech 文档；涉及真实 PbootCMS 模板迁移时才使用 `pboot-template-migration` Skill。
-- Skill 与本文件或用户明确范围冲突时，记录冲突并以用户范围为准，不隐藏冲突。
+- Skill 与本文件或用户明确范围冲突时，记录冲突并以用户范围为准，不隐藏冲突。内置浏览器作为 DEVTOOLS MCP 不可用时的 UI 可见性验收替代，按本文件规则执行。

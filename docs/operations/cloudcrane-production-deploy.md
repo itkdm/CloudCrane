@@ -1,5 +1,7 @@
 # CloudCrane 生产入口部署
 
+> **发布方式状态（2026-09-30）**：仓库已新增 GitHub Actions 自动部署 workflow，`CLOUDCRANE_DEPLOY_SSH_KEY` Secret 已配置；本轮 push 后等待首次部署验证。首次验证完成前，推送 `main` 尚不能视为自动上线已验收。本文下面的 SSH 命令仍是手动发布流程；不要与 workflow 并发发布。
+
 部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
 | 记录 | 类型 | 内容 | 代理 |
@@ -84,7 +86,7 @@ TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
 
-仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动验收服务；脚本默认会话名为 `cloudcrane-acceptance`。生产主机当前实际采用的进程管理方式需先核实。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，该模板本身不证明服务器已安装或启用 systemd 服务。
+仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动服务；脚本默认会话名为 `cloudcrane-acceptance`。2026-09-30 通过 SSH 只读核验，生产主机使用 `cloudcrane-production` 会话，其中有 `web`、`agent`、`gateway`、`runner` 和 `preview` 窗口；对应 systemd unit 当时均 inactive。该状态可能变化，每次发布前应重新确认。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，该模板本身不表示生产主机已启用这些 unit。
 
 ```bash
 CLOUDCRANE_TMUX_SESSION=cloudcrane-production bash ./scripts/server-acceptance-start.sh
@@ -100,6 +102,14 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=true
 ```
 
 Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT、`rsend` CNAME 和 `send` CNAME。不要开启这些记录的 Cloudflare 代理；API Key 只能放在 `.env.private.local`。
+
+## 自动发布
+
+`.github/workflows/deploy-production.yml` 只响应 `main` push 对应的 CI 成功事件，并部署同一个 commit。GitHub Actions 使用专用 SSH key；服务器公钥通过 `restrict` 和强制命令限制为部署入口，不能获得交互式 shell 或转发能力。私钥只存放在 GitHub Actions Secret `CLOUDCRANE_DEPLOY_SSH_KEY`。
+
+`scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，先备份 PostgreSQL，再运行迁移与 Preview slug 回填，重启 `cloudcrane-production` tmux 会话，检查 Web、Agent、Workspace Gateway、Preview Gateway，并验证 Nginx 配置。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。
+
+服务器当前存在未跟踪的 `docker/compose/docker-compose.server.yml`，自动脚本使用它定位 PostgreSQL 容器；不要在清理或重新 clone 服务器工作区时丢失该私有配置。数据库备份恢复流程尚未实测，首次启用后应补做恢复演练。
 
 ## 发布与检查
 

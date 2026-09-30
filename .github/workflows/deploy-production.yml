@@ -1,0 +1,51 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudcrane-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Deploy the exact CI-verified commit
+        env:
+          DEPLOY_HOST: 186.244.238.219
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+          DEPLOY_SSH_KEY: ${{ secrets.CLOUDCRANE_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/cloudcrane_deploy"
+          chmod 600 "$HOME/.ssh/cloudcrane_deploy"
+          cat > "$HOME/.ssh/known_hosts" <<'KNOWN_HOSTS'
+          186.244.238.219 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFDwUjz9spNdqNFvcSgwyxKm6cBKdsMik1TuNlccAVcC
+          KNOWN_HOSTS
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/cloudcrane_deploy" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "root@$DEPLOY_HOST" "deploy $DEPLOY_SHA"
+
+      - name: Verify public production endpoints
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors \
+            https://app.itkdm.com/api/auth/get-session >/dev/null
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors \
+            https://app.itkdm.com/agent/health >/dev/null
