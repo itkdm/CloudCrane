@@ -109,7 +109,7 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 - 生产控制 checkout 仍保留在 `57872b3`；自动部署在 `/opt/cloudcrane-releases/<SHA>` 建立运行 worktree。首次部署使用 `973d9bb`，随后文档复核提交 `6f3afed` 也经 Deploy production `#2` 部署。服务器工作区另有未跟踪的 `docker/compose/docker-compose.server.yml`。该文件属于服务器现状，已保留，部署脚本只读取它来定位 PostgreSQL 容器，不覆盖或清理它。
 - SSH 已可连接，但本次没有建立本机 `localhost:3000` 隧道。专用公钥已安装到服务器并限制为部署入口，交互式命令拒绝检查通过；GitHub Actions 私钥 Secret 已保存，首次自动部署认证已成功。
 
-因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和 CI/CD 部署已有实测证据。Deploy production `#3` 后，Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功。内置浏览器只读打开正式首页：宽屏截图的首屏布局正常；约 910px 的窄视口截图出现横向滚动条，响应式表现仍需专项确认。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
+因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和 CI/CD 部署已有实测证据。Deploy production `#4` 后，Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功。内置浏览器只读打开正式首页：宽屏截图的首屏布局正常；约 910px 的窄视口截图出现横向滚动条，响应式表现仍需专项确认。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
 
 ## 尚待解决的文档冲突与部署问题
 
