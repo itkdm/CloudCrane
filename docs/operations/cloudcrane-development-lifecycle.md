@@ -109,7 +109,7 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 - 生产控制 checkout 仍保留在 `57872b3`；自动部署在 `/opt/cloudcrane-releases/<SHA>` 建立运行 worktree。首次部署使用 `973d9bb`，随后文档复核提交 `6f3afed` 也经 Deploy production `#2` 部署。服务器工作区另有未跟踪的 `docker/compose/docker-compose.server.yml`。该文件属于服务器现状，已保留，部署脚本只读取它来定位 PostgreSQL 容器，不覆盖或清理它。
 - SSH 已可连接，但本次没有建立本机 `localhost:3000` 隧道。专用公钥已安装到服务器并限制为部署入口，交互式命令拒绝检查通过；GitHub Actions 私钥 Secret 已保存，首次自动部署认证已成功。
 
-因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和两次 CI/CD 部署已有实测证据。Deploy production `#2` 后，Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功；内置浏览器只读打开正式首页并检查截图，页面布局正常。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
+因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和 CI/CD 部署已有实测证据。Deploy production `#3` 后，Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功。内置浏览器只读打开正式首页：宽屏截图的首屏布局正常；约 910px 的窄视口截图出现横向滚动条，响应式表现仍需专项确认。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
 
 ## 尚待解决的文档冲突与部署问题
 
@@ -121,7 +121,7 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 ## 当前验收能力限制
 
-- DEVTOOLS MCP 不在本轮可用工具中；本轮使用 Codex 内置浏览器只读检查了正式首页，没有登录或修改数据。
+- DEVTOOLS MCP 不在本轮可用工具中；本轮使用 Codex 内置浏览器只读检查了正式首页，没有登录或修改数据。约 910px 窄视口截图可见水平滚动条，需另行确认响应式布局。
 - 本次检查时本机 `3000`、`3001`、`15432`、`4101`、`4102`、`4103` 没有监听，SSH 隧道未建立；本机 `5432` 有 PostgreSQL 进程监听，但本轮没有连接或检查其中的数据。生产服务器 SSH 本身可连接。
 - 本机 Docker CLI 不可用，所以本轮没有启动 Compose PostgreSQL、Workspace 容器或真实本地全栈，也没有执行数据库迁移/集成测试。
 - 本轮通过 CI-only 占位环境完成 `pnpm build` 和 21 条 migration lineage 检查；Build 未连接本机数据库。本机质量检查可验证代码本身，但不能取代远程数据库、Workspace、Runner、Preview 或线上浏览器链路的验收。
