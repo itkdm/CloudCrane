@@ -274,14 +274,14 @@ export class DockerProductionProvider implements ProductionProvider {
   private async ensureLayout(root: string): Promise<void> {
     const ownershipProvisioned = await this.exists(path.join(root, 'shared', '.ownership-v1'));
     await mkdir(path.join(root, 'releases'), { recursive: true, mode: 0o750 });
-    await chmod(root, 0o750);
-    await chmod(path.join(root, 'releases'), 0o750);
+    await chmod(root, 0o755);
+    await chmod(path.join(root, 'releases'), 0o755);
     for (const directory of ['data', 'upload', 'config', 'runtime']) {
       await mkdir(path.join(root, 'shared', directory), { recursive: true, mode: 0o750 });
       if (!ownershipProvisioned)
         await chmod(path.join(root, 'shared', directory), directory === 'config' ? 0o750 : 0o770);
     }
-    await chmod(path.join(root, 'shared'), 0o750);
+    await chmod(path.join(root, 'shared'), 0o755);
   }
 
   private async provisionSharedOwnership(
