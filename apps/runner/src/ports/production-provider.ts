@@ -30,5 +30,6 @@ export interface ProductionProvider {
   ensureRuntime(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
   deployRelease(input: ProductionDeployInput): Promise<ProductionRuntime>;
   getStatus(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
+  authorize(websiteId: string, productionSlug: string, authorizationCode: string): Promise<void>;
   destroyRuntime(websiteId: string): Promise<void>;
 }

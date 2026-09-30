@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -46,12 +46,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       const created = await workspaceProvider.create(workspaceId);
       runtimeCreated = true;
-      const workspacePath = created.workspacePath!;
+      expect(created.workspacePath).toBeTruthy();
       const daemon = new WorkspaceDaemonClient(await workspaceProvider.getEndpoint(workspaceId));
       for (const directory of ['apps', 'config', 'data', 'static/upload'])
-        await mkdir(path.join(workspacePath, directory), { recursive: true });
-      await writeFile(path.join(workspacePath, 'apps', 'core.php'), '<?php // trusted core\n');
-      await writeFile(path.join(workspacePath, 'config', 'config.php'), '<?php return [];\n');
+        await daemon.mkdir({ path: `/workspace/${directory}`, recursive: true });
+      await daemon.write({ path: '/workspace/apps/core.php', content: '<?php // trusted core\n' });
+      await daemon.write({ path: '/workspace/config/config.php', content: '<?php return [];\n' });
       await daemon.exec({
         command: 'sqlite3',
         args: [
@@ -99,6 +99,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
     const docker = new Docker();
     const config = loadRunnerConfig({
       PRODUCTION_ROOT: productionRoot,
+      PRODUCTION_HOST_SUFFIX: 'sites.example.com',
       PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',
       RELEASE_ARTIFACT_ROOT: artifacts,
       WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
@@ -149,6 +150,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       ])
         await mkdir(directory, { recursive: true });
 
+      await initializeProductionTestDatabase(
+        docker,
+        config.productionImage,
+        path.join(workspace, 'data'),
+      );
+
       await writeFile(
         path.join(managedBase, '.cloudcrane-base'),
         `pbootcms=3.2.26\nsourceCommit=${coreCommit}\n`,
@@ -172,7 +179,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         "<?php return ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db'];\n",
       );
       await writeFile(path.join(workspace, 'config', 'config.php'), '<?php return [];\n');
-      await writeFile(path.join(workspace, 'data', 'pbootcms.db'), 'initial-workspace-db');
       await writeFile(
         path.join(workspace, 'data', 'initial-marker.txt'),
         'initial-production-state',
@@ -204,6 +210,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       expect(firstResponse.status).toBe(200);
       expect(await firstResponse.text()).toBe('production-owned|release-one');
+      await provider.authorize(websiteId, productionSlug, 'fixture-authorization-code');
+      expect(await provider.getStatus(websiteId, productionSlug)).toMatchObject({
+        status: 'active',
+        currentReleaseId: firstReleaseId,
+      });
 
       const inspected = await docker.getContainer(first.containerRef!).inspect();
       expect(inspected.Config?.User).toBe('1000:1000');
@@ -222,7 +233,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),
-        "<?php echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . file_get_contents('/site/shared/data/pbootcms.db') . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
+        "<?php $db = new PDO('sqlite:/site/shared/data/pbootcms.db'); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . $db->query('SELECT value FROM sample')->fetchColumn() . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
       );
       await writeFile(path.join(workspace, 'data', 'pbootcms.db'), 'changed-workspace-db');
       await writeFile(
@@ -236,8 +247,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       expect(secondResponse.status).toBe(200);
       expect(await secondResponse.text()).toBe(
-        'production-owned|release-two|initial-workspace-db|initial-production-state|initial-production-upload',
+        'production-owned|release-two|initial-production-db|initial-production-state|initial-production-upload',
       );
+      expect(second.status).toBe('active');
 
       expect(await readlink(path.join(productionRoot, websiteId, 'current'))).toBe(
         path.join('releases', secondReleaseId),
@@ -288,3 +300,37 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
     }
   }, 180_000);
 });
+
+async function initializeProductionTestDatabase(
+  docker: Docker,
+  image: string,
+  dataDirectory: string,
+): Promise<void> {
+  await chmod(dataDirectory, 0o777);
+  const initializer = await docker.createContainer({
+    Image: image,
+    Entrypoint: ['php'],
+    Cmd: [
+      '-r',
+      '$db = new PDO("sqlite:/seed/pbootcms.db"); $db->exec("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO sample(value) VALUES (\'initial-production-db\'); CREATE TABLE ay_config (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, value TEXT, type TEXT, sorting INTEGER, description TEXT);");',
+    ],
+    User: '1000:1000',
+    HostConfig: {
+      Binds: [`${dataDirectory}:/seed:rw`],
+      NetworkMode: 'none',
+      Privileged: false,
+      ReadonlyRootfs: true,
+      SecurityOpt: ['no-new-privileges:true'],
+      CapDrop: ['ALL'],
+      AutoRemove: false,
+    },
+  });
+  try {
+    await initializer.start();
+    const result = await initializer.wait();
+    if (result.StatusCode !== 0) throw new Error('test SQLite database initialization failed');
+  } finally {
+    await initializer.remove({ force: true }).catch(() => undefined);
+    await chmod(dataDirectory, 0o755);
+  }
+}

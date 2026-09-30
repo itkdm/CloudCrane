@@ -18,6 +18,7 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       'production.ensure',
       'production.deploy',
       'production.status',
+      'production.authorize',
       'production.destroy',
     ];
   }
@@ -79,7 +80,12 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
         await this.runtime.destroyRuntime(operation.websiteId);
         return null;
       case 'production.authorize':
-        throw new Error('production authorization is not supported by this Runner');
+        await this.runtime.authorize(
+          operation.websiteId,
+          operation.payload.productionSlug,
+          operation.payload.authorizationCode,
+        );
+        return { status: 'active' };
     }
   }
 }

@@ -11,6 +11,7 @@ describe('ProductionReleaseOperationExecutor', () => {
       ensureRuntime: vi.fn(),
       deployRelease: vi.fn(),
       status: vi.fn(),
+      authorize: vi.fn(),
       destroyRuntime: vi.fn(),
     };
     const executor = new ProductionReleaseOperationExecutor(stager as never, runtime as never);
@@ -36,6 +37,7 @@ describe('ProductionReleaseOperationExecutor', () => {
       'production.ensure',
       'production.deploy',
       'production.status',
+      'production.authorize',
       'production.destroy',
     ]);
     await expect(executor.execute(operation)).resolves.toEqual({
@@ -74,6 +76,7 @@ describe('ProductionReleaseOperationExecutor', () => {
         containerRef: null,
         currentReleaseId: null,
       }),
+      authorize: vi.fn().mockResolvedValue(undefined),
       destroyRuntime: vi.fn().mockResolvedValue(undefined),
     };
     const executor = new ProductionReleaseOperationExecutor(stager as never, runtime as never);
@@ -141,8 +144,22 @@ describe('ProductionReleaseOperationExecutor', () => {
       payload: {},
     });
     await expect(executor.execute(destroy)).resolves.toBeNull();
+    const authorize = productionRunnerOperationSchema.parse({
+      ...context,
+      operation: 'production.authorize',
+      payload: {
+        productionSlug: 'production-website',
+        authorizationCode: 'private-code',
+      },
+    });
+    await expect(executor.execute(authorize)).resolves.toEqual({ status: 'active' });
     expect(runtime.ensureRuntime).toHaveBeenCalledWith(context.websiteId, 'production-website');
     expect(runtime.status).toHaveBeenCalledWith(context.websiteId, 'production-website');
     expect(runtime.destroyRuntime).toHaveBeenCalledWith(context.websiteId);
+    expect(runtime.authorize).toHaveBeenCalledWith(
+      context.websiteId,
+      'production-website',
+      'private-code',
+    );
   });
 });

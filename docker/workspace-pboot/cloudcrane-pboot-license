@@ -12,7 +12,11 @@ if (!is_string($snUser)) {
     $snUser = '';
 }
 
-$database = '/workspace/data/pbootcms.db';
+$siteRoot = getenv('PBOOT_SITE_ROOT');
+if (!is_string($siteRoot) || $siteRoot === '') {
+    $siteRoot = '/workspace';
+}
+$database = rtrim($siteRoot, '/') . '/data/pbootcms.db';
 if (!is_file($database)) {
     fwrite(STDERR, "PbootCMS database is missing\n");
     exit(21);
@@ -58,7 +62,7 @@ try {
     exit(22);
 }
 
-$cache = '/workspace/runtime/config';
+$cache = rtrim($siteRoot, '/') . '/runtime/config';
 if (is_dir($cache)) {
     $entries = scandir($cache);
     if ($entries === false) {
@@ -76,6 +80,12 @@ if (is_dir($cache)) {
             @unlink($path);
         }
     }
+}
+
+$authorizationMarker = rtrim($siteRoot, '/') . '/runtime/.cloudcrane-authorization-v1';
+if (file_put_contents($authorizationMarker, "authorized\n", LOCK_EX) === false) {
+    fwrite(STDERR, "PbootCMS authorization marker could not be written\n");
+    exit(24);
 }
 
 fwrite(STDOUT, "AUTHORIZED\n");

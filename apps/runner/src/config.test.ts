@@ -14,12 +14,14 @@ describe('runner production configuration', () => {
       WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
       TEMPLATE_ARTIFACT_ROOT: '/srv/cloudcrane/templates',
       WORKSPACE_MANAGED_PBOOT_BASE_ROOT: '/srv/cloudcrane/pbootcms-base',
+      PRODUCTION_HOST_SUFFIX: 'sites.example.com',
       RELEASE_ARTIFACT_ROOT: '/srv/cloudcrane/release-artifacts',
     });
 
     expect(config.referenceRoot).toBe('/srv/cloudcrane/references');
     expect(config.productionRoot).toBe('/var/lib/cloudcrane/production');
     expect(config.productionImage).toBe('cloudcrane-production-pboot:v1');
+    expect(config.productionHostSuffix).toBe('sites.example.com');
     expect(config.releaseArtifactRoot).toBe('/srv/cloudcrane/release-artifacts');
   });
 

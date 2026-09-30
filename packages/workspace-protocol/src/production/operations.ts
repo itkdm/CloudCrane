@@ -29,7 +29,10 @@ export const productionOperationPayloadSchemas = {
   'production.status': z.object({
     productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
   }),
-  'production.authorize': z.object({ authorizationCode: z.string().min(1).max(2048) }),
+  'production.authorize': z.object({
+    productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+    authorizationCode: z.string().min(1).max(2048),
+  }),
   'production.destroy': emptyPayloadSchema,
 } as const;
 

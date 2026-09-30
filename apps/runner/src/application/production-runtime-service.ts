@@ -19,6 +19,10 @@ export class ProductionRuntimeService {
     return this.provider.getStatus(websiteId, productionSlug);
   }
 
+  authorize(websiteId: string, productionSlug: string, authorizationCode: string): Promise<void> {
+    return this.provider.authorize(websiteId, productionSlug, authorizationCode);
+  }
+
   destroyRuntime(websiteId: string): Promise<void> {
     return this.provider.destroyRuntime(websiteId);
   }

@@ -84,7 +84,10 @@ export class ProductionClient {
     return this.call('production.status', payload, options);
   }
 
-  authorize(payload: { authorizationCode: string }, options?: ProductionRequestOptions) {
+  authorize(
+    payload: { productionSlug: string; authorizationCode: string },
+    options?: ProductionRequestOptions,
+  ) {
     return this.call('production.authorize', payload, options);
   }
 

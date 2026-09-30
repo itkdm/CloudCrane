@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import Docker from 'dockerode';
 import { switchCurrentRelease, DockerProductionProvider } from './docker-production-provider.js';
@@ -70,6 +71,7 @@ describe('DockerProductionProvider', () => {
       runnerId: '00000000-0000-4000-8000-000000000010',
       workspaceRoot: path.join(base, 'workspaces'),
       productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
       releaseArtifactRoot: path.join(base, 'releases'),
       managedPbootBaseRoot: path.join(base, 'pboot-base'),
       productionImage: 'cloudcrane-production-pboot:test',
@@ -102,6 +104,90 @@ describe('DockerProductionProvider', () => {
       expect(options?.WorkingDir).toBe('/site');
       expect(options?.HostConfig?.Binds?.some((bind) => bind.includes('docker.sock'))).toBe(false);
       expect(createContainer).toHaveBeenCalledOnce();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the official Pboot authorization helper and verifies the production Host', async () => {
+    const authorizationCode = 'private-license-value';
+    const info = {
+      Id: 'container-id',
+      State: { Running: true },
+      Config: {
+        Labels: {
+          'cloudcrane.service': 'production',
+          'cloudcrane.website_id': '00000000-0000-4000-8000-000000000001',
+          'cloudcrane.production_slug': 'production-website',
+        },
+        Image: 'cloudcrane-production-pboot:test',
+        User: '1000:1000',
+        WorkingDir: '/site',
+      },
+      HostConfig: {
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+        Binds: ['/production:/site:ro'],
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidsLimit: 64,
+      },
+      NetworkSettings: {
+        Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '43127' }] },
+      },
+    };
+    const command = {
+      start: vi.fn(async () => Readable.from(['AUTHORIZED\n'])),
+      inspect: vi.fn(async () => ({ ExitCode: 0 })),
+    };
+    const container = {
+      inspect: vi.fn(async () => info),
+      exec: vi.fn(async () => command),
+    };
+    const docker = { getContainer: vi.fn(() => container) } as unknown as Docker;
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-authorize-'));
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
+      releaseArtifactRoot: path.join(base, 'releases'),
+      managedPbootBaseRoot: path.join(base, 'pboot-base'),
+      productionImage: 'cloudcrane-production-pboot:test',
+      workspaceImage: 'cloudcrane-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    const fetcher = vi.fn(async () => new Response('ok', { status: 200 }));
+    try {
+      const provider = new DockerProductionProvider(config, docker, fetcher);
+      await provider.authorize(
+        '00000000-0000-4000-8000-000000000001',
+        'production-website',
+        authorizationCode,
+      );
+      expect(container.exec).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Cmd: ['cloudcrane-pboot-license'],
+          Env: [`PBOOT_SN=${authorizationCode}`, 'PBOOT_SN_USER=', 'PBOOT_SITE_ROOT=/site/current'],
+          User: '1000:1000',
+          Tty: true,
+        }),
+      );
+      expect(fetcher).toHaveBeenCalledWith(
+        'http://127.0.0.1:43127/',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            host: 'production-website.sites.example.com',
+            'x-forwarded-host': 'production-website.sites.example.com',
+            'x-forwarded-proto': 'https',
+          }),
+        }),
+      );
+      expect(JSON.stringify(fetcher.mock.calls)).not.toContain(authorizationCode);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

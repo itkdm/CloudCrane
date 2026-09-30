@@ -107,7 +107,7 @@ describe('ProductionClient', () => {
     const client = new ProductionClient('http://gateway.test', 'client-token', context, fetcher);
     let failure: unknown;
     try {
-      await client.authorize({ authorizationCode });
+      await client.authorize({ productionSlug: 'production-website', authorizationCode });
     } catch (error) {
       failure = error;
     }

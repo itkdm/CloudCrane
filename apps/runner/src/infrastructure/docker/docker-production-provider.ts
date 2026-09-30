@@ -1,4 +1,5 @@
 import { constants } from 'node:fs';
+import type { Readable } from 'node:stream';
 import {
   chmod,
   copyFile,
@@ -145,7 +146,8 @@ export class DockerProductionProvider implements ProductionProvider {
       productionSlug,
       info.Id ?? container.id,
       info,
-      await this.optionalCurrentRelease(this.root(websiteId)),
+      await this.optionalCurrentRelease(root),
+      await this.isAuthorizationComplete(root),
     );
   }
 
@@ -197,7 +199,12 @@ export class DockerProductionProvider implements ProductionProvider {
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
       if (!(await this.waitForHealth(runtime.productionPort)))
         throw new Error('PRODUCTION_HEALTHCHECK_FAILED: production runtime health check failed');
-      return { ...runtime, currentReleaseId: input.releaseId, status: 'authorization_required' };
+      const authorized = await this.isAuthorizationComplete(root);
+      return {
+        ...runtime,
+        currentReleaseId: input.releaseId,
+        status: authorized ? 'active' : 'authorization_required',
+      };
     } catch (error) {
       if (switched) {
         if (previousRelease) await switchCurrentRelease(root, previousRelease);
@@ -233,6 +240,7 @@ export class DockerProductionProvider implements ProductionProvider {
         info.Id ?? container.id,
         info,
         currentReleaseId,
+        await this.isAuthorizationComplete(root),
       );
     } catch (error) {
       if (this.isNotFound(error))
@@ -245,6 +253,59 @@ export class DockerProductionProvider implements ProductionProvider {
           currentReleaseId,
         };
       throw error;
+    }
+  }
+
+  async authorize(
+    websiteId: string,
+    productionSlug: string,
+    authorizationCode: string,
+  ): Promise<void> {
+    this.assertId(websiteId);
+    this.assertSlug(productionSlug);
+    if (!authorizationCode.trim() || authorizationCode.length > 2048)
+      throw new Error('INVALID_AUTHORIZATION_CODE');
+    const hostSuffix = this.config.productionHostSuffix;
+    if (!hostSuffix) throw new Error('PRODUCTION_HOST_SUFFIX is not configured');
+    const canonicalHost = `${productionSlug}.${hostSuffix}`;
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    let info: Docker.ContainerInspectInfo;
+    try {
+      info = await container.inspect();
+    } catch {
+      throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
+    }
+    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    if (!info.State?.Running) throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
+
+    try {
+      const command = await container.exec({
+        Cmd: ['cloudcrane-pboot-license'],
+        Env: [`PBOOT_SN=${authorizationCode}`, 'PBOOT_SN_USER=', 'PBOOT_SITE_ROOT=/site/current'],
+        WorkingDir: '/site/current',
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: true,
+      });
+      const stream = await command.start({ hijack: true, stdin: false });
+      const output = await readStream(stream);
+      const result = await command.inspect();
+      if (result.ExitCode !== 0 || output.trim() !== 'AUTHORIZED')
+        throw new Error('PBOOT_AUTHORIZATION_UPDATE_FAILED');
+    } catch {
+      // Docker exec errors can include sensitive request metadata, so return a fixed safe error.
+      throw new Error('PBOOT_AUTHORIZATION_UPDATE_FAILED');
+    }
+
+    const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
+    const port = binding?.HostPort ? Number(binding.HostPort) : null;
+    if (!port || !(await this.verifyHost(port, canonicalHost))) {
+      await rm(
+        path.join(this.root(websiteId), 'shared', 'runtime', '.cloudcrane-authorization-v1'),
+        { force: true },
+      ).catch(() => undefined);
+      throw new Error('PRODUCTION_AUTHORIZATION_VERIFY_FAILED');
     }
   }
 
@@ -507,7 +568,15 @@ export class DockerProductionProvider implements ProductionProvider {
     const container = this.docker.getContainer(this.containerName(websiteId));
     const info = await container.inspect();
     this.assertRuntimeMatches(info, websiteId, productionSlug);
-    return this.runtime(websiteId, productionSlug, info.Id ?? container.id, info);
+    const root = this.root(websiteId);
+    return this.runtime(
+      websiteId,
+      productionSlug,
+      info.Id ?? container.id,
+      info,
+      await this.optionalCurrentRelease(root),
+      await this.isAuthorizationComplete(root),
+    );
   }
 
   private runtime(
@@ -516,13 +585,16 @@ export class DockerProductionProvider implements ProductionProvider {
     containerRef: string,
     info: Docker.ContainerInspectInfo,
     currentReleaseId?: string | null,
+    authorized = false,
   ): ProductionRuntime {
     const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
     return {
       websiteId,
       status: info.State?.Running
         ? currentReleaseId
-          ? 'authorization_required'
+          ? authorized
+            ? 'active'
+            : 'authorization_required'
           : 'provisioning'
         : 'stopped',
       productionSlug,
@@ -572,6 +644,27 @@ export class DockerProductionProvider implements ProductionProvider {
     } catch {
       return false;
     }
+  }
+
+  private async verifyHost(port: number, canonicalHost: string): Promise<boolean> {
+    try {
+      const response = await this.fetcher(`http://127.0.0.1:${port}/`, {
+        headers: {
+          host: canonicalHost,
+          'x-forwarded-host': canonicalHost,
+          'x-forwarded-proto': 'https',
+        },
+        signal: AbortSignal.timeout(20_000),
+        redirect: 'manual',
+      });
+      return response.status >= 200 && response.status < 400;
+    } catch {
+      return false;
+    }
+  }
+
+  private async isAuthorizationComplete(root: string): Promise<boolean> {
+    return this.exists(path.join(root, 'shared', 'runtime', '.cloudcrane-authorization-v1'));
   }
 
   private async waitForHealth(port: number | null): Promise<boolean> {
@@ -664,4 +757,10 @@ async function writeFileSecure(filename: string, contents: string): Promise<void
   } finally {
     await file.close();
   }
+}
+
+async function readStream(stream: Readable): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks).toString('utf8');
 }

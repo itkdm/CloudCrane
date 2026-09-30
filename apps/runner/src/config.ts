@@ -7,6 +7,7 @@ export type RunnerConfig = {
   templateArtifactRoot?: string;
   managedPbootBaseRoot?: string;
   productionRoot: string;
+  productionHostSuffix?: string;
   productionImage: string;
   releaseArtifactRoot: string;
   workspaceImage: string;
@@ -27,6 +28,12 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     throw new Error('TEMPLATE_ARTIFACT_ROOT is required in production');
   if (env.NODE_ENV === 'production' && !env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT)
     throw new Error('WORKSPACE_MANAGED_PBOOT_BASE_ROOT is required in production');
+  const productionHostSuffix = env.PRODUCTION_HOST_SUFFIX?.trim().toLowerCase();
+  if (
+    productionHostSuffix &&
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(productionHostSuffix)
+  )
+    throw new Error('PRODUCTION_HOST_SUFFIX must be a DNS hostname suffix');
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
@@ -34,6 +41,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
     managedPbootBaseRoot: env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT,
     productionRoot: env.PRODUCTION_ROOT ?? '/var/lib/cloudcrane/production',
+    productionHostSuffix,
     productionImage: env.PRODUCTION_IMAGE ?? 'cloudcrane-production-pboot:v1',
     releaseArtifactRoot:
       env.RELEASE_ARTIFACT_ROOT ??
