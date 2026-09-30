@@ -105,6 +105,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       await mkdir(path.join(workspace, 'template', 'default'), { recursive: true });
       await writeFile(
+        path.join(workspace, 'template', 'default', 'index.php'),
+        "<?php echo 'pboot-home';\n",
+      );
+      await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),
         "<?php file_put_contents('/site/shared/data/runtime-marker.txt', 'production-owned', LOCK_EX); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-one';\n",
       );
