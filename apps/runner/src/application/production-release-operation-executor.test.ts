@@ -7,7 +7,13 @@ describe('ProductionReleaseOperationExecutor', () => {
     const stager = {
       stage: vi.fn().mockResolvedValue({ artifactStorageKey: 'release.zip' }),
     };
-    const executor = new ProductionReleaseOperationExecutor(stager as never);
+    const runtime = {
+      ensureRuntime: vi.fn(),
+      deployRelease: vi.fn(),
+      status: vi.fn(),
+      destroyRuntime: vi.fn(),
+    };
+    const executor = new ProductionReleaseOperationExecutor(stager as never, runtime as never);
     const operation = productionRunnerOperationSchema.parse({
       type: 'production.operation',
       operation: 'release.stage',
@@ -25,7 +31,13 @@ describe('ProductionReleaseOperationExecutor', () => {
       },
     });
 
-    expect(executor.supportedOperations()).toEqual(['release.stage']);
+    expect(executor.supportedOperations()).toEqual([
+      'release.stage',
+      'production.ensure',
+      'production.deploy',
+      'production.status',
+      'production.destroy',
+    ]);
     await expect(executor.execute(operation)).resolves.toEqual({
       artifactStorageKey: 'release.zip',
     });
@@ -34,5 +46,103 @@ describe('ProductionReleaseOperationExecutor', () => {
       '00000000-0000-4000-8000-000000000004',
       operation.payload,
     );
+  });
+
+  it('dispatches runtime ensure, deploy, status, and destroy through the production provider', async () => {
+    const stager = { stage: vi.fn() };
+    const runtime = {
+      ensureRuntime: vi.fn().mockResolvedValue({
+        websiteId: '00000000-0000-4000-8000-000000000003',
+        status: 'provisioning',
+        productionSlug: 'production-website',
+        productionPort: 43127,
+        containerRef: 'container-id',
+      }),
+      deployRelease: vi.fn().mockResolvedValue({
+        websiteId: '00000000-0000-4000-8000-000000000003',
+        status: 'authorization_required',
+        productionSlug: 'production-website',
+        productionPort: 43127,
+        containerRef: 'container-id',
+        currentReleaseId: '00000000-0000-4000-8000-000000000005',
+      }),
+      status: vi.fn().mockResolvedValue({
+        websiteId: '00000000-0000-4000-8000-000000000003',
+        status: 'missing',
+        productionSlug: 'production-website',
+        productionPort: null,
+        containerRef: null,
+        currentReleaseId: null,
+      }),
+      destroyRuntime: vi.fn().mockResolvedValue(undefined),
+    };
+    const executor = new ProductionReleaseOperationExecutor(stager as never, runtime as never);
+    const context = {
+      type: 'production.operation' as const,
+      requestId: '00000000-0000-4000-8000-000000000001',
+      traceId: '00000000-0000-4000-8000-000000000002',
+      websiteId: '00000000-0000-4000-8000-000000000003',
+      workspaceId: '00000000-0000-4000-8000-000000000004',
+      deadlineMs: 120_000,
+    };
+
+    const ensure = productionRunnerOperationSchema.parse({
+      ...context,
+      operation: 'production.ensure',
+      payload: { productionSlug: 'production-website' },
+    });
+    await expect(executor.execute(ensure)).resolves.toMatchObject({
+      websiteId: context.websiteId,
+      productionPort: 43127,
+    });
+
+    const deployPayload = {
+      releaseId: '00000000-0000-4000-8000-000000000005',
+      productionSlug: 'production-website',
+      sequence: 1,
+      artifactStorageKey: 'release-00000000-0000-4000-8000-000000000005.zip',
+      artifactSha256: 'a'.repeat(64),
+      artifactSize: 1024,
+      firstPublish: true,
+    };
+    const deploy = productionRunnerOperationSchema.parse({
+      ...context,
+      operation: 'production.deploy',
+      payload: deployPayload,
+    });
+    await expect(executor.execute(deploy)).resolves.toMatchObject({
+      releaseId: deployPayload.releaseId,
+      status: 'authorization_required',
+      sequence: 1,
+    });
+    expect(runtime.deployRelease).toHaveBeenCalledWith({
+      websiteId: context.websiteId,
+      releaseId: deployPayload.releaseId,
+      productionSlug: 'production-website',
+      artifactStorageKey: deployPayload.artifactStorageKey,
+      artifactSha256: deployPayload.artifactSha256,
+      artifactSize: deployPayload.artifactSize,
+      firstPublish: true,
+    });
+
+    const status = productionRunnerOperationSchema.parse({
+      ...context,
+      operation: 'production.status',
+      payload: { productionSlug: 'production-website' },
+    });
+    await expect(executor.execute(status)).resolves.toMatchObject({
+      websiteId: context.websiteId,
+      status: 'missing',
+      authorized: false,
+    });
+    const destroy = productionRunnerOperationSchema.parse({
+      ...context,
+      operation: 'production.destroy',
+      payload: {},
+    });
+    await expect(executor.execute(destroy)).resolves.toBeNull();
+    expect(runtime.ensureRuntime).toHaveBeenCalledWith(context.websiteId, 'production-website');
+    expect(runtime.status).toHaveBeenCalledWith(context.websiteId, 'production-website');
+    expect(runtime.destroyRuntime).toHaveBeenCalledWith(context.websiteId);
   });
 });

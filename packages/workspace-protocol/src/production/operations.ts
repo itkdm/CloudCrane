@@ -26,7 +26,9 @@ export const productionOperationPayloadSchemas = {
       .max(500 * 1024 * 1024),
     firstPublish: z.boolean(),
   }),
-  'production.status': emptyPayloadSchema,
+  'production.status': z.object({
+    productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  }),
   'production.authorize': z.object({ authorizationCode: z.string().min(1).max(2048) }),
   'production.destroy': emptyPayloadSchema,
 } as const;
@@ -106,6 +108,7 @@ export const productionOperationResultSchemas = {
       'failed',
       'stopped',
       'deleting',
+      'missing',
     ]),
     productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
     productionPort: z.number().int().positive().max(65_535).nullable(),

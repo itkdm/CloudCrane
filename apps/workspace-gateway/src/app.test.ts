@@ -85,7 +85,7 @@ describe('workspace gateway app', () => {
       headers: { authorization: 'Bearer client' },
       payload: {
         operation: 'production.status',
-        payload: {},
+        payload: { productionSlug: 'production-website' },
         requestId: '00000000-0000-4000-8000-000000000010',
         traceId: '00000000-0000-4000-8000-000000000011',
         websiteId,

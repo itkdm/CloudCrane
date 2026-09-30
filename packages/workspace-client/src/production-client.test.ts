@@ -79,7 +79,9 @@ describe('ProductionClient', () => {
     };
     const client = new ProductionClient('http://gateway.test', 'client-token', context, fetcher);
     await expect(client.destroy()).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
-    await expect(client.status()).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    await expect(client.status({ productionSlug: 'production-website' })).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    });
   });
 
   it('marks deadline expiry on an accepted mutation as unknown', async () => {

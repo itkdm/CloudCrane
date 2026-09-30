@@ -80,8 +80,8 @@ export class ProductionClient {
     return this.call('production.deploy', payload, options);
   }
 
-  status(options?: ProductionRequestOptions) {
-    return this.call('production.status', {}, options);
+  status(payload: { productionSlug: string }, options?: ProductionRequestOptions) {
+    return this.call('production.status', payload, options);
   }
 
   authorize(payload: { authorizationCode: string }, options?: ProductionRequestOptions) {
