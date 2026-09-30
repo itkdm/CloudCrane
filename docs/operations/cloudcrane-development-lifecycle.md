@@ -14,7 +14,7 @@
 - 日常工作直接在 `main` 上进行，不另建功能分支或要求 Pull Request。
 - 一个明确功能点或约定的提交点完成，且适用的本地检查通过后，Codex 自动创建 Conventional Commit 并推送 `main`。有未完成改动、检查失败或基线/远端状态不明时，不把它包装成完成点。
 - 推送会触发 GitHub Actions CI。当前 CI 检查格式、lint、类型、单测、构建、数据库迁移，并运行 Docker/远程执行集成任务。
-- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 将部署同一个已验证 commit，并检查线上健康入口。首次端到端发布已验证：CI `#404` 和 Deploy production `#1` 均成功，生产运行 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
+- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 将部署同一个已验证 commit，并检查线上健康入口。首次功能提交已端到端验证：CI `#404` 和 Deploy production `#1` 均成功，部署的 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
 
 ## 运行环境边界
 
@@ -102,14 +102,14 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 ### 当前已知实现
 
 - `.github/workflows/ci.yml` 配置了 push-to-main 和 Pull Request CI；GitHub Actions 的 `#404` 已对 `973d9bb` 全绿。
-- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已在 GitHub Settings 配置；Deploy production `#1` 已将 `973d9bb` 部署到生产。
+- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已在 GitHub Settings 配置；Deploy production `#1` 将功能提交 `973d9bb` 部署到生产，文档复核提交 `6f3afed` 的 CI `#405` 和 Deploy production `#2` 也成功。
 - [生产部署手册](cloudcrane-production-deploy.md)记录的是人工 SSH 更新代码、构建、重启和 Nginx 检查，不是自动 CD。
 - 2026-09-30 只读检查确认生产主机 `xunmao-sg219` 使用 tmux 会话 `cloudcrane-production` 管理 `web`、`agent`、`gateway`、`runner` 和 `preview` 窗口；对应 systemd unit 当前均 inactive。HTTP 健康检查返回 200，Nginx 配置检查通过。
 - `scripts/deploy-production.sh` 为每个版本建独立 git worktree，备份 PostgreSQL，再构建、迁移、重启 tmux 服务并检查 Web、Agent、Workspace、Preview；健康失败时尝试恢复上一应用版本。数据库备份保存在 `/var/backups/cloudcrane/postgres/`，需由运维定期确认备份可恢复及磁盘空间。
-- 生产控制 checkout 仍保留在 `57872b3`；自动部署在 `/opt/cloudcrane-releases/<SHA>` 建立运行 worktree，目前服务运行于 `973d9bb`。服务器工作区另有未跟踪的 `docker/compose/docker-compose.server.yml`。该文件属于服务器现状，已保留，部署脚本只读取它来定位 PostgreSQL 容器，不覆盖或清理它。
+- 生产控制 checkout 仍保留在 `57872b3`；自动部署在 `/opt/cloudcrane-releases/<SHA>` 建立运行 worktree。首次部署使用 `973d9bb`，随后文档复核提交 `6f3afed` 也经 Deploy production `#2` 部署。服务器工作区另有未跟踪的 `docker/compose/docker-compose.server.yml`。该文件属于服务器现状，已保留，部署脚本只读取它来定位 PostgreSQL 容器，不覆盖或清理它。
 - SSH 已可连接，但本次没有建立本机 `localhost:3000` 隧道。专用公钥已安装到服务器并限制为部署入口，交互式命令拒绝检查通过；GitHub Actions 私钥 Secret 已保存，首次自动部署认证已成功。
 
-因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和首次 CI/CD 部署已有实测证据。部署后 Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功；内置浏览器只读打开正式首页并检查截图，页面布局正常。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
+因此，tmux 服务管理、基本健康检查、部署脚本语法、Secret 保存和两次 CI/CD 部署已有实测证据。Deploy production `#2` 后，Web、Agent、Workspace Gateway、Preview Gateway 内部健康检查以及公开认证/Agent 健康入口均返回成功；内置浏览器只读打开正式首页并检查截图，页面布局正常。数据库备份的恢复流程仍未实测。部署期间需避免人工发布并发操作。代码回滚不会自动撤销数据库迁移。
 
 ## 尚待解决的文档冲突与部署问题
 
