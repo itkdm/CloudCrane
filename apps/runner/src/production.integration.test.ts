@@ -24,6 +24,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       PRODUCTION_ROOT: productionRoot,
       PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',
       RELEASE_ARTIFACT_ROOT: artifacts,
+      WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
       WORKSPACE_CPU_LIMIT: '500000000',
       WORKSPACE_MEMORY_LIMIT_BYTES: '268435456',
       WORKSPACE_PIDS_LIMIT: '64',
@@ -138,7 +139,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),
-        "<?php echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two';\n",
+        "<?php echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . file_get_contents('/site/shared/data/pbootcms.db') . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
       );
       await writeFile(path.join(workspace, 'data', 'pbootcms.db'), 'changed-workspace-db');
       await writeFile(
@@ -151,21 +152,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         `http://127.0.0.1:${second.productionPort}/template/default/integration.php`,
       );
       expect(secondResponse.status).toBe(200);
-      expect(await secondResponse.text()).toBe('production-owned|release-two');
+      expect(await secondResponse.text()).toBe(
+        'production-owned|release-two|initial-workspace-db|initial-production-state|initial-production-upload',
+      );
 
-      const shared = path.join(productionRoot, websiteId, 'shared');
-      expect(await readFile(path.join(shared, 'data', 'pbootcms.db'), 'utf8')).toBe(
-        'initial-workspace-db',
-      );
-      expect(await readFile(path.join(shared, 'data', 'initial-marker.txt'), 'utf8')).toBe(
-        'initial-production-state',
-      );
-      expect(await readFile(path.join(shared, 'data', 'runtime-marker.txt'), 'utf8')).toBe(
-        'production-owned',
-      );
-      expect(await readFile(path.join(shared, 'upload', 'logo.txt'), 'utf8')).toBe(
-        'initial-production-upload',
-      );
       expect(await readlink(path.join(productionRoot, websiteId, 'current'))).toBe(
         path.join('releases', secondReleaseId),
       );
