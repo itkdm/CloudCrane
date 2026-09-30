@@ -9,23 +9,21 @@ const context = {
 
 describe('ProductionClient', () => {
   it('sends a traced idempotent mutation and validates the typed response', async () => {
-    const fetcher = vi.fn(
-      async (_url: string, _init?: RequestInit) => {
-        void _url;
-        void _init;
-        return new Response(
-          JSON.stringify({
-            result: {
-              releaseId: '00000000-0000-4000-8000-000000000004',
-              sequence: 2,
-              status: 'active',
-              activatedAt: '2026-10-01T00:00:00.000Z',
-            },
-          }),
-          { status: 200 },
-        );
-      },
-    );
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => {
+      void _url;
+      void _init;
+      return new Response(
+        JSON.stringify({
+          result: {
+            releaseId: '00000000-0000-4000-8000-000000000004',
+            sequence: 2,
+            status: 'active',
+            activatedAt: '2026-10-01T00:00:00.000Z',
+          },
+        }),
+        { status: 200 },
+      );
+    });
     const client = new ProductionClient('http://gateway.test', 'client-token', context, fetcher);
     const result = await client.deployRelease(
       {
