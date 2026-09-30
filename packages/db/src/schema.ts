@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  AnyPgColumn,
   index,
   integer,
   boolean,
@@ -727,6 +728,110 @@ export const quotaReservation = pgTable(
     check(
       'quota_reservation_status_check',
       sql`${table.status} in ('reserved', 'committed', 'released', 'expired')`,
+    ),
+  ],
+);
+
+export const PRODUCTION_RUNTIME_STATUSES = [
+  'provisioning',
+  'authorization_required',
+  'active',
+  'failed',
+  'stopped',
+  'deleting',
+] as const;
+
+export const WEBSITE_RELEASE_STATUSES = [
+  'preparing',
+  'staged',
+  'activating',
+  'active',
+  'superseded',
+  'failed',
+] as const;
+
+export const websiteRelease = pgTable(
+  'website_release',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    websiteId: uuid('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    status: varchar('status', { length: 32 }).notNull().default('preparing'),
+    artifactStorageKey: text('artifact_storage_key').unique(),
+    artifactSha256: varchar('artifact_sha256', { length: 64 }),
+    artifactSize: bigint('artifact_size', { mode: 'number' }),
+    sourceGitHead: varchar('source_git_head', { length: 64 }),
+    sourceGitDirty: boolean('source_git_dirty').notNull().default(false),
+    sourcePbootVersion: varchar('source_pboot_version', { length: 32 }),
+    sourceCoreCommit: varchar('source_core_commit', { length: 64 }),
+    previousReleaseId: uuid('previous_release_id').references(
+      (): AnyPgColumn => websiteRelease.id,
+      { onDelete: 'set null' },
+    ),
+    createdByUserId: text('created_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    errorCode: varchar('error_code', { length: 128 }),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    stagedAt: timestamp('staged_at', { withTimezone: true }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('website_release_website_sequence_unique').on(table.websiteId, table.sequence),
+    uniqueIndex('website_release_one_active_per_website_unique')
+      .on(table.websiteId)
+      .where(sql`${table.status} = 'active'`),
+    index('website_release_website_status_idx').on(table.websiteId, table.status),
+    check('website_release_sequence_check', sql`${table.sequence} > 0`),
+    check(
+      'website_release_status_check',
+      sql`${table.status} in ('preparing', 'staged', 'activating', 'active', 'superseded', 'failed')`,
+    ),
+    check(
+      'website_release_sha256_check',
+      sql`${table.artifactSha256} is null or ${table.artifactSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'website_release_artifact_size_check',
+      sql`${table.artifactSize} is null or ${table.artifactSize} > 0`,
+    ),
+  ],
+);
+
+export const productionRuntime = pgTable(
+  'production_runtime',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    websiteId: uuid('website_id')
+      .notNull()
+      .references(() => website.id, { onDelete: 'cascade' })
+      .unique(),
+    runnerId: uuid('runner_id').references(() => runner.id, { onDelete: 'set null' }),
+    status: varchar('status', { length: 32 }).notNull().default('provisioning'),
+    productionSlug: varchar('production_slug', { length: 64 }).notNull().unique(),
+    containerRef: text('container_ref'),
+    productionPort: integer('production_port'),
+    currentReleaseId: uuid('current_release_id').references((): AnyPgColumn => websiteRelease.id, {
+      onDelete: 'set null',
+    }),
+    lastErrorCode: varchar('last_error_code', { length: 128 }),
+    lastErrorMessage: text('last_error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).default(now()).notNull(),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('production_runtime_status_idx').on(table.status),
+    check(
+      'production_runtime_status_check',
+      sql`${table.status} in ('provisioning', 'authorization_required', 'active', 'failed', 'stopped', 'deleting')`,
+    ),
+    check(
+      'production_runtime_port_check',
+      sql`${table.productionPort} is null or (${table.productionPort} > 0 and ${table.productionPort} < 65536)`,
     ),
   ],
 );
