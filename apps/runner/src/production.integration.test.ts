@@ -5,7 +5,11 @@ import Docker from 'dockerode';
 import { buildProductionReleaseArchive } from '@cloudcrane/pboot-snapshot';
 import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from './config.js';
+import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
+import { ProductionReleaseStager } from './application/production-release-stager.js';
+import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-client.js';
 import { DockerProductionProvider } from './infrastructure/docker/docker-production-provider.js';
+import { DockerWorkspaceProvider } from './infrastructure/docker/docker-workspace-provider.js';
 
 const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000071';
@@ -13,6 +17,79 @@ const productionSlug = 'production-integration-site';
 const coreCommit = '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea';
 
 describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
+  it('stages a first release from a verified SQLite online backup in Workspace', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-stage-'));
+    const workspaceId = '00000000-0000-4000-8000-000000000074';
+    const managedBase = path.join(base, 'managed-pboot');
+    const config = loadRunnerConfig({
+      WORKSPACE_ROOT: path.join(base, 'workspaces'),
+      WORKSPACE_IMAGE: 'website-workspace-pboot:v1',
+      WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
+      RELEASE_ARTIFACT_ROOT: path.join(base, 'artifacts'),
+      PRODUCTION_ROOT: path.join(base, 'production'),
+      PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',
+      WORKSPACE_CPU_LIMIT: '500000000',
+      WORKSPACE_MEMORY_LIMIT_BYTES: '268435456',
+      WORKSPACE_PIDS_LIMIT: '64',
+    });
+    const workspaceProvider = new DockerWorkspaceProvider(config);
+    const runtime = new WorkspaceRuntimeService(workspaceProvider);
+    let runtimeCreated = false;
+
+    try {
+      await mkdir(path.join(managedBase, 'apps'), { recursive: true });
+      await writeFile(
+        path.join(managedBase, '.cloudcrane-base'),
+        `pbootcms=3.2.26\nsourceCommit=${coreCommit}\n`,
+      );
+      await writeFile(path.join(managedBase, 'apps', 'core.php'), '<?php // trusted core\n');
+
+      const created = await workspaceProvider.create(workspaceId);
+      runtimeCreated = true;
+      const workspacePath = created.workspacePath!;
+      const daemon = new WorkspaceDaemonClient(await workspaceProvider.getEndpoint(workspaceId));
+      for (const directory of ['apps', 'config', 'data', 'static/upload'])
+        await mkdir(path.join(workspacePath, directory), { recursive: true });
+      await writeFile(path.join(workspacePath, 'apps', 'core.php'), '<?php // trusted core\n');
+      await writeFile(path.join(workspacePath, 'config', 'config.php'), '<?php return [];\n');
+      await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO sample(value) VALUES('snapshot');",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000075',
+      });
+
+      const stager = new ProductionReleaseStager(runtime, config);
+      const releaseId = '00000000-0000-4000-8000-000000000076';
+      const staged = await stager.stage(websiteId, workspaceId, {
+        artifactStorageKey: `release-${releaseId}.zip`,
+        releaseId,
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: coreCommit,
+        firstPublish: true,
+      });
+
+      expect(staged.artifactSize).toBeGreaterThan(0);
+      expect(staged.artifactSha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(staged.manifest).toMatchObject({
+        sourceWebsiteId: websiteId,
+        firstPublish: true,
+        sourceGitHead: null,
+        sourceGitDirty: true,
+      });
+    } finally {
+      if (runtimeCreated)
+        await workspaceProvider.destroyRuntime(workspaceId).catch(() => undefined);
+      await rm(base, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it('atomically switches immutable code and preserves initialized production state', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-integration-'));
     const workspace = path.join(base, 'workspace');

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -364,6 +365,59 @@ describe('Pboot production release artifacts', () => {
         outputPath: output,
       }),
     ).rejects.toThrow('output already exists');
+  });
+
+  it('uses the SQLite online backup as the first-publish database payload', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-backup-'));
+    const base = path.join(root, 'base');
+    const workspace = path.join(root, 'workspace');
+    const snapshotPath = path.join(root, 'staging', 'pbootcms.db');
+    const output = path.join(root, 'artifacts', 'release.zip');
+    await mkdir(path.join(base, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, 'config'), { recursive: true });
+    await mkdir(path.join(workspace, 'data'), { recursive: true });
+    await mkdir(path.dirname(snapshotPath), { recursive: true });
+    await writeFile(path.join(base, 'apps', 'core.php'), 'managed');
+    await writeFile(path.join(workspace, 'apps', 'core.php'), 'managed');
+    await writeFile(
+      path.join(base, '.cloudcrane-base'),
+      'pbootcms=3.2.26\nsourceCommit=8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea\n',
+    );
+    await writeFile(path.join(workspace, 'config', 'config.php'), '<?php return [];');
+    await writeFile(path.join(workspace, 'data', 'pbootcms.db'), 'live-workspace-database');
+    const snapshotBytes = Buffer.from('consistent-online-backup');
+    await writeFile(snapshotPath, snapshotBytes);
+
+    const result = await buildProductionReleaseArchive({
+      workspaceRoot: workspace,
+      managedBaseRoot: base,
+      sourceWebsiteId: 'f9f454c2-3fa8-48da-a869-182584c10a6b',
+      sourcePbootVersion: '3.2.26',
+      sourceCoreCommit: '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea',
+      sourceGitHead: null,
+      sourceGitDirty: true,
+      firstPublish: true,
+      initialDatabaseSnapshotPath: snapshotPath,
+      releaseId: 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53',
+      createdAt: '2026-10-01T00:00:00.000Z',
+      outputPath: output,
+    });
+    const entries = unzipSync(await readFile(output));
+    const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json']));
+    const database = manifest.files.entries.find(
+      (entry: { path: string }) => entry.path === 'data/pbootcms.db',
+    );
+
+    expect(new TextDecoder().decode(entries['payload/data/pbootcms.db'])).toBe(
+      'consistent-online-backup',
+    );
+    expect(database).toMatchObject({
+      size: snapshotBytes.byteLength,
+      sha256: createHash('sha256').update(snapshotBytes).digest('hex'),
+      fileClass: 'PERSISTENT_INITIAL',
+    });
+    expect(result.manifest.files.entries).toContainEqual(database);
   });
 
   it('rejects symlinks and secrets in release payload files', async () => {

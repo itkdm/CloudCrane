@@ -1,5 +1,7 @@
 import { createLogger, loadTracingConfig, startObservability } from '@cloudcrane/shared';
 import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
+import { ProductionReleaseOperationExecutor } from './application/production-release-operation-executor.js';
+import { ProductionReleaseStager } from './application/production-release-stager.js';
 import { loadRunnerConfig } from './config.js';
 import { DockerWorkspaceProvider } from './infrastructure/docker/docker-workspace-provider.js';
 import { RunnerGatewayConnection } from './infrastructure/gateway/runner-gateway-connection.js';
@@ -10,9 +12,12 @@ const observability = startObservability(loadTracingConfig('runner'));
 const config = loadRunnerConfig();
 const provider = new DockerWorkspaceProvider(config);
 export const workspaceRuntimeService = new WorkspaceRuntimeService(provider);
+const productionExecutor = new ProductionReleaseOperationExecutor(
+  new ProductionReleaseStager(workspaceRuntimeService, config),
+);
 const connection = new RunnerGatewayConnection(
   config,
-  new WorkspaceOperationHandler(workspaceRuntimeService),
+  new WorkspaceOperationHandler(workspaceRuntimeService, productionExecutor),
 );
 connection.start();
 logger.info(

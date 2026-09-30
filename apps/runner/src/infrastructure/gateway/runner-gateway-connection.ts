@@ -38,15 +38,6 @@ const workspaceCapabilities = [
   'process.cancel',
   'snapshot.stage',
 ];
-const productionCapabilities = [
-  'release.stage',
-  'production.ensure',
-  'production.deploy',
-  'production.status',
-  'production.authorize',
-  'production.destroy',
-];
-
 export class RunnerGatewayConnection {
   private socket?: WebSocket;
   private stopped = false;
@@ -82,10 +73,7 @@ export class RunnerGatewayConnection {
           runnerId: this.config.runnerId,
           name: `runner-${this.config.runnerId.slice(0, 8)}`,
           version: '0.1.0',
-          capabilities: [
-            ...workspaceCapabilities,
-            ...(this.handler.supportsProductionOperations() ? productionCapabilities : []),
-          ],
+          capabilities: [...workspaceCapabilities, ...this.handler.productionCapabilities()],
         }),
       );
     });

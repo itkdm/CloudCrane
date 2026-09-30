@@ -68,9 +68,6 @@ describe('ProductionClient', () => {
         releaseId: '00000000-0000-4000-8000-000000000004',
         sourcePbootVersion: '3.2.26',
         sourceCoreCommit: '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea',
-        dbSchemaVersion: '3.2.26',
-        sourceGitHead: null,
-        sourceGitDirty: true,
         firstPublish: false,
       }),
     ).rejects.toMatchObject({ code: 'WEBSITE_BUSY', status: 409 });

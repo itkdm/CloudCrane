@@ -8,12 +8,6 @@ export const productionOperationPayloadSchemas = {
     releaseId: z.string().uuid(),
     sourcePbootVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
     sourceCoreCommit: z.string().regex(/^[0-9a-f]{40}$/i),
-    dbSchemaVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-    sourceGitHead: z
-      .string()
-      .regex(/^[0-9a-f]{40}$/i)
-      .nullable(),
-    sourceGitDirty: z.boolean(),
     firstPublish: z.boolean(),
   }),
   'production.ensure': z.object({

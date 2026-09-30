@@ -1,15 +1,12 @@
 import type {
-  ProductionRunnerOperation,
+  ProductionOperationName,
   RunnerOperation,
   WorkspaceRunnerOperation,
 } from '@cloudcrane/workspace-protocol';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import { WorkspaceRuntimeService } from '../../application/workspace-runtime-service.js';
 import type { WorkspaceRuntime } from '../../ports/workspace-provider.js';
-
-export interface ProductionOperationExecutor {
-  execute(operation: ProductionRunnerOperation): Promise<unknown>;
-}
+import type { ProductionOperationExecutor } from '../../ports/production-operation-executor.js';
 
 export class WorkspaceOperationHandler {
   constructor(
@@ -17,8 +14,8 @@ export class WorkspaceOperationHandler {
     private readonly production?: ProductionOperationExecutor,
   ) {}
 
-  supportsProductionOperations(): boolean {
-    return this.production !== undefined;
+  productionCapabilities(): readonly ProductionOperationName[] {
+    return this.production?.supportedOperations() ?? [];
   }
 
   async execute(operation: RunnerOperation): Promise<unknown> {

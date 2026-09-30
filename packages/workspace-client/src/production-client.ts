@@ -54,9 +54,6 @@ export class ProductionClient {
       releaseId: string;
       sourcePbootVersion: string;
       sourceCoreCommit: string;
-      dbSchemaVersion: string;
-      sourceGitHead: string | null;
-      sourceGitDirty: boolean;
       firstPublish: boolean;
     },
     options?: ProductionRequestOptions,

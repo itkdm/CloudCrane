@@ -134,6 +134,7 @@ async function hashFile(
 export async function collectProductionReleaseInventory(
   workspaceRoot: string,
   firstPublish: boolean,
+  initialDatabaseSnapshotPath?: string,
 ): Promise<ProductionReleaseFileRecord[]> {
   const root = path.resolve(workspaceRoot);
   const result: ProductionReleaseFileRecord[] = [];
@@ -152,7 +153,11 @@ export async function collectProductionReleaseInventory(
       if (!entry.isFile()) continue;
       if (sensitiveNamePatterns.some((pattern) => pattern.test(path.posix.basename(relative))))
         throw new Error(`production release contains sensitive file: ${relative}`);
-      const file = await hashFile(absolute, relative);
+      const sourcePath =
+        firstPublish && relative === 'data/pbootcms.db' && initialDatabaseSnapshotPath
+          ? path.resolve(initialDatabaseSnapshotPath)
+          : absolute;
+      const file = await hashFile(sourcePath, relative);
       result.push({ path: relative, ...file, fileClass });
       if (result.length > SNAPSHOT_MAX_FILE_COUNT)
         throw new Error(`production release contains too many files: ${result.length}`);
@@ -174,6 +179,7 @@ export async function buildProductionReleaseArchive(input: {
   sourceGitHead: string | null;
   sourceGitDirty: boolean;
   firstPublish: boolean;
+  initialDatabaseSnapshotPath?: string;
   releaseId?: string;
   createdAt?: string;
   outputPath: string;
@@ -201,7 +207,11 @@ export async function buildProductionReleaseArchive(input: {
       `CORE_COMPATIBILITY_BLOCKER: managed core drift detected (${drift.entries.map((entry) => `${entry.kind}:${entry.path}`).join(', ')})`,
     );
 
-  const files = await collectProductionReleaseInventory(input.workspaceRoot, input.firstPublish);
+  const files = await collectProductionReleaseInventory(
+    input.workspaceRoot,
+    input.firstPublish,
+    input.initialDatabaseSnapshotPath,
+  );
   const manifest = productionReleaseManifestSchema.parse({
     artifactType: PRODUCTION_RELEASE_ARTIFACT_TYPE,
     schemaVersion: PRODUCTION_RELEASE_SCHEMA_VERSION,
@@ -297,21 +307,25 @@ export async function buildProductionReleaseArchive(input: {
       const absolute = path.resolve(root, file.path);
       if (!absolute.startsWith(workspacePrefix))
         throw new Error(`production release path escaped workspace: ${file.path}`);
-      const before = await lstat(absolute);
+      const sourcePath =
+        input.firstPublish && file.path === 'data/pbootcms.db' && input.initialDatabaseSnapshotPath
+          ? path.resolve(input.initialDatabaseSnapshotPath)
+          : absolute;
+      const before = await lstat(sourcePath);
       if (!before.isFile() || before.isSymbolicLink())
         throw new Error(`production release payload changed type: ${file.path}`);
       const entry = new ZipDeflate(`payload/${file.path}`, { level: 6 });
       zip.add(entry);
       const actualHash = createHash('sha256');
       let actualSize = 0;
-      for await (const chunk of createReadStream(absolute)) {
+      for await (const chunk of createReadStream(sourcePath)) {
         actualSize += chunk.length;
         actualHash.update(chunk);
         entry.push(chunk);
         await writeQueue;
         if (streamError) throw streamError;
       }
-      const after = await lstat(absolute);
+      const after = await lstat(sourcePath);
       if (
         actualSize !== file.size ||
         actualHash.digest('hex') !== file.sha256 ||
