@@ -686,7 +686,9 @@ A → 47.xx.xx.xx
 
 未来 2C4G 更换为其他 ECS 时，可以重新绑定 EIP，用户 DNS 不需要修改。
 
-V1 Gateway 推荐 Caddy，统一处理：
+本节的 Gateway 指用户 Website Production Runtime 的入口，不是 CloudCrane 平台自身的 `app.itkdm.com` / Preview 公网入口。当前 CloudCrane 平台入口已选择 Nginx。
+
+Website Production Runtime 尚未实现。其未来 Gateway 需处理：
 
 ```text
 80
@@ -835,9 +837,10 @@ Real-time Dev/Prod DB Sync
 - ADR-047：Preview 使用平台备案域名的 Wildcard 子域名。
 - ADR-048：V1 用户自行负责域名购买、ICP备案和阿里云接入。
 - ADR-049：正式域名通过 A Record 指向平台 EIP。
-- ADR-050：V1 使用 Caddy 作为公网 Gateway，并使用 Automatic HTTPS。
+- ADR-050：Website Production Runtime 的原始 V1 方案推荐 Caddy 和 Automatic HTTPS；平台公网入口 Nginx 属于独立部署角色。用户域名上线前需重新评估动态 Host 路由、证书签发/续期和安全配置生成能力。
 - ADR-051：公网仅开放 80/443，内部 Runtime / Runner / Daemon 不直接暴露。
 - ADR-052：PbootCMS 域名授权严格遵循官方机制，商业化前解决平台授权问题。
+- ADR-053：CloudCrane 平台当前公网 Ingress 使用 Nginx；与 ADR-050 的 Website Production Runtime Gateway 属于不同部署角色。
 
 ---
 
@@ -848,7 +851,7 @@ Real-time Dev/Prod DB Sync
                             │
                           EIP
                             │
-                     Caddy Gateway
+              Caddy Website Runtime Gateway (future)
                             │
             ┌───────────────┴───────────────┐
             │                               │

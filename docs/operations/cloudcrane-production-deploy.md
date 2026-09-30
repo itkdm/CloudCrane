@@ -2,6 +2,8 @@
 
 > **发布方式状态（2026-09-30）**：GitHub Actions 自动部署已完成端到端验证。首次功能提交的 CI `#404` / Deploy production `#1`（SHA `973d9bb`）和文档复核提交的 CI `#405` / Deploy production `#2`（SHA `6f3afed`）均成功；后续自动部署也通过了内部及公开健康检查。本文下面的 SSH 命令仍是手动发布流程；不要与 workflow 并发发布。
 
+当前平台公网入口使用 Nginx；服务器检查确认主站和 Preview 的 Nginx 反代及 WebSocket 头配置有效。现有 Let's Encrypt 证书当前有效，但 Certbot renewal 使用 `manual` authenticator 且没有续期 hook，不能仅凭 `certbot.timer` active 判断自动续期正常；证书续期需在到期前单独修复和演练。Tech-03 中的 Caddy 设计指未来 Website Production Runtime 的用户域名入口，不是本平台入口。
+
 部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
 | 记录 | 类型 | 内容 | 代理 |
@@ -109,7 +111,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 `scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，先备份 PostgreSQL，再运行迁移与 Preview slug 回填，重启 `cloudcrane-production` tmux 会话，检查 Web、Agent、Workspace Gateway、Preview Gateway，并验证 Nginx 配置。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。
 
-服务器当前存在未跟踪的 `docker/compose/docker-compose.server.yml`，自动脚本使用它定位 PostgreSQL 容器；不要在清理或重新 clone 服务器工作区时丢失该私有配置。数据库备份恢复流程尚未实测，首次启用后应补做恢复演练。
+服务器的 `docker/compose/docker-compose.server.yml` 是含内嵌数据库凭据的主机私有文件，自动脚本用它定位 PostgreSQL 容器；应留在服务器并忽略，禁止提交。仓库的 `docker-compose.server.example.yml` 与 `postgres.env.example` 是可提交模板。建议后续把当前内嵌凭据协调迁移到权限为 600 的实际 `postgres.env`；更新已有数据库凭据还需协调 PostgreSQL 角色和应用连接配置，不能只更改 Compose 环境文件。数据库备份恢复流程尚未实测，后续再安排恢复演练。
 
 ## 发布与检查
 

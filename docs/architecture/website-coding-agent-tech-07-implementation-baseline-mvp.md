@@ -1085,12 +1085,12 @@ Live Preview
 
 ---
 
-# 37. Caddy
+# 37. CloudCrane Platform Ingress
 
-V1 部署入口使用：
+CloudCrane 平台当前公网入口使用已部署的 Nginx：
 
 ```text
-Caddy
+Nginx
 ```
 
 职责：
@@ -1099,14 +1099,12 @@ Caddy
 HTTP/HTTPS entry
 Web
 Agent Service WS
-Workspace Gateway WS
 Preview Gateway
-Production Gateway
 ```
 
-第一阶段本地开发不要求 Caddy 才能启动。
+当前 Nginx 负责平台 Web、Agent 和 Preview 的 HTTP/WebSocket 反向代理。Workspace Gateway 当前只监听 loopback，由平台服务内部访问，不经过公网 Nginx。平台证书由 Certbot 管理；现有续期配置使用 `manual` authenticator 且无 auth hook，自动续期仍需修复并验证。
 
-生产/远程开发环境再接 Caddy。
+Website Production Runtime 的用户自定义域名入口不是当前平台 Ingress；其设计见 Tech-03，自动 Host 路由和每域名证书生命周期需要单独验收。
 
 ---
 
@@ -1886,8 +1884,8 @@ Workspace
 Gateway
 └── WSS
 
-Reverse Proxy
-└── Caddy
+Platform Reverse Proxy
+└── Nginx
 
 Logging
 └── Pino

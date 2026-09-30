@@ -15,6 +15,10 @@ dist/
 .cloudcrane-data/
 docs/**/cloudcrane-e2e-test-account.local.md
 
+# Production-host-only PostgreSQL configuration and credentials
+docker/compose/docker-compose.server.yml
+docker/compose/postgres.env
+
 # IDE temporary files
 .idea/
 .vscode/
