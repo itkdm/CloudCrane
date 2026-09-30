@@ -1,7 +1,7 @@
 FROM php:8.4-fpm-alpine
 
-RUN apk add --no-cache nginx curl oniguruma freetype libjpeg-turbo libpng \
-    && apk add --no-cache --virtual .php-build-deps $PHPIZE_DEPS curl-dev freetype-dev libjpeg-turbo-dev libpng-dev oniguruma-dev \
+RUN apk add --no-cache nginx curl oniguruma freetype libjpeg-turbo libpng sqlite-libs \
+    && apk add --no-cache --virtual .php-build-deps $PHPIZE_DEPS curl-dev freetype-dev libjpeg-turbo-dev libpng-dev oniguruma-dev sqlite-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" curl gd mbstring pdo_sqlite \
     && apk del .php-build-deps \
