@@ -393,6 +393,11 @@ export class DockerProductionProvider implements ProductionProvider {
       const renderedDatabaseConfig = await this.renderDatabaseConfig();
       await copyFile(initialDatabase, database, constants.COPYFILE_EXCL);
       await chmod(database, 0o660);
+      await this.copyTreeWithoutOverwrite(
+        path.join(releaseDirectory, 'data'),
+        path.join(shared, 'data'),
+        new Set(['pbootcms.db']),
+      );
       if (await this.exists(initialUploads))
         await this.copyTreeWithoutOverwrite(initialUploads, path.join(shared, 'upload'));
       await copyFile(
@@ -447,14 +452,21 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  private async copyTreeWithoutOverwrite(source: string, destination: string): Promise<void> {
+  private async copyTreeWithoutOverwrite(
+    source: string,
+    destination: string,
+    excludedFiles: ReadonlySet<string> = new Set(),
+    relativeDirectory = '',
+  ): Promise<void> {
     for (const entry of await readdir(source, { withFileTypes: true })) {
       const from = path.join(source, entry.name);
       const to = path.join(destination, entry.name);
-      if (entry.isSymbolicLink()) throw new Error('initial upload contains a symlink');
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error('initial persistent state contains a symlink');
+      if (excludedFiles.has(relativePath)) continue;
       if (entry.isDirectory()) {
         await mkdir(to, { recursive: false, mode: 0o770 });
-        await this.copyTreeWithoutOverwrite(from, to);
+        await this.copyTreeWithoutOverwrite(from, to, excludedFiles, relativePath);
       } else if (entry.isFile()) {
         await copyFile(from, to, constants.COPYFILE_EXCL);
         await chmod(to, 0o660);
