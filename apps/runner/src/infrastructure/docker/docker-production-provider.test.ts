@@ -99,6 +99,7 @@ describe('DockerProductionProvider', () => {
         CapDrop: ['ALL'],
         PidsLimit: 64,
       });
+      expect(options?.WorkingDir).toBe('/site');
       expect(options?.HostConfig?.Binds?.some((bind) => bind.includes('docker.sock'))).toBe(false);
       expect(createContainer.mock.calls[0]?.[0]?.HostConfig).toMatchObject({
         NetworkMode: 'none',

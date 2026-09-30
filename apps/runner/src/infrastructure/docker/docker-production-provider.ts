@@ -85,7 +85,7 @@ export class DockerProductionProvider implements ProductionProvider {
           Image: this.config.productionImage,
           name: containerName,
           User: '1000:1000',
-          WorkingDir: '/site/current',
+          WorkingDir: '/site',
           ExposedPorts: { '8080/tcp': {} },
           Labels: {
             'cloudcrane.service': 'production',
@@ -535,6 +535,7 @@ export class DockerProductionProvider implements ProductionProvider {
       labels['cloudcrane.production_slug'] !== productionSlug ||
       info.Config?.Image !== this.config.productionImage ||
       info.Config?.User !== '1000:1000' ||
+      info.Config?.WorkingDir !== '/site' ||
       info.HostConfig?.Privileged !== false ||
       info.HostConfig?.ReadonlyRootfs !== true ||
       !info.HostConfig?.SecurityOpt?.includes('no-new-privileges:true') ||

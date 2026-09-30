@@ -123,6 +123,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       const inspected = await docker.getContainer(first.containerRef!).inspect();
       expect(inspected.Config?.User).toBe('1000:1000');
+      expect(inspected.Config?.WorkingDir).toBe('/site');
       expect(inspected.HostConfig?.Privileged).toBe(false);
       expect(inspected.HostConfig?.ReadonlyRootfs).toBe(true);
       expect(inspected.HostConfig?.CapDrop).toContain('ALL');
