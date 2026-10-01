@@ -147,3 +147,13 @@ Production 容器被替换/重建（不是单纯 `docker restart`）时，Docker
 首次尝试时，长时间复用的内置浏览器标签仍显示另一测试站“模板广场 E2E 验证”的旧 Settings 弹窗；新建干净标签后，目标 `CloudCrane Production E2E` 的 Settings 正确显示 Ready、已授权和正式域名，因此此前现象不是已证实的站点 ID 映射缺陷。用干净标签执行一次正常 Republish 后，Release #13（`c3907824-fca3-4aa6-81ed-32571e7fa54e`）成功激活，Production root 生成 `.production-port`，值为 `32800`；当前 Runtime 为 active，控制库端口与容器映射一致。公网首页再次显示 `Release 2 验收`，HTTP 200；探针 HTTP 204；SQLite 哈希仍为 `0c4b920c…f32e01b`，上传文件数仍为 25。
 
 Release #13 发布并生成 `.production-port=32800` 后，为直接验证自动端口同步，我仅把 E2E 测试站控制库端口暂时改回旧值 `32799`，随即从干净页面再次 Republish。界面从 Publishing 返回 `Website is live`，公网首页仍为 HTTP 200、探针 HTTP 204。Production Gateway 每个请求都会重新读取 Runtime 数据库行；测试容器实测只监听 `32800`，因此旧端口仍被使用时公网不可能返回 200。这一公网 E2E 结果证明自动流程已恢复正确路由，没有进行第二次手工数据库修正。随后 SSH 连续超时，无法直接读取并记录 Runtime 行、最终 Release ID 或 `.production-port` 文件，因此没有获得数据库侧的独立确认。当前 DEVTOOLS MCP 不可用；内置浏览器截图确认正式首页，但 Network/Console 证据未取得。CI 部署时 Runner 已随服务栈重启，tmux Runner 窗格仍存在，但尚未进行独立 Runner 重启故障注入。容器重建后是否复用 `.production-port`、自动镜像滚动升级/回滚和证书自动续期仍待验证或实现。
+
+### 2026-10-02 Production 固定端口与重启复验
+
+本节补充并更新上面关于容器重建和端口的历史记录。提交 `c5c1624` 固定新建 Production 容器的 loopback HostPort，并在重建时读取 `.production-port`；首次 GitHub CI #469 的 Docker 集成测试因容器重启后立即发请求遇到 `ECONNRESET`。提交 `239b7fd` 让测试先等待 `/_cloudcrane/health` 返回 204，再检查原端口、Release 页面和 Runtime 健康。CI #470 的 quality 与 docker-integration jobs 均通过；Deploy production #69 成功部署同一提交。
+
+部署后，目标 `CloudCrane Production E2E` 仍运行在旧的动态绑定容器（HostConfig `HostPort=0`，当时映射 `127.0.0.1:32801`），而 `.production-port` 为 `32801`。我只移除了该站点有明确 website ID 标签的容器和专属空网络，没有删除或改写宿主机 Production root。SQLite 文件 `shared/data/cloudcrane.db` 的 SHA-256 仍为 `0c4b920c6ff000b1fc8e858e283d3c9a98c326ea39d0721934a94d9e1f32e01b`，上传文件数为 25。之后从目标站点 Settings 使用正常 Republish；新容器的 HostConfig 与运行时实际映射都固定为 `127.0.0.1:32801`，与 marker 一致，公网首页 HTTP 200、`/_cloudcrane/health` HTTP 204，Settings 显示 `Website is live`。
+
+对新建容器再单独执行 `docker restart`，等待本机探针恢复后，HostConfig 和实际映射仍为 `32801`；Production marker、SQLite 哈希和 25 个上传文件均未变化；公网首页仍 HTTP 200、健康探针仍 HTTP 204。内置浏览器刷新后的截图显示首页与 `Release 2 验收` 副标题正常。DEVTOOLS MCP 不可用，因此没有 Network/Console 面板证据；截图与外部 HTTP 状态只证明可见页面和响应状态。
+
+Deploy production #69 会按现有发布流程重启平台 tmux 服务栈（包括 Runner）；部署结束后、删除测试容器之前，该站点公网首页和探针仍分别返回 200/204。这证明网站容器及持久数据在平台服务重启后仍可用，但未单独对 Runner 进程执行故障注入。当前已验证平台服务部署重启后的站点可用、Production 容器重建复用固定端口、Production 容器单独重启后公网恢复；Docker daemon/ECS 主机重启、自动镜像滚动升级/回滚以及证书自动续期仍未验收。
