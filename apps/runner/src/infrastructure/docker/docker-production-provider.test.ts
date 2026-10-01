@@ -44,21 +44,15 @@ describe('production current release switching', () => {
 describe('DockerProductionProvider', () => {
   it.each([
     {
-      label: '403 authorization response',
-      status: 403,
-      body: 'authorization pending',
+      label: 'ready while Pboot awaits authorization',
+      status: 204,
+      body: '',
       releaseActivated: true,
     },
     {
-      label: 'PbootCMS 404 authorization page',
-      status: 404,
-      body: '<html>未匹配到本域名有效授权码，请到官网获取</html>',
-      releaseActivated: true,
-    },
-    {
-      label: 'unrelated 404 response without activating a Release',
-      status: 404,
-      body: '<html>not found</html>',
+      label: 'unavailable runtime probe without activating a Release',
+      status: 503,
+      body: 'unavailable',
       releaseActivated: false,
     },
   ])(
@@ -123,9 +117,10 @@ describe('DockerProductionProvider', () => {
         const canonicalHost =
           (init?.headers as Record<string, string> | undefined)?.host ===
           'production-website.sites.example.com';
-        return new Response(canonicalHost ? body : 'not found', {
-          status: canonicalHost ? status : 404,
-        });
+        const responseStatus = canonicalHost ? status : 404;
+        return responseStatus === 204
+          ? new Response(null, { status: responseStatus })
+          : new Response(canonicalHost ? body : 'not found', { status: responseStatus });
       });
 
       try {
@@ -140,7 +135,7 @@ describe('DockerProductionProvider', () => {
           productionPort: 43127,
         });
         expect(fetcher).toHaveBeenCalledWith(
-          'http://127.0.0.1:43127/',
+          'http://127.0.0.1:43127/_cloudcrane/health',
           expect.objectContaining({
             headers: {
               host: 'production-website.sites.example.com',

@@ -13,6 +13,7 @@ RUN apk add --no-cache nginx curl oniguruma freetype libjpeg-turbo libpng sqlite
 
 COPY docker/production-pboot/nginx.conf /etc/nginx/nginx.conf
 COPY docker/production-pboot/www.conf /usr/local/etc/php-fpm.d/zz-cloudcrane.conf
+COPY docker/production-pboot/health.php /usr/local/lib/cloudcrane-health.php
 COPY docker/workspace-pboot/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-license
 RUN chmod 0755 /usr/local/bin/cloudcrane-pboot-license
 

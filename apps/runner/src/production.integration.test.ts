@@ -198,6 +198,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await probe.inspect()).ExitCode).toBe(0);
 
       const origin = `http://127.0.0.1:${published.productionPort}`;
+      const health = await fetch(`${origin}/_cloudcrane/health`);
+      expect(health.status).toBe(204);
       const home = await fetch(`${origin}/`);
       const homeBody = await home.text();
       const errorInfo = /font-size:20px[^>]*>([\s\S]*?)<span id="time"/i
