@@ -499,6 +499,7 @@ export class DockerProductionProvider implements ProductionProvider {
     if ((await readFile(marker, 'utf8').catch(() => '')).trim() !== releaseId) return;
     if (await this.optionalCurrentRelease(root)) return;
     await this.stopRuntimeIfRunning(websiteId);
+    await this.restoreHostOwnership(websiteId, root);
     await this.clearInitialPersistentState(root);
     await rm(marker, { force: true });
   }
