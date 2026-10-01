@@ -202,6 +202,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await probe.inspect()).ExitCode).toBe(0);
 
       const origin = `http://127.0.0.1:${published.productionPort}`;
+      await container.restart({ t: 10 });
+      const restartedContainer = await container.inspect();
+      const restartedPort = Number(
+        restartedContainer.NetworkSettings?.Ports?.['8080/tcp']?.[0]?.HostPort,
+      );
+      expect(restartedPort).toBe(published.productionPort);
       const firstReleaseCheck = await fetch(`${origin}/cloudcrane-release-check.php`);
       expect(firstReleaseCheck.status).toBe(200);
       expect(await firstReleaseCheck.text()).toBe('release-one');

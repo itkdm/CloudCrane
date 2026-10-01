@@ -199,7 +199,7 @@ describe('DockerProductionProvider', () => {
       pidsLimit: 64,
     };
     try {
-      const provider = new DockerProductionProvider(config, docker);
+      const provider = new DockerProductionProvider(config, docker, fetch, async () => 43127);
       const runtime = await provider.ensureRuntime(
         '00000000-0000-4000-8000-000000000001',
         'production-website',
@@ -211,7 +211,7 @@ describe('DockerProductionProvider', () => {
       });
       const options = createContainer.mock.calls[0]?.[0];
       expect(options?.HostConfig).toMatchObject({
-        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '43127' }] },
         Privileged: false,
         ReadonlyRootfs: true,
         SecurityOpt: ['no-new-privileges:true'],

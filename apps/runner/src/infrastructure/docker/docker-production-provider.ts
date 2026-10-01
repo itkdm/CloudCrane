@@ -1,4 +1,6 @@
 import { constants } from 'node:fs';
+import { once } from 'node:events';
+import { createServer } from 'node:net';
 import { PassThrough, type Readable } from 'node:stream';
 import {
   chmod,
@@ -27,6 +29,20 @@ import { ProductionOperationError } from '../../ports/production-operation-error
 type CurrentLinkOperations = Pick<typeof import('node:fs/promises'), 'symlink' | 'rename'>;
 const logger = createLogger('runner-production-provider');
 
+async function allocateLoopbackPort(): Promise<number> {
+  const server = createServer();
+  const listening = once(server, 'listening');
+  server.listen(0, '127.0.0.1');
+  await listening;
+  const address = server.address();
+  if (!address || typeof address === 'string')
+    throw new Error('could not allocate a loopback port');
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  return address.port;
+}
+
 export async function switchCurrentRelease(
   productionRoot: string,
   releaseId: string,
@@ -52,6 +68,7 @@ export class DockerProductionProvider implements ProductionProvider {
     private readonly config: RunnerConfig,
     private readonly docker = new Docker(),
     private readonly fetcher: typeof fetch = fetch,
+    private readonly portAllocator: () => Promise<number> = allocateLoopbackPort,
   ) {}
 
   async reconcileRuntimes(): Promise<{ scanned: number; restored: number; failed: number }> {
@@ -121,6 +138,7 @@ export class DockerProductionProvider implements ProductionProvider {
     }
     if (!info) {
       const networkName = this.networkName(websiteId);
+      const portToBind = persistedPort ?? (await this.portAllocator());
       let network: Docker.Network | undefined;
       try {
         network = await this.docker.createNetwork({
@@ -150,7 +168,7 @@ export class DockerProductionProvider implements ProductionProvider {
             ],
             NetworkMode: networkName,
             PortBindings: {
-              '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(persistedPort ?? 0) }],
+              '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(portToBind) }],
             },
             Privileged: false,
             ReadonlyRootfs: true,
@@ -178,7 +196,9 @@ export class DockerProductionProvider implements ProductionProvider {
           await created.start();
           info = await created.inspect();
           const assignedPort = this.runtimePort(info);
-          if (assignedPort) await this.persistProductionPort(root, assignedPort);
+          if (!assignedPort || assignedPort !== portToBind)
+            throw new Error('Production container did not retain its reserved loopback port');
+          await this.persistProductionPort(root, assignedPort);
         } catch (error) {
           await created.remove({ force: true }).catch(() => undefined);
           throw error;
