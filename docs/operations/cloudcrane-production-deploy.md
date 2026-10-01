@@ -1,8 +1,8 @@
 # CloudCrane 生产入口部署
 
-> **发布方式状态（2026-09-30）**：GitHub Actions 自动部署已完成端到端验证。首次功能提交的 CI `#404` / Deploy production `#1`（SHA `973d9bb`）和文档复核提交的 CI `#405` / Deploy production `#2`（SHA `6f3afed`）均成功；后续自动部署也通过了内部及公开健康检查。本文下面的 SSH 命令仍是手动发布流程；不要与 workflow 并发发布。
+> **状态（2026-10-01）**：平台 CD 使用 GitHub Actions；`main` CI 成功后部署同一 SHA。Website Production 公网入口已在 ECS 配置为 `*.site.itkdm.com → Nginx → 127.0.0.1:4104 Production Gateway`，Cloudflare DNS-only wildcard A 和 Let's Encrypt wildcard 证书已配置。证书使用 Certbot manual DNS hook 签发，但续期 hook 仍需 Cloudflare DNS API 权限，不能视为自动续期已验证。当前真实 E2E 账号点击发布被“当前账户没有可用的 Production 发布权益”拦截，尚未创建 release；发布权益和可用的 PbootCMS 正式域名授权仍是完整 E2E 前置条件。本文 SSH 命令是手动运维/恢复流程，不要与 workflow 并发发布。
 
-当前平台公网入口使用 Nginx；服务器检查确认主站和 Preview 的 Nginx 反代及 WebSocket 头配置有效。现有 Let's Encrypt 证书当前有效，但 Certbot renewal 使用 `manual` authenticator 且没有续期 hook，不能仅凭 `certbot.timer` active 判断自动续期正常；证书续期需在到期前单独修复和演练。Tech-03 中的 Caddy 设计指未来 Website Production Runtime 的用户域名入口，不是本平台入口。
+平台入口与 Website Production Gateway 都使用 Nginx。Tech-03 中的 Caddy 是架构目标描述；当前已部署实现由 Nginx 终止 TLS 并反代到 Production Gateway。
 
 部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
@@ -10,15 +10,16 @@
 | --- | --- | --- | --- |
 | `app.itkdm.com` | A | `186.244.238.219` | 已代理 |
 | `*.preview.itkdm.com` | A | `186.244.238.219` | 仅 DNS |
+| `*.site.itkdm.com` | A | `186.244.238.219` | 仅 DNS |
 
-预期 Web 主站为 `https://app.itkdm.com`；Preview 使用 `https://{previewSlug}.preview.itkdm.com/`。slug 是数据库持久化的 12 位小写字母数字串。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
+预期 Web 主站为 `https://app.itkdm.com`；Preview 使用 `https://{previewSlug}.preview.itkdm.com/`；Production 使用 `https://{productionSlug}.site.itkdm.com/`。Production Gateway 从 Host 提取已登记的 Production slug，并只路由到数据库中处于可访问状态的 runtime。apex `itkdm.com`、`www` 以及已有邮件/验证记录不属于 CloudCrane，禁止改写。
 
 ## 服务器入口
 
 Nginx 配置模板：
 
 ```text
-deploy/nginx/cloudcrane-production.conf
+deploy/nginx/cloudcrane-production-sites.conf.template
 ```
 
 `app.itkdm.com` 经过 Cloudflare 代理。生产 HTTPS server 只信任 Cloudflare 官方
@@ -47,6 +48,7 @@ IPv4/IPv6 代理网段提供的 `CF-Connecting-IP`，并将解析后的客户端
 https://app.itkdm.com/              → 127.0.0.1:3000
 https://app.itkdm.com/agent/        → 127.0.0.1:4101
 https://site-*.preview.itkdm.com/   → 127.0.0.1:4103
+https://{productionSlug}.site.itkdm.com/ → 127.0.0.1:4104
 ```
 
 `/agent/` 反代会去掉路径前缀，WebSocket Upgrade、原始 Host 和 HTTPS 来源会继续传递给 Agent Service。这样浏览器只向同一主域发送 Better Auth Cookie，不需要把认证 Cookie 扩展到其他子域。
@@ -60,7 +62,7 @@ Cloudflare SSL/TLS 模式为“完全（严格）”。服务器使用 Let’s E
 /etc/letsencrypt/live/cloudcrane-itkdm/privkey.pem
 ```
 
-证书覆盖 `app.itkdm.com`、`*.itkdm.com` 和 `*.preview.itkdm.com`。当前证书通过 DNS-01 手动申请，不能依赖 Certbot 默认定时器自动续期；到期前必须配置 Cloudflare DNS API 最小权限 Token 与 `--manual-auth-hook`，或重新执行 DNS-01。证书私钥、DNS Token 和 TXT 验证值禁止提交 Git。
+原证书 SAN 已于 2026-10-01 复核更正：`cloudcrane-itkdm` 只覆盖 `app.itkdm.com` 和 `*.preview.itkdm.com`，不覆盖 `*.itkdm.com`。Production 独立证书为 `/etc/letsencrypt/live/cloudcrane-production-sites/{fullchain,privkey}.pem`，SAN 为 `site.itkdm.com`、`*.site.itkdm.com`，有效期至 2026-12-30。首次申请通过 Cloudflare API 手动创建并在签发后删除 DNS-01 TXT。Certbot 保存的 auth hook 只等待本次人工挑战信号，不能完成无人值守续期；需配置范围仅限 `itkdm.com` 的 DNS Edit Token，并实现/演练安全的自动 hook，或在到期前人工续签。当前不可宣称该证书自动续期可用。证书私钥、DNS Token 和 TXT 验证值禁止提交 Git。
 
 若服务器采用仓库 tmux 验收脚本，脚本会将窗口输出写入 `/var/log/cloudcrane/*.log`；部署时可同步安装仓库轮转模板：
 
@@ -82,13 +84,16 @@ PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://{previewSlug}.preview.itkdm.com/
 PREVIEW_HOST_SUFFIXES=preview.itkdm.com
 PREVIEW_PUBLIC_PROTOCOL=https
 PREVIEW_COOKIE_SECURE=true
+PRODUCTION_HOST_SUFFIX=site.itkdm.com
+PRODUCTION_GATEWAY_ORIGIN_TEMPLATE=https://{productionSlug}.site.itkdm.com/
+PRODUCTION_PUBLIC_PROTOCOL=https
 # 生产数据目录与代码目录分离，避免发布代码时覆盖运行时数据。
 WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/var/lib/cloudcrane/pbootcms-base
 TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
 
-仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动服务；脚本默认会话名为 `cloudcrane-acceptance`。2026-09-30 通过 SSH 只读核验，生产主机使用 `cloudcrane-production` 会话，其中有 `web`、`agent`、`gateway`、`runner` 和 `preview` 窗口；对应 systemd unit 当时均 inactive。该状态可能变化，每次发布前应重新确认。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，该模板本身不表示生产主机已启用这些 unit。
+仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动服务；脚本默认会话名为 `cloudcrane-acceptance`。2026-10-01 通过 SSH 核验，生产主机使用 `cloudcrane-production` tmux 会话管理服务；Production Gateway 监听 `127.0.0.1:4104` 并返回健康状态。Production Gateway 是 tmux 服务，不以 `systemctl is-active cloudcrane-production-gateway` 判断。服务管理方式可能变化，每次发布前应重新确认。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，模板本身不表示生产主机已启用这些 unit。
 
 ```bash
 CLOUDCRANE_TMUX_SESSION=cloudcrane-production bash ./scripts/server-acceptance-start.sh
