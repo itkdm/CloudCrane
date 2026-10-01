@@ -76,10 +76,21 @@ export function WebsiteSettingsDialog({
   useEffect(() => {
     productionPublishKey.current = null;
     if (!website) return;
+    const storageKey = `${publishOperationKeyPrefix}${website.id}`;
+    if (['failed', 'authorization_required', 'active'].includes(website.production?.status ?? '')) {
+      try {
+        window.localStorage.removeItem(storageKey);
+        window.localStorage.removeItem(`${storageKey}:started-at`);
+      } catch {
+        // A terminal Production state does not need an old request key to resume.
+      }
+      setProductionPending(false);
+      setProductionResumeAvailable(false);
+      setProductionNotice('');
+      return;
+    }
     try {
-      productionPublishKey.current = window.localStorage.getItem(
-        `${publishOperationKeyPrefix}${website.id}`,
-      );
+      productionPublishKey.current = window.localStorage.getItem(storageKey);
     } catch {
       productionPublishKey.current = null;
     }
@@ -182,7 +193,12 @@ export function WebsiteSettingsDialog({
   }, [website?.id, website?.production?.status, productionPending, onRefresh]);
 
   useEffect(() => {
-    if (!website || !productionResumeAvailable) return;
+    if (
+      !website ||
+      !productionResumeAvailable ||
+      !['provisioning', 'activating'].includes(website.production?.status ?? '')
+    )
+      return;
     const storageKey = `${publishOperationKeyPrefix}${website.id}`;
     const timer = window.setInterval(() => {
       if (!productionPublishKey.current || publishing) return;
@@ -199,7 +215,7 @@ export function WebsiteSettingsDialog({
       resumePublishOperation.current?.();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [website?.id, productionResumeAvailable, publishing]);
+  }, [website?.id, website?.production?.status, productionResumeAvailable, publishing]);
 
   if (!website) return null;
   const currentWebsite = website;
@@ -236,13 +252,18 @@ export function WebsiteSettingsDialog({
     }
   }
 
-  async function publishProduction() {
+  async function publishProduction(startNewAttempt = false) {
     setPublishing(true);
     setProductionError('');
     setProductionNotice('');
     let responseReceived = false;
     try {
       const storageKey = `${publishOperationKeyPrefix}${currentWebsite.id}`;
+      if (startNewAttempt) {
+        productionPublishKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        window.localStorage.removeItem(`${storageKey}:started-at`);
+      }
       let idempotencyKey = productionPublishKey.current;
       if (!idempotencyKey) {
         idempotencyKey = window.localStorage.getItem(storageKey) ?? crypto.randomUUID();
@@ -738,19 +759,26 @@ export function WebsiteSettingsDialog({
                   <button
                     className="primary-button"
                     type="button"
-                    onClick={() => void publishProduction()}
+                    onClick={() =>
+                      void publishProduction(currentWebsite.production?.status === 'failed')
+                    }
                     disabled={
                       publishing ||
-                      (['provisioning', 'activating'].includes(currentWebsite.production.status) &&
+                      (['provisioning', 'activating'].includes(
+                        currentWebsite.production?.status ?? '',
+                      ) &&
                         !productionResumeAvailable) ||
                       currentWebsite.status !== 'ready'
                     }
                   >
                     {publishing ||
-                    (['provisioning', 'activating'].includes(currentWebsite.production.status) &&
+                    (['provisioning', 'activating'].includes(
+                      currentWebsite.production?.status ?? '',
+                    ) &&
                       !productionResumeAvailable)
                       ? t('productionPublishing')
-                      : productionResumeAvailable
+                      : productionResumeAvailable &&
+                          ['provisioning', 'activating'].includes(currentWebsite.production.status)
                         ? t('productionResume')
                         : t('productionRepublish')}
                   </button>
