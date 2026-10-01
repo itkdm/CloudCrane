@@ -295,6 +295,7 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
+      await this.clearPbootReleaseCaches(root);
       await this.writeVerifiedRelease(root, input.releaseId);
       if (input.firstPublish) await this.finalizeInitialPersistentState(root, input.releaseId);
       await this.collectOldReleases(input.websiteId, input.releaseId, previousRelease).catch(
@@ -1005,6 +1006,15 @@ export class DockerProductionProvider implements ProductionProvider {
     } catch {
       return false;
     }
+  }
+
+  private async clearPbootReleaseCaches(productionRoot: string): Promise<void> {
+    const runtimeRoot = path.join(productionRoot, 'shared', 'runtime');
+    await Promise.all(
+      ['cache', 'complile'].map((directory) =>
+        rm(path.join(runtimeRoot, directory), { recursive: true, force: true }),
+      ),
+    );
   }
 
   private async verifyHost(port: number, canonicalHost: string): Promise<boolean> {

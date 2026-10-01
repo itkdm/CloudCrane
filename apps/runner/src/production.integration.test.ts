@@ -503,6 +503,14 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         (await fetch(`http://127.0.0.1:${first.productionPort}/config/database.php`)).status,
       ).toBe(403);
 
+      const runtimeRoot = path.join(productionRoot, websiteId, 'shared', 'runtime');
+      for (const directory of ['cache', 'complile', 'session', 'image'])
+        await mkdir(path.join(runtimeRoot, directory), { recursive: true });
+      await writeFile(path.join(runtimeRoot, 'cache', 'cached-page.html'), 'release one');
+      await writeFile(path.join(runtimeRoot, 'complile', 'compiled-template.php'), 'release one');
+      await writeFile(path.join(runtimeRoot, 'session', 'session.data'), 'session must survive');
+      await writeFile(path.join(runtimeRoot, 'image', 'generated.jpg'), 'image must survive');
+
       await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),
         "<?php $db = new PDO('sqlite:/site/shared/data/cloudcrane.db'); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . $db->query('SELECT value FROM sample')->fetchColumn() . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
@@ -517,6 +525,16 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(
         await readFile(path.join(productionRoot, websiteId, 'shared', '.verified-release'), 'utf8'),
       ).toBe(`${secondReleaseId}\n`);
+      for (const directory of ['cache', 'complile'])
+        await expect(lstat(path.join(runtimeRoot, directory))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+      expect(await readFile(path.join(runtimeRoot, 'session', 'session.data'), 'utf8')).toBe(
+        'session must survive',
+      );
+      expect(await readFile(path.join(runtimeRoot, 'image', 'generated.jpg'), 'utf8')).toBe(
+        'image must survive',
+      );
       const secondResponse = await fetch(
         `http://127.0.0.1:${second.productionPort}/template/default/integration.php`,
       );
