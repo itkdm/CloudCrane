@@ -125,6 +125,7 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 - DEVTOOLS MCP 不在本轮可用工具中；本轮使用 Codex 内置浏览器只读检查了正式首页，没有登录或修改数据。约 910px 窄视口截图可见水平滚动条，需另行确认响应式布局。
 - 本次检查时本机 `3000`、`3001`、`15432`、`4101`、`4102`、`4103` 没有监听，SSH 隧道未建立；本机 `5432` 有 PostgreSQL 进程监听，但本轮没有连接或检查其中的数据。生产服务器 SSH 本身可连接。
 - 本机 Docker CLI 不可用，所以本轮没有启动 Compose PostgreSQL、Workspace 容器或真实本地全栈，也没有执行数据库迁移/集成测试。
+- Production Docker CI 会使用固定提交的 PbootCMS 3.2.26 启动真实 Workspace 和 Production 镜像。CI 的 Production 端口和访问 IP 每次随机变化，且 CI 不持有可用于该临时域名的官方 Pboot 授权码，因此真实 Pboot 首页应返回“未匹配到本域名有效授权码”并保持 `authorization_required`；这不代表 PHP、SQLite 或镜像启动失败。CI 仍验证 Pboot 数据库、生产 DB 路径、资源和敏感路径规则，以及后续 Release 对持久数据的保留。使用合成 Pboot 夹具验证授权后页面、授权状态及 Release 切换。没有正式授权码时，不把真实 Pboot 首页/后台页面验收写成通过；需要对稳定且已授权域名做单独验收。
 - 本轮通过 CI-only 占位环境完成 `pnpm build` 和 22 条 migration lineage 检查；Build 未连接本机数据库。本机质量检查可验证代码本身，但不能取代远程数据库、Workspace、Runner、Preview 或线上浏览器链路的验收。
 - Next.js build 在配置收集阶段会导入数据库和认证模块，因此本机缺少 `DATABASE_URL` 时会报 `DATABASE_URL is required`，缺少/过短的 `BETTER_AUTH_SECRET` 时会报认证密钥配置错误；这些是构建环境初始化错误，不代表数据库连接或认证服务失败。本机构建可仅对当前进程设置指向未监听回环端口的占位 PostgreSQL URL（例如 `postgresql://cloudcrane:cloudcrane@127.0.0.1:65432/cloudcrane`）和至少 32 字符的非生产占位 `BETTER_AUTH_SECRET`，再运行 `pnpm build`。构建不会访问该数据库端口或读写数据库；不要用这些占位值验证数据库、网站列表或远程服务状态。GitHub CI 使用隔离的临时 PostgreSQL 与 CI-only 密钥。
 

@@ -208,9 +208,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 80);
-      expect(home.status, `Pboot home status ${home.status}; error=${errorInfo ?? 'unknown'}`).toBe(
-        200,
-      );
+      expect(home.status).toBe(403);
+      expect(errorInfo).toContain('未匹配到本域名');
       const admin = await fetch(`${origin}/admin.php`, { redirect: 'manual' });
       expect(admin.status).toBe(200);
       const adminCss = await fetch(
