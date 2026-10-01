@@ -7,7 +7,7 @@
 - [architecture/](architecture/)：产品技术方案、Tech-01 至 Tech-07 架构基线，以及认证、计费、观测、模板快照、附件等专题设计。
 - [operations/](operations/)：本地远程开发、部署、Preview 和生产环境操作手册。
 - [product/](product/)：产品定义与模板广场产品说明。
-- [testing/](testing/)：E2E 测试账号说明。账号密码等本地信息保存在被 Git 忽略的 `.local.md` 文件中。
+- [testing/](testing/)：E2E 测试登录说明。请阅读[凭据查找与使用规则](testing/cloudcrane-e2e-test-account.md)；本机凭据只保存在 Git 忽略文件 `docs/testing/cloudcrane-e2e-test-account.local.md` 中，不提交到仓库。
 
 ## 建议阅读顺序
 

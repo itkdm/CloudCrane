@@ -41,6 +41,7 @@ CloudCrane 是本仓库的正式项目名；Website Coding Agent、Website Agent
 - UI、Chat、Preview、Workspace 生命周期、Agent Prompt、刷新/重连等用户流程，优先通过 DEVTOOLS MCP 连接真实服务验证。DEVTOOLS 不可用时的内置浏览器回退规则见下文。
 - 涉及 Web UI 的验收必须用选定的验收工具截取截图，并检查实际视觉布局、裁切、滚动位置、间距、对齐和响应式表现；DEVTOOLS MCP 不可用时按约定使用 Codex 内置浏览器截图。仅凭 DOM 快照、Network 或 Console 结果不得宣称 UI 验收完成。最终报告说明截图验证结论，必要时附上截图证据路径。
 - DEVTOOLS MCP 是首选验收工具。按用户明确确认的项目约定，DEVTOOLS MCP 不可用时可使用 Codex 内置浏览器检查可见 UI、用户反馈、刷新后的可见状态并截取截图；报告必须说明使用了哪种工具及其证据边界。内置浏览器无法替代 DEVTOOLS 的 Network/Console 等证据时，相关链路验收仍标为未完成。curl/SSH 只用于辅助的服务器健康与只读状态检查。
+- 需要登录 CloudCrane 做 E2E 验收时，先阅读 [E2E 测试登录说明](docs/testing/cloudcrane-e2e-test-account.md)，并按准确路径查找本机忽略文件 `docs/testing/cloudcrane-e2e-test-account.local.md`。不要把凭据提交到仓库或复制进聊天；文件缺失或登录不可用时，请项目负责人在浏览器中自行登录后继续，不要声称登录后的流程已验收。
 - 真实验收要检查可见 DOM、用户反馈、Console、Network、刷新/重开后的持久化状态和关键错误路径；验收工具无法提供的证据应明确标为未验证。遇到授权失败、服务不可用或 Agent 未完成，不得人工绕过、自动开新窗口、自动刷新掩盖问题。
 - 日志和最终报告不得包含密码、Cookie、Token、授权码、完整 Prompt、Session JSONL、文件内容或未过滤外部 stdout；报告使用状态、计数、哈希或脱敏路径。
 
