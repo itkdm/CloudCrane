@@ -109,10 +109,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
     });
     let failInitialHealthCheck = true;
     const fetcher: typeof fetch = async (input, init) => {
-      if (failInitialHealthCheck) {
-        failInitialHealthCheck = false;
-        return new Response('unavailable', { status: 503 });
-      }
+      if (failInitialHealthCheck) return new Response('unavailable', { status: 503 });
       return fetch(input, init);
     };
     const provider = new DockerProductionProvider(config, docker, fetcher);
@@ -222,6 +219,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       await expect(
         lstat(path.join(productionRoot, websiteId, 'shared', 'data', 'pbootcms.db')),
       ).rejects.toMatchObject({ code: 'ENOENT' });
+      failInitialHealthCheck = false;
       await provider.ensureRuntime(websiteId, productionSlug);
       const first = await deployRelease(firstReleaseId, true, firstArtifact);
       expect(first).toMatchObject({

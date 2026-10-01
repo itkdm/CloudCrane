@@ -653,14 +653,9 @@ export class DockerProductionProvider implements ProductionProvider {
       Image: this.config.productionImage,
       name: `cloudcrane-production-owner-${websiteId}-${Date.now()}`,
       User: '0:0',
-      Entrypoint: ['/bin/chown'],
+      Entrypoint: ['/bin/sh', '-c'],
       Cmd: [
-        '-R',
-        '1000:1000',
-        '/shared/data',
-        '/shared/upload',
-        '/shared/config',
-        '/shared/runtime',
+        'chown -R 1000:1000 /shared/data /shared/upload /shared/config /shared/runtime && chmod 0755 /shared/runtime',
       ],
       HostConfig: {
         Binds: [`${path.join(root, 'shared')}:/shared:rw`],
