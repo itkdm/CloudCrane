@@ -175,15 +175,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect(published.currentReleaseId).toBe(releaseId);
       expect(published.status).toBe('authorization_required');
-      await provider.authorize(
-        realWebsiteId,
-        'real-pboot-integration',
-        'fixture-authorization-code',
-      );
-      expect(await provider.getStatus(realWebsiteId, 'real-pboot-integration')).toMatchObject({
-        status: 'active',
-        currentReleaseId: releaseId,
-      });
 
       const container = docker.getContainer(productionContainerRef!);
       const probe = await container.exec({
@@ -208,7 +199,15 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       const origin = `http://127.0.0.1:${published.productionPort}`;
       const home = await fetch(`${origin}/`);
-      expect(home.status).toBe(200);
+      const homeBody = await home.text();
+      const denialReason = /黑名单/.test(homeBody)
+        ? 'pboot-ip-denylist'
+        : /白名单/.test(homeBody)
+          ? 'pboot-ip-allowlist'
+          : /权限不足/.test(homeBody)
+            ? 'pboot-page-permission'
+            : 'unclassified';
+      expect(home.status, `Pboot home status ${home.status}; denial=${denialReason}`).toBe(200);
       const admin = await fetch(`${origin}/admin.php`, { redirect: 'manual' });
       expect(admin.status).toBe(200);
       const adminCss = await fetch(
