@@ -235,7 +235,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         path.join(workspace, 'template', 'default', 'integration.php'),
         "<?php $db = new PDO('sqlite:/site/shared/data/pbootcms.db'); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . $db->query('SELECT value FROM sample')->fetchColumn() . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
       );
-      await writeFile(path.join(workspace, 'data', 'pbootcms.db'), 'changed-workspace-db');
+      await replaceWorkspaceDatabaseFixture(docker, config.productionImage, workspace);
       await writeFile(
         path.join(workspace, 'static', 'upload', 'logo.txt'),
         'changed-workspace-upload',
@@ -332,5 +332,34 @@ async function initializeProductionTestDatabase(
   } finally {
     await initializer.remove({ force: true }).catch(() => undefined);
     await chmod(dataDirectory, 0o755);
+  }
+}
+
+async function replaceWorkspaceDatabaseFixture(
+  docker: Docker,
+  image: string,
+  workspaceDirectory: string,
+): Promise<void> {
+  const updater = await docker.createContainer({
+    Image: image,
+    Entrypoint: ['php'],
+    Cmd: ['-r', "file_put_contents('/workspace/data/pbootcms.db', 'changed-workspace-db');"],
+    User: '1000:1000',
+    HostConfig: {
+      Binds: [`${workspaceDirectory}:/workspace:rw`],
+      NetworkMode: 'none',
+      Privileged: false,
+      ReadonlyRootfs: true,
+      SecurityOpt: ['no-new-privileges:true'],
+      CapDrop: ['ALL'],
+      AutoRemove: false,
+    },
+  });
+  try {
+    await updater.start();
+    const result = await updater.wait();
+    if (result.StatusCode !== 0) throw new Error('test Workspace database update failed');
+  } finally {
+    await updater.remove({ force: true }).catch(() => undefined);
   }
 }
