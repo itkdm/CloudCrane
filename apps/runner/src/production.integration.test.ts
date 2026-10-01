@@ -504,12 +504,25 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       ).toBe(403);
 
       const runtimeRoot = path.join(productionRoot, websiteId, 'shared', 'runtime');
-      for (const directory of ['cache', 'complile', 'session', 'image'])
-        await mkdir(path.join(runtimeRoot, directory), { recursive: true });
-      await writeFile(path.join(runtimeRoot, 'cache', 'cached-page.html'), 'release one');
-      await writeFile(path.join(runtimeRoot, 'complile', 'compiled-template.php'), 'release one');
-      await writeFile(path.join(runtimeRoot, 'session', 'session.data'), 'session must survive');
-      await writeFile(path.join(runtimeRoot, 'image', 'generated.jpg'), 'image must survive');
+      const cacheFixture = await docker.getContainer(first.containerRef!).exec({
+        Cmd: [
+          '/bin/sh',
+          '-c',
+          'mkdir -p /site/shared/runtime/cache /site/shared/runtime/complile /site/shared/runtime/session /site/shared/runtime/image && printf "release one" > /site/shared/runtime/cache/cached-page.html && printf "release one" > /site/shared/runtime/complile/compiled-template.php && printf "session must survive" > /site/shared/runtime/session/session.data && printf "image must survive" > /site/shared/runtime/image/generated.jpg',
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const cacheFixtureStream = await cacheFixture.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        cacheFixtureStream.once('end', resolve);
+        cacheFixtureStream.once('close', resolve);
+        cacheFixtureStream.once('error', reject);
+        cacheFixtureStream.resume();
+      });
+      expect((await cacheFixture.inspect()).ExitCode).toBe(0);
 
       await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),

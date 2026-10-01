@@ -295,7 +295,7 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
-      await this.clearPbootReleaseCaches(root);
+      await this.clearPbootReleaseCaches(input.websiteId, root);
       await this.writeVerifiedRelease(root, input.releaseId);
       if (input.firstPublish) await this.finalizeInitialPersistentState(root, input.releaseId);
       await this.collectOldReleases(input.websiteId, input.releaseId, previousRelease).catch(
@@ -1008,13 +1008,31 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  private async clearPbootReleaseCaches(productionRoot: string): Promise<void> {
-    const runtimeRoot = path.join(productionRoot, 'shared', 'runtime');
-    await Promise.all(
-      ['cache', 'complile'].map((directory) =>
-        rm(path.join(runtimeRoot, directory), { recursive: true, force: true }),
-      ),
-    );
+  private async clearPbootReleaseCaches(websiteId: string, productionRoot: string): Promise<void> {
+    const helper = await this.docker.createContainer({
+      Image: this.config.productionImage,
+      name: `cloudcrane-production-cache-${websiteId}-${Date.now()}`,
+      User: '1000:1000',
+      Entrypoint: ['/bin/rm'],
+      Cmd: ['-rf', '/runtime/cache', '/runtime/complile'],
+      HostConfig: {
+        Binds: [`${path.join(productionRoot, 'shared', 'runtime')}:/runtime:rw`],
+        NetworkMode: 'none',
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        AutoRemove: false,
+        LogConfig: { Type: 'json-file', Config: { 'max-size': '2m', 'max-file': '2' } },
+      },
+    });
+    try {
+      await helper.start();
+      const result = await helper.wait();
+      if (result.StatusCode !== 0) throw new Error('Production Pboot cache cleanup failed');
+    } finally {
+      await helper.remove({ force: true }).catch(() => undefined);
+    }
   }
 
   private async verifyHost(port: number, canonicalHost: string): Promise<boolean> {
