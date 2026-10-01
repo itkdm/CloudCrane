@@ -136,4 +136,12 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 本节更新上面的历史检查记录，以此处为准：目标 Production 测试站已提交正式域名授权并显示上线；当前 Release #12（`e16c5b4e-1efc-4ded-b35b-7be034229dfe`）为 active，公网首页显示 Workspace 的 `Release 2 验收` 标记。SQLite SHA-256 保持 `0c4b920c…f32e01b`，上传文件数保持 25。发布中刷新浏览器、发布完成后离开 Settings 丢弃 Web 响应两种情形下，发布操作都在后台完成，分别留下 Release #11 和 #12；重新访问页面可读回完成状态。
 
-Production 容器被替换/重建（不是单纯 `docker restart`）时，Docker 曾将 loopback 端口从 `32798` 改为 `32799`，而控制库仍记旧端口，导致 Gateway 502。核对实际容器映射、active Release 和探针后，只更新测试站对应的 `production_runtime.production_port`，公网站点恢复。新修复已写入源码但尚未部署：Runner 在站点 Production root 持久化 `.production-port`，容器重建时优先复用；Production 状态 API 把 Runner 查询到的当前端口写回控制库。后续还需通过 CI/CD 部署后验证端口复用、Production 容器重建和 Runner 重启。旧章节关于“授权仍待输入”“第二次发布未执行”“缓存修复尚未自动化”的描述已过期，以本节和此前已记录的 Release #10–#12 结果为准。
+Production 容器被替换/重建（不是单纯 `docker restart`）时，Docker 曾将 loopback 端口从 `32798` 改为 `32799`，而控制库仍记旧端口，导致 Gateway 502。核对实际容器映射、active Release 和探针后，只更新测试站对应的 `production_runtime.production_port`，公网站点恢复。随后 Runner 增加了在站点 Production root 持久化 `.production-port`、容器重建时优先复用，以及 Production 状态 API 回写 Runner 实际端口的实现；部署后的真实重启结果见下一节。旧章节关于“授权仍待输入”“第二次发布未执行”“缓存修复尚未自动化”的描述已过期，以本节和此前已记录的 Release #10–#12 结果为准。
+
+### 2026-10-02 部署后 Production 容器重启验证
+
+提交 `399d8764` 的 CI #466 与 Deploy #65 成功；ECS `cloudcrane-production` tmux 中 Runner 窗格存在，测试站重启前容器运行于 `127.0.0.1:32799`，Runtime 为 active / Release #12（`e16c5b4e-1efc-4ded-b35b-7be034229dfe`），公网首页 HTTP 200、固定健康探针 HTTP 204。
+
+对唯一目标容器执行 `docker restart` 后，Docker 将动态 loopback 端口从 `32799` 改为 `32800`。容器仍为 running，容器内首页返回 200、`/_cloudcrane/health` 返回 204，但控制库仍记 `32799`，所以公网 Gateway 暂时返回 502。Production root 中没有 `.production-port` 文件；这说明该现存 Runtime 尚未经过新代码的状态查询/端口元数据初始化，容器重启本身不会触发端口同步。随后只将 E2E 测试站 `production_runtime.production_port` 更新为实测的 `32800`，公网首页恢复 200、探针恢复 204。Release #12、SQLite SHA-256（`0c4b920c…f32e01b`）和上传文件数（25）均未变化。
+
+尝试从 CloudCrane UI 打开目标站 Production Settings 以触发已部署的状态 API，但页面实际打开了另一测试站“模板广场 E2E 验证”的 Settings；为避免对错站操作，未继续发布或授权。当前 DEVTOOLS MCP 不可用；内置浏览器截图确认恢复后的正式首页显示 `Release 2 验收`，但 Network/Console 证据未取得。结论：本轮验证了容器运行、容器内健康、人工同步端口后的公网恢复及数据保持；**没有验证 `.production-port` 自动复用或状态 API 自动修正数据库端口**。CI 部署时 Runner 已随服务栈重启，tmux Runner 窗格存在，但尚未进行独立 Runner 重启故障注入。容器替换/重建、自动镜像滚动升级/回滚和证书自动续期仍待验证或实现。
