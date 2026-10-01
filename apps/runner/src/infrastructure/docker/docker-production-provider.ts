@@ -649,13 +649,19 @@ export class DockerProductionProvider implements ProductionProvider {
   ): Promise<void> {
     const marker = path.join(root, 'shared', '.ownership-v1');
     if (!force && (await this.exists(marker))) return;
+    await chmod(path.join(root, 'shared', 'runtime'), 0o755);
     const helper = await this.docker.createContainer({
       Image: this.config.productionImage,
       name: `cloudcrane-production-owner-${websiteId}-${Date.now()}`,
       User: '0:0',
-      Entrypoint: ['/bin/sh', '-c'],
+      Entrypoint: ['/bin/chown'],
       Cmd: [
-        'chmod 0755 /shared/runtime && chown -R 1000:1000 /shared/data /shared/upload /shared/config /shared/runtime',
+        '-R',
+        '1000:1000',
+        '/shared/data',
+        '/shared/upload',
+        '/shared/config',
+        '/shared/runtime',
       ],
       HostConfig: {
         Binds: [`${path.join(root, 'shared')}:/shared:rw`],
