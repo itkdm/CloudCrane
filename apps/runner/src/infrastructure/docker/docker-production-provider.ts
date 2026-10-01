@@ -26,6 +26,31 @@ import { ProductionOperationError } from '../../ports/production-operation-error
 
 type CurrentLinkOperations = Pick<typeof import('node:fs/promises'), 'symlink' | 'rename'>;
 const logger = createLogger('runner-production-provider');
+const MAX_HEALTH_RESPONSE_BYTES = 16 * 1024;
+
+async function includesPendingPbootAuthorization(response: Response): Promise<boolean> {
+  const reader = response.body?.getReader();
+  if (!reader) return false;
+
+  const decoder = new TextDecoder();
+  let body = '';
+  let byteLength = 0;
+  try {
+    while (byteLength < MAX_HEALTH_RESPONSE_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = MAX_HEALTH_RESPONSE_BYTES - byteLength;
+      const chunk = value.subarray(0, remaining);
+      body += decoder.decode(chunk, { stream: true });
+      byteLength += chunk.byteLength;
+      if (chunk.byteLength !== value.byteLength) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+
+  return body.includes('未匹配到本域名有效授权码');
+}
 
 export async function switchCurrentRelease(
   productionRoot: string,
@@ -1004,7 +1029,9 @@ export class DockerProductionProvider implements ProductionProvider {
       return (
         (response.status >= 200 && response.status < 400) ||
         // PbootCMS uses 403 while the site's production authorization is pending.
-        response.status === 403
+        response.status === 403 ||
+        // PbootCMS 3.2.24 serves its explicit unlicensed-domain page with HTTP 404.
+        (response.status === 404 && (await includesPendingPbootAuthorization(response)))
       );
     } catch {
       return false;

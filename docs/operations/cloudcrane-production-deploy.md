@@ -1,6 +1,6 @@
 # CloudCrane 生产入口部署
 
-> **状态（2026-10-01）**：平台 CD 使用 GitHub Actions；`main` CI 成功后部署同一 SHA。Website Production 公网入口已在 ECS 配置为 `*.site.itkdm.com → Nginx → 127.0.0.1:4104 Production Gateway`，Cloudflare DNS-only wildcard A 和 Let's Encrypt wildcard 证书已配置。证书使用 Certbot manual DNS hook 签发，但续期 hook 仍需 Cloudflare DNS API 权限，不能视为自动续期已验证。指定 E2E 账户已获临时 1 个 Production 发布权益；首次真实发布已进入 Runner，但失败在 3.2.24 Workspace 与仅有 3.2.26 Managed Base 的版本匹配检查，尚未创建 Production release/runtime。Production 域名授权与完整 E2E 仍待验证。本文 SSH 命令是手动运维/恢复流程，不要与 workflow 并发发布。
+> **状态（2026-10-01）**：平台 CD 使用 GitHub Actions；`main` CI 成功后部署同一 SHA。Website Production 公网入口已在 ECS 配置为 `*.site.itkdm.com → Nginx → 127.0.0.1:4104 Production Gateway`，Cloudflare DNS-only wildcard A 和 Let's Encrypt wildcard 证书已配置。证书使用 Certbot manual DNS hook 签发，但续期 hook 仍需 Cloudflare DNS API 权限，不能视为自动续期已验证。指定 E2E 账户已获临时 Production 发布权益。可信 PbootCMS 3.2.24 基线已安装并能通过版本检查；首个 Production Release 进入 Runner 后，真实规范域名返回 Pboot 未授权页面 HTTP 404，当前健康检查误判为失败。代码正在按“只接受正文含明确 Pboot 未授权提示的 404，普通 404 仍失败”修正；修正尚未通过 CI/CD 和真实重试。Production 域名授权与完整 E2E 仍待验证。本文 SSH 命令是手动运维/恢复流程，不要与 workflow 并发发布。
 
 平台入口与 Website Production Gateway 都使用 Nginx。Tech-03 中的 Caddy 是架构目标描述；当前已部署实现由 Nginx 终止 TLS 并反代到 Production Gateway。
 
