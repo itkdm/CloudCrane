@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 import {
   chmod,
   copyFile,
@@ -288,10 +288,15 @@ export class DockerProductionProvider implements ProductionProvider {
         User: '1000:1000',
         AttachStdout: true,
         AttachStderr: true,
-        Tty: true,
+        Tty: false,
       });
       const stream = await command.start({ hijack: true, stdin: false });
-      output = await readStream(stream);
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      this.docker.modem.demuxStream(stream, stdout, stderr);
+      const outputPromise = readStream(stdout);
+      const stderrPromise = readStream(stderr);
+      [output] = await Promise.all([outputPromise, stderrPromise]);
       const result = await command.inspect();
       exitCode = result.ExitCode;
     } catch {

@@ -152,7 +152,17 @@ describe('DockerProductionProvider', () => {
       inspect: vi.fn(async () => info),
       exec: vi.fn(async () => command),
     };
-    const docker = { getContainer: vi.fn(() => container) } as unknown as Docker;
+    const docker = {
+      getContainer: vi.fn(() => container),
+      modem: {
+        demuxStream: vi.fn(
+          (stream: Readable, stdout: NodeJS.WritableStream, stderr: NodeJS.WritableStream) => {
+            stream.pipe(stdout);
+            stderr.end();
+          },
+        ),
+      },
+    } as unknown as Docker;
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-authorize-'));
     const config = {
       runnerId: '00000000-0000-4000-8000-000000000010',
@@ -181,7 +191,7 @@ describe('DockerProductionProvider', () => {
           Cmd: ['cloudcrane-pboot-license'],
           Env: [`PBOOT_SN=${authorizationCode}`, 'PBOOT_SN_USER=', 'PBOOT_SITE_ROOT=/site/current'],
           User: '1000:1000',
-          Tty: true,
+          Tty: false,
         }),
       );
       expect(fetcher).toHaveBeenCalledWith(
