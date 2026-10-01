@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 
 export type RunnerConfig = {
@@ -6,6 +7,7 @@ export type RunnerConfig = {
   referenceRoot?: string;
   templateArtifactRoot?: string;
   managedPbootBaseRoot?: string;
+  managedPbootBaseRegistryRoot?: string;
   productionRoot: string;
   productionHostSuffix?: string;
   productionImage: string;
@@ -35,12 +37,18 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(productionHostSuffix)
   )
     throw new Error('PRODUCTION_HOST_SUFFIX must be a DNS hostname suffix');
+  const managedPbootBaseRoot = env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT;
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
     referenceRoot: env.WORKSPACE_REFERENCE_ROOT,
     templateArtifactRoot: env.TEMPLATE_ARTIFACT_ROOT,
-    managedPbootBaseRoot: env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT,
+    managedPbootBaseRoot,
+    managedPbootBaseRegistryRoot:
+      env.WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT ??
+      (managedPbootBaseRoot
+        ? path.join(path.dirname(managedPbootBaseRoot), 'pbootcms-bases')
+        : undefined),
     productionRoot: env.PRODUCTION_ROOT ?? '/var/lib/cloudcrane/production',
     productionHostSuffix,
     productionImage: env.PRODUCTION_IMAGE ?? 'cloudcrane-production-pboot:v1',

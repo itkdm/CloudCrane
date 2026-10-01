@@ -123,9 +123,11 @@ Snapshot Restore 不由 LLM 手工执行；Agent 只负责 Core Drift 或复杂�
 
 ## 7. PbootCMS 版本策略
 
-CloudCrane Managed Base 以经过验证的 upstream commit 锁定。本轮将基线升级到官方稳定的 PbootCMS `3.2.26`，commit `8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea`；此前镜像基线为 `3.2.24`，commit `29ff72ee5afc9c6553b949f04d3fc99443879f40`。
+CloudCrane 默认 Managed Base 以经过验证的 upstream commit 锁定。新建 Workspace 与 Snapshot Restore 的当前基线是官方 PbootCMS `3.2.26`，commit `8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea`。Production Release staging 还可读取 `docker/workspace-pboot/pboot-releases.json` 中仍受信任的历史版本基线；每个目录必须由部署脚本从官方仓库按精确 commit 安装，不能用当前 Workspace 或其他版本文件伪造 marker。这样旧 Workspace 可按其自身可信 Core 检查 drift，默认 Managed Base 仍保持当前版本。
 
-升级必须同时更新 Base、启动 marker、README、官方迁移脚本和集成测试，不能只修改版本字符串。迁移编排只使用官方 SQL 或从官方历史 commit 固定提取的 SQL；未知版本、降级和缺失迁移链必须 fail closed。
+`.cloudcrane/bootstrap.json` 是每个 Workspace 生成的 Managed Core 身份元数据，不存在于上游基线的文件树，不能参加逐文件哈希比较。Release 与 Snapshot 输入中的版本/commit 必须命中受信任版本注册表，且必须与所选 Managed Base marker 一致；其他 Managed Core 文件仍按文件内容比较，drift 时阻断。
+
+升级必须同时更新 Base、启动 marker、README、官方迁移脚本和集成测试，不能只修改版本字符串。迁移编排只使用官方 SQL 或从官方历史 commit 固定提取的 SQL；未知版本、降级和缺失迁移链必须 fail closed。部署时由 `scripts/install-managed-pboot-bases.sh` 按该版本注册表把缺失的可信历史基线放到 `WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT`；该目录默认是当前 Managed Base 的同级 `pbootcms-bases/`。
 
 ## 8. 与 External Reference 的区分
 

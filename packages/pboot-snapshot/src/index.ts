@@ -292,8 +292,14 @@ export async function detectCoreDrift(input: {
     inventory(input.managedBaseRoot),
   ]);
   const paths = new Set<string>([
-    ...[...workspace.keys()].filter((value) => classifySnapshotPath(value) === 'MANAGED_CORE'),
-    ...[...managedBase.keys()].filter((value) => classifySnapshotPath(value) === 'MANAGED_CORE'),
+    ...[...workspace.keys()].filter(
+      (value) =>
+        value !== '.cloudcrane/bootstrap.json' && classifySnapshotPath(value) === 'MANAGED_CORE',
+    ),
+    ...[...managedBase.keys()].filter(
+      (value) =>
+        value !== '.cloudcrane/bootstrap.json' && classifySnapshotPath(value) === 'MANAGED_CORE',
+    ),
   ]);
   const entries: CoreDriftEntry[] = [];
   for (const relative of [...paths].sort()) {
@@ -356,3 +362,4 @@ export async function assertNoSymlinks(root: string): Promise<void> {
 }
 
 export * from './production-release.js';
+export * from './pboot-releases.js';

@@ -46,6 +46,10 @@ set +a
 pnpm build
 nginx -t
 
+# Keep immutable upstream baselines available so Production Release staging can
+# validate older, still-trusted Workspace cores without replacing the current base.
+bash ./scripts/install-managed-pboot-bases.sh "${RELEASE_DIR}"
+
 # Build the runtime image on the ECS that owns the Docker daemon used by Runner.
 # GitHub CI builds the same Dockerfile for validation; Runner cannot pull images from CI.
 if [[ -n "${PRODUCTION_HOST_SUFFIX:-}" ]]; then

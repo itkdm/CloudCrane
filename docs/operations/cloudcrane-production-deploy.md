@@ -1,6 +1,6 @@
 # CloudCrane 生产入口部署
 
-> **状态（2026-10-01）**：平台 CD 使用 GitHub Actions；`main` CI 成功后部署同一 SHA。Website Production 公网入口已在 ECS 配置为 `*.site.itkdm.com → Nginx → 127.0.0.1:4104 Production Gateway`，Cloudflare DNS-only wildcard A 和 Let's Encrypt wildcard 证书已配置。证书使用 Certbot manual DNS hook 签发，但续期 hook 仍需 Cloudflare DNS API 权限，不能视为自动续期已验证。当前真实 E2E 账号点击发布被“当前账户没有可用的 Production 发布权益”拦截，尚未创建 release；发布权益和可用的 PbootCMS 正式域名授权仍是完整 E2E 前置条件。本文 SSH 命令是手动运维/恢复流程，不要与 workflow 并发发布。
+> **状态（2026-10-01）**：平台 CD 使用 GitHub Actions；`main` CI 成功后部署同一 SHA。Website Production 公网入口已在 ECS 配置为 `*.site.itkdm.com → Nginx → 127.0.0.1:4104 Production Gateway`，Cloudflare DNS-only wildcard A 和 Let's Encrypt wildcard 证书已配置。证书使用 Certbot manual DNS hook 签发，但续期 hook 仍需 Cloudflare DNS API 权限，不能视为自动续期已验证。指定 E2E 账户已获临时 1 个 Production 发布权益；首次真实发布已进入 Runner，但失败在 3.2.24 Workspace 与仅有 3.2.26 Managed Base 的版本匹配检查，尚未创建 Production release/runtime。Production 域名授权与完整 E2E 仍待验证。本文 SSH 命令是手动运维/恢复流程，不要与 workflow 并发发布。
 
 平台入口与 Website Production Gateway 都使用 Nginx。Tech-03 中的 Caddy 是架构目标描述；当前已部署实现由 Nginx 终止 TLS 并反代到 Production Gateway。
 
@@ -89,6 +89,8 @@ PRODUCTION_GATEWAY_ORIGIN_TEMPLATE=https://{productionSlug}.site.itkdm.com/
 PRODUCTION_PUBLIC_PROTOCOL=https
 # 生产数据目录与代码目录分离，避免发布代码时覆盖运行时数据。
 WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/var/lib/cloudcrane/pbootcms-base
+# Production Release 可用的受信任历史基线；部署脚本按 pboot-releases.json 填充。
+WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT=/var/lib/cloudcrane/pbootcms-bases
 TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
@@ -114,7 +116,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 `.github/workflows/deploy-production.yml` 只响应 `main` push 对应的 CI 成功事件，并部署同一个 commit。GitHub Actions 使用专用 SSH key；服务器公钥通过 `restrict` 和强制命令限制为部署入口，不能获得交互式 shell 或转发能力。私钥只存放在 GitHub Actions Secret `CLOUDCRANE_DEPLOY_SSH_KEY`。
 
-`scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，验证 Nginx 配置；设置了 `PRODUCTION_HOST_SUFFIX` 时，还会在 ECS 构建 Runner 使用的 Production Docker image。然后备份 PostgreSQL、运行迁移与 Preview slug 回填、重启 `cloudcrane-production` tmux 会话，并检查 Web、Agent、Workspace Gateway、Preview Gateway 和（启用时）Production Gateway。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。Production image 由 CI 构建同一 Dockerfile 做验证，再由 ECS CD 构建到 Runner 所用的本机 Docker daemon；CI runner 不会把 Docker image 自动交付到 ECS。
+`scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，验证 Nginx 配置；执行 `scripts/install-managed-pboot-bases.sh`，按 `docker/workspace-pboot/pboot-releases.json` 从官方仓库安装缺失的、不可变的历史 Managed Base；设置了 `PRODUCTION_HOST_SUFFIX` 时，还会在 ECS 构建 Runner 使用的 Production Docker image。然后备份 PostgreSQL、运行迁移与 Preview slug 回填、重启 `cloudcrane-production` tmux 会话，并检查 Web、Agent、Workspace Gateway、Preview Gateway 和（启用时）Production Gateway。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。Production image 由 CI 构建同一 Dockerfile 做验证，再由 ECS CD 构建到 Runner 所用的本机 Docker daemon；CI runner 不会把 Docker image 自动交付到 ECS。
 
 服务器的 `docker/compose/docker-compose.server.yml` 是含内嵌数据库凭据的主机私有文件，自动脚本用它定位 PostgreSQL 容器；应留在服务器并忽略，禁止提交。仓库的 `docker-compose.server.example.yml` 与 `postgres.env.example` 是可提交模板。建议后续把当前内嵌凭据协调迁移到权限为 600 的实际 `postgres.env`；更新已有数据库凭据还需协调 PostgreSQL 角色和应用连接配置，不能只更改 Compose 环境文件。数据库备份恢复流程尚未实测，后续再安排恢复演练。
 

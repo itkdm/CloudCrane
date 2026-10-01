@@ -113,6 +113,102 @@ describe('ProductionReleaseStager', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('selects a matching trusted historical managed base for a production release', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-release-legacy-base-'));
+    const workspaceRoot = path.join(root, 'workspaces', workspaceId, 'workspace');
+    const currentBaseRoot = path.join(root, 'managed-pboot-current');
+    const baseRegistryRoot = path.join(root, 'managed-pboot-bases');
+    const historicalBaseRoot = path.join(
+      baseRegistryRoot,
+      '3.2.24-29ff72ee5afc9c6553b949f04d3fc99443879f40',
+    );
+    const releaseArtifactRoot = path.join(root, 'artifacts');
+    await mkdir(path.join(workspaceRoot, 'apps'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, 'config'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, 'data'), { recursive: true });
+    await mkdir(path.join(workspaceRoot, '.cloudcrane'), { recursive: true });
+    await mkdir(path.join(currentBaseRoot, 'apps'), { recursive: true });
+    await mkdir(path.join(historicalBaseRoot, 'apps'), { recursive: true });
+    await mkdir(path.join(historicalBaseRoot, 'config'), { recursive: true });
+    await writeFile(path.join(workspaceRoot, 'apps', 'core.php'), 'pboot 3.2.24 core');
+    await writeFile(path.join(workspaceRoot, 'config', 'database.php'), 'managed database');
+    await writeFile(path.join(workspaceRoot, 'config', 'config.php'), '<?php return [];');
+    await writeFile(path.join(workspaceRoot, 'data', 'pbootcms.db'), 'live workspace database');
+    await writeFile(
+      path.join(workspaceRoot, '.cloudcrane', 'bootstrap.json'),
+      JSON.stringify({
+        cms: 'pbootcms',
+        version: '3.2.24',
+        sourceCommit: '29ff72ee5afc9c6553b949f04d3fc99443879f40',
+      }),
+    );
+    await writeFile(path.join(currentBaseRoot, 'apps', 'core.php'), 'pboot 3.2.26 core');
+    await writeFile(path.join(historicalBaseRoot, 'apps', 'core.php'), 'pboot 3.2.24 core');
+    await writeFile(path.join(historicalBaseRoot, 'config', 'database.php'), 'managed database');
+    await writeFile(
+      path.join(currentBaseRoot, '.cloudcrane-base'),
+      `pbootcms=3.2.26\nsourceCommit=${coreCommit}\n`,
+    );
+    await writeFile(
+      path.join(historicalBaseRoot, '.cloudcrane-base'),
+      'pbootcms=3.2.24\nsourceCommit=29ff72ee5afc9c6553b949f04d3fc99443879f40\n',
+    );
+
+    const daemon = {
+      mkdir: async ({ path: virtualPath }: { path: string }) => {
+        await mkdir(path.join(workspaceRoot, virtualPath.slice('/workspace/'.length)), {
+          recursive: true,
+        });
+        return { path: virtualPath, created: true };
+      },
+      exec: async (request: ProcessExecRequest): Promise<ProcessExecResponse> => {
+        if (request.command === 'rm') {
+          await rm(path.join(workspaceRoot, String(request.args[2]).slice('/workspace/'.length)), {
+            recursive: true,
+            force: true,
+          });
+          return processResult(request.executionId ?? releaseId, '');
+        }
+        if (String(request.args[1] ?? '') === 'PRAGMA integrity_check;')
+          return processResult(request.executionId ?? releaseId, 'ok\n');
+        if (String(request.args[1] ?? '').startsWith('.backup ')) {
+          const virtualPath = String(request.args[1]).slice(".backup '".length, -1);
+          const snapshotPath = path.join(workspaceRoot, virtualPath.slice('/workspace/'.length));
+          await mkdir(path.dirname(snapshotPath), { recursive: true });
+          await writeFile(snapshotPath, 'consistent SQLite online backup');
+          return processResult(request.executionId ?? releaseId, '');
+        }
+        throw new Error(`unexpected daemon command: ${request.command}`);
+      },
+    } as unknown as Pick<WorkspaceDaemonClient, 'exec' | 'mkdir'>;
+    const runtime = {
+      endpoint: vi.fn(async () => 'http://workspace-daemon.test'),
+    } as unknown as WorkspaceRuntimeService;
+    const config = loadRunnerConfig({
+      WORKSPACE_ROOT: path.join(root, 'workspaces'),
+      WORKSPACE_MANAGED_PBOOT_BASE_ROOT: currentBaseRoot,
+      WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT: baseRegistryRoot,
+      RELEASE_ARTIFACT_ROOT: releaseArtifactRoot,
+    });
+    const stager = new ProductionReleaseStager(runtime, config, () => daemon);
+
+    try {
+      const result = await stager.stage(websiteId, workspaceId, {
+        artifactStorageKey: `release-${releaseId}.zip`,
+        releaseId,
+        sourcePbootVersion: '3.2.24',
+        sourceCoreCommit: '29ff72ee5afc9c6553b949f04d3fc99443879f40',
+        firstPublish: true,
+      });
+      expect(result.manifest).toMatchObject({
+        sourcePbootVersion: '3.2.24',
+        sourceCoreCommit: '29ff72ee5afc9c6553b949f04d3fc99443879f40',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function processResult(executionId: string, stdout: string): ProcessExecResponse {

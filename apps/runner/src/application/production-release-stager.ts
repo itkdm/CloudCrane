@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, lstat, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  assertTrustedPbootRelease,
   buildProductionReleaseArchive,
   collectProductionReleaseInventory,
   extractProductionReleaseArchive,
@@ -30,8 +31,10 @@ export class ProductionReleaseStager {
   async stage(websiteId: string, workspaceId: string, input: ReleaseStageInput) {
     const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
     const workspaceRoot = path.resolve(this.config.workspaceRoot, workspaceId, 'workspace');
-    const managedBaseRoot = this.config.managedPbootBaseRoot;
-    if (!managedBaseRoot) throw new Error('managed Pboot base path is not configured');
+    const managedBaseRoot = await this.resolveManagedBaseRoot(
+      input.sourcePbootVersion,
+      input.sourceCoreCommit,
+    );
     const outputPath = path.resolve(artifactRoot, input.artifactStorageKey);
     if (!outputPath.startsWith(`${artifactRoot}${path.sep}`))
       throw new Error('production release artifact path is outside its root');
@@ -164,6 +167,30 @@ export class ProductionReleaseStager {
         32_000,
       );
     }
+  }
+
+  private async resolveManagedBaseRoot(version: string, sourceCommit: string): Promise<string> {
+    assertTrustedPbootRelease(version, sourceCommit);
+    const currentRoot = this.config.managedPbootBaseRoot;
+    if (!currentRoot) throw new Error('managed Pboot base path is not configured');
+    const roots = [currentRoot];
+    const registryRoot = this.config.managedPbootBaseRegistryRoot;
+    if (registryRoot) roots.push(path.join(registryRoot, `${version}-${sourceCommit}`));
+
+    for (const root of roots) {
+      const marker = await readFile(path.join(root, '.cloudcrane-base'), 'utf8').catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined;
+          throw error;
+        },
+      );
+      if (
+        marker?.split(/\r?\n/).includes(`pbootcms=${version}`) &&
+        marker.split(/\r?\n/).includes(`sourceCommit=${sourceCommit}`)
+      )
+        return root;
+    }
+    throw new Error(`trusted managed Pboot base is unavailable: ${version} ${sourceCommit}`);
   }
 
   private async reuseExistingArtifact(

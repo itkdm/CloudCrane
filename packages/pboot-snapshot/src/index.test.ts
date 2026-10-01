@@ -64,6 +64,35 @@ describe('Pboot snapshot boundaries', () => {
     ]);
   });
 
+  it('does not classify generated workspace bootstrap metadata as upstream core drift', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-bootstrap-drift-'));
+    const base = path.join(root, 'base');
+    const workspace = path.join(root, 'workspace');
+    await mkdir(path.join(base, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, 'apps'), { recursive: true });
+    await mkdir(path.join(workspace, '.cloudcrane'), { recursive: true });
+    await writeFile(path.join(base, 'apps', 'core.php'), 'managed');
+    await writeFile(path.join(workspace, 'apps', 'core.php'), 'managed');
+    await writeFile(
+      path.join(workspace, '.cloudcrane', 'bootstrap.json'),
+      JSON.stringify({ cms: 'pbootcms', version: '3.2.24' }),
+    );
+
+    await expect(
+      detectCoreDrift({ workspaceRoot: workspace, managedBaseRoot: base }),
+    ).resolves.toEqual({
+      hasDrift: false,
+      entries: [],
+    });
+    await writeFile(path.join(workspace, 'apps', 'core.php'), 'modified');
+    await expect(
+      detectCoreDrift({ workspaceRoot: workspace, managedBaseRoot: base }),
+    ).resolves.toMatchObject({
+      hasDrift: true,
+      entries: [{ path: 'apps/core.php', kind: 'modified' }],
+    });
+  });
+
   it('collects site state without runtime or managed core files', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-snapshot-state-'));
     await mkdir(path.join(root, 'apps'), { recursive: true });

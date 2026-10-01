@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from './config.js';
 
@@ -23,6 +24,9 @@ describe('runner production configuration', () => {
     expect(config.productionImage).toBe('cloudcrane-production-pboot:v1');
     expect(config.productionHostSuffix).toBe('sites.example.com');
     expect(config.releaseArtifactRoot).toBe('/srv/cloudcrane/release-artifacts');
+    expect(config.managedPbootBaseRegistryRoot).toBe(
+      path.join('/srv/cloudcrane', 'pbootcms-bases'),
+    );
     expect(config.productionKeepReleases).toBe(5);
   });
 
@@ -33,5 +37,13 @@ describe('runner production configuration', () => {
     });
     expect(config.productionRoot).toBe('/site-data/production');
     expect(config.productionImage).toBe('registry.example/cloudcrane/production-pboot:stable');
+  });
+
+  it('allows an explicit trusted managed Pboot base registry path', () => {
+    const config = loadRunnerConfig({
+      WORKSPACE_MANAGED_PBOOT_BASE_ROOT: '/srv/cloudcrane/pbootcms-base',
+      WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT: '/mnt/cloudcrane/pboot-bases',
+    });
+    expect(config.managedPbootBaseRegistryRoot).toBe('/mnt/cloudcrane/pboot-bases');
   });
 });
