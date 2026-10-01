@@ -208,6 +208,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         restartedContainer.NetworkSettings?.Ports?.['8080/tcp']?.[0]?.HostPort,
       );
       expect(restartedPort).toBe(published.productionPort);
+      await waitForProductionHealth(origin);
       const firstReleaseCheck = await fetch(`${origin}/cloudcrane-release-check.php`);
       expect(firstReleaseCheck.status).toBe(200);
       expect(await firstReleaseCheck.text()).toBe('release-one');
@@ -695,6 +696,26 @@ async function initializeProductionTestDatabase(
     await initializer.remove({ force: true }).catch(() => undefined);
     await chmod(dataDirectory, 0o755);
   }
+}
+
+async function waitForProductionHealth(origin: string): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${origin}/_cloudcrane/health`, {
+        signal: AbortSignal.timeout(1_000),
+      });
+      if (response.status === 204) return;
+      lastError = new Error(`Production health returned HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Production health did not recover after container restart', {
+    cause: lastError,
+  });
 }
 
 async function replaceWorkspaceDatabaseFixture(
