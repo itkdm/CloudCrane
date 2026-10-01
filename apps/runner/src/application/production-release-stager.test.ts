@@ -101,6 +101,9 @@ describe('ProductionReleaseStager', () => {
         firstPublish: true,
       });
       expect(retry).toEqual(result);
+      expect((await readdir(releaseArtifactRoot)).sort()).toEqual(
+        [`release-${releaseId}.zip`, `release-${releaseId}.zip.meta.json`].sort(),
+      );
       expect(runtime.endpoint).toHaveBeenCalledOnce();
       expect(await readFile(path.join(workspaceRoot, 'data', 'pbootcms.db'), 'utf8')).toBe(
         'live workspace database',

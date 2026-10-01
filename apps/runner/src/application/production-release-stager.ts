@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { lstat, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   buildProductionReleaseArchive,
@@ -200,7 +200,7 @@ export class ProductionReleaseStager {
         'The existing release artifact failed identity or integrity verification',
       );
     } finally {
-      await rm(verificationDirectory, { recursive: true, force: true }).catch(() => undefined);
+      await removeReadOnlyDirectory(verificationDirectory);
     }
     if (
       manifest.sourcePbootVersion !== input.sourcePbootVersion ||
@@ -361,4 +361,20 @@ export class ProductionReleaseStager {
       if (result.exitCode !== 0) throw new Error('WORKSPACE_DIFF_CHECK_FAILED');
     }
   }
+}
+
+async function removeReadOnlyDirectory(directory: string): Promise<void> {
+  const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (!info) return;
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    await rm(directory, { force: true });
+    return;
+  }
+  await chmod(directory, 0o700).catch(() => undefined);
+  for (const entry of await readdir(directory))
+    await removeReadOnlyDirectory(path.join(directory, entry));
+  await rm(directory, { recursive: true, force: true });
 }
