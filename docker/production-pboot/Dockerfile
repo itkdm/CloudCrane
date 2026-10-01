@@ -18,4 +18,4 @@ RUN chmod 0755 /usr/local/bin/cloudcrane-pboot-license
 
 USER 1000:1000
 EXPOSE 8080
-CMD ["sh", "-ec", "mkdir -p /tmp/nginx/client_body /tmp/nginx/fastcgi /tmp/nginx/proxy /tmp/nginx/uwsgi /tmp/nginx/scgi; php-fpm -F & exec nginx -g 'daemon off;'"]
+CMD ["sh", "-ec", "mkdir -p /tmp/nginx/client_body /tmp/nginx/fastcgi /tmp/nginx/proxy /tmp/nginx/uwsgi /tmp/nginx/scgi; php-fpm -F & exec nginx -e stderr -g 'daemon off;'"]

@@ -389,11 +389,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       await writeFile(
         path.join(managedBase, 'config', 'database.php'),
-        "<?php return ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db'];\n",
+        "<?php return ['database' => ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db']];\n",
       );
       await writeFile(
         path.join(workspace, 'config', 'database.php'),
-        "<?php return ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db'];\n",
+        "<?php return ['database' => ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db']];\n",
       );
       await writeFile(path.join(workspace, 'config', 'config.php'), '<?php return [];\n');
       await writeFile(

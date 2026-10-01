@@ -837,7 +837,7 @@ export class DockerProductionProvider implements ProductionProvider {
     const config = await readFile(source, 'utf8');
     if (!/['"]type['"]\s*=>\s*['"]sqlite['"]/.test(config))
       throw new Error('trusted Pboot database configuration is not SQLite');
-    const databaseSetting = /(['"]dbname['"]\s*=>\s*)['"][^'"]*['"]/g;
+    const databaseSetting = /^(\s*['"]dbname['"]\s*=>\s*)['"][^'"]*['"]/gm;
     const rewritten = config.replace(databaseSetting, "$1'/data/cloudcrane.db'");
     if (rewritten === config || [...config.matchAll(databaseSetting)].length !== 1)
       throw new Error('trusted Pboot database configuration has an unexpected shape');
