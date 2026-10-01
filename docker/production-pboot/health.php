@@ -9,22 +9,26 @@ $requiredDirectories = [
     $releaseRoot . '/static/upload',
 ];
 
-if (!is_file($releaseRoot . '/index.php') || !is_readable($releaseRoot . '/index.php')) {
+function healthProbeUnavailable(string $reason): never
+{
+    error_log('CloudCrane production health probe unavailable: ' . $reason);
     http_response_code(503);
     exit;
 }
 
+if (!is_file($releaseRoot . '/index.php') || !is_readable($releaseRoot . '/index.php')) {
+    healthProbeUnavailable('release_entry');
+}
+
 foreach ($requiredDirectories as $directory) {
     if (!is_dir($directory) || !is_writable($directory)) {
-        http_response_code(503);
-        exit;
+        healthProbeUnavailable('shared_directory');
     }
 }
 
 $databasePath = $releaseRoot . '/data/cloudcrane.db';
 if (!is_file($databasePath) || !is_readable($databasePath)) {
-    http_response_code(503);
-    exit;
+    healthProbeUnavailable('database_file');
 }
 
 try {
@@ -32,13 +36,11 @@ try {
     $result = $database->querySingle('SELECT 1');
     $database->close();
 } catch (Throwable) {
-    http_response_code(503);
-    exit;
+    healthProbeUnavailable('database_query');
 }
 
 if ($result !== 1) {
-    http_response_code(503);
-    exit;
+    healthProbeUnavailable('database_result');
 }
 
 http_response_code(204);
