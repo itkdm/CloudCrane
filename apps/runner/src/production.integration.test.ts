@@ -200,14 +200,17 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const origin = `http://127.0.0.1:${published.productionPort}`;
       const home = await fetch(`${origin}/`);
       const homeBody = await home.text();
-      const denialReason = /黑名单/.test(homeBody)
-        ? 'pboot-ip-denylist'
-        : /白名单/.test(homeBody)
-          ? 'pboot-ip-allowlist'
-          : /权限不足/.test(homeBody)
-            ? 'pboot-page-permission'
-            : 'unclassified';
-      expect(home.status, `Pboot home status ${home.status}; denial=${denialReason}`).toBe(200);
+      const errorInfo = /font-size:20px[^>]*>([\s\S]*?)<span id="time"/i
+        .exec(homeBody)?.[1]
+        ?.replace(/<[^>]*>/g, ' ')
+        .replace(/&(?:nbsp|amp|lt|gt|quot);/g, ' ')
+        .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80);
+      expect(home.status, `Pboot home status ${home.status}; error=${errorInfo ?? 'unknown'}`).toBe(
+        200,
+      );
       const admin = await fetch(`${origin}/admin.php`, { redirect: 'manual' });
       expect(admin.status).toBe(200);
       const adminCss = await fetch(
