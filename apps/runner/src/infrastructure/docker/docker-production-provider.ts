@@ -293,9 +293,19 @@ export class DockerProductionProvider implements ProductionProvider {
       const stream = await command.start({ hijack: true, stdin: false });
       const stdout = new PassThrough();
       const stderr = new PassThrough();
-      this.docker.modem.demuxStream(stream, stdout, stderr);
       const outputPromise = readStream(stdout);
       const stderrPromise = readStream(stderr);
+      const finishOutput = () => {
+        stdout.end();
+        stderr.end();
+      };
+      stream.once('end', finishOutput);
+      stream.once('close', finishOutput);
+      stream.once('error', (error) => {
+        stdout.destroy(error);
+        stderr.destroy(error);
+      });
+      this.docker.modem.demuxStream(stream, stdout, stderr);
       [output] = await Promise.all([outputPromise, stderrPromise]);
       const result = await command.inspect();
       exitCode = result.ExitCode;
