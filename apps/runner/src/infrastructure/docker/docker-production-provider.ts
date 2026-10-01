@@ -278,6 +278,8 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertRuntimeMatches(info, websiteId, productionSlug);
     if (!info.State?.Running) throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
 
+    let output: string;
+    let exitCode: number | null | undefined;
     try {
       const command = await container.exec({
         Cmd: ['cloudcrane-pboot-license'],
@@ -289,14 +291,19 @@ export class DockerProductionProvider implements ProductionProvider {
         Tty: true,
       });
       const stream = await command.start({ hijack: true, stdin: false });
-      const output = await readStream(stream);
+      output = await readStream(stream);
       const result = await command.inspect();
-      if (result.ExitCode !== 0 || output.trim() !== 'AUTHORIZED')
-        throw new Error('PBOOT_AUTHORIZATION_UPDATE_FAILED');
+      exitCode = result.ExitCode;
     } catch {
       // Docker exec errors can include sensitive request metadata, so return a fixed safe error.
       throw new Error('PBOOT_AUTHORIZATION_UPDATE_FAILED');
     }
+    if (exitCode !== 0) {
+      const safeExitCode = [20, 21, 22, 23, 24].includes(exitCode ?? -1) ? exitCode : 'UNKNOWN';
+      throw new Error(`PBOOT_AUTHORIZATION_UPDATE_FAILED:EXIT_${safeExitCode}`);
+    }
+    if (output.trim() !== 'AUTHORIZED')
+      throw new Error('PBOOT_AUTHORIZATION_UPDATE_FAILED:OUTPUT_MISMATCH');
 
     const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
     const port = binding?.HostPort ? Number(binding.HostPort) : null;

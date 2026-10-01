@@ -195,6 +195,15 @@ describe('DockerProductionProvider', () => {
         }),
       );
       expect(JSON.stringify(fetcher.mock.calls)).not.toContain(authorizationCode);
+
+      vi.mocked(command.inspect).mockResolvedValueOnce({ ExitCode: 22 });
+      const authorizationFailure = await provider
+        .authorize('00000000-0000-4000-8000-000000000001', 'production-website', authorizationCode)
+        .catch((error: unknown) => error);
+      const failureMessage =
+        authorizationFailure instanceof Error ? authorizationFailure.message : '';
+      expect(failureMessage).toBe('PBOOT_AUTHORIZATION_UPDATE_FAILED:EXIT_22');
+      expect(failureMessage).not.toContain(authorizationCode);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
