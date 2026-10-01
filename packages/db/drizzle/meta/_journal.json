@@ -155,6 +155,13 @@
       "when": 1790786085528,
       "tag": "0021_powerful_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790841506817,
+      "tag": "0022_loose_squadron_supreme",
+      "breakpoints": true
     }
   ]
 }

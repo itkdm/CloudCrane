@@ -16,8 +16,20 @@ $siteRoot = getenv('PBOOT_SITE_ROOT');
 if (!is_string($siteRoot) || $siteRoot === '') {
     $siteRoot = '/workspace';
 }
-$database = rtrim($siteRoot, '/') . '/data/pbootcms.db';
-if (!is_file($database)) {
+$databaseConfigPath = rtrim($siteRoot, '/') . '/config/database.php';
+if (!is_file($databaseConfigPath)) {
+    fwrite(STDERR, "PbootCMS database configuration is missing\n");
+    exit(21);
+}
+$databaseConfig = require $databaseConfigPath;
+$databaseName = is_array($databaseConfig) ? ($databaseConfig['database']['dbname'] ?? null) : null;
+if (!is_string($databaseName) || !preg_match('#^/data/[a-z0-9][a-z0-9._-]*\.db$#i', $databaseName)) {
+    fwrite(STDERR, "PbootCMS database configuration is invalid\n");
+    exit(21);
+}
+$dataRoot = realpath(rtrim($siteRoot, '/') . '/data');
+$database = realpath(rtrim($siteRoot, '/') . $databaseName);
+if ($dataRoot === false || $database === false || !str_starts_with($database, $dataRoot . DIRECTORY_SEPARATOR) || !is_file($database)) {
     fwrite(STDERR, "PbootCMS database is missing\n");
     exit(21);
 }

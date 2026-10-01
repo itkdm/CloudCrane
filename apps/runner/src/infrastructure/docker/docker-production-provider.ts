@@ -79,6 +79,7 @@ export class DockerProductionProvider implements ProductionProvider {
           await container.start();
           restored += 1;
         }
+        if (release) await this.reconcileActivation(websiteId, productionSlug);
       } catch (error) {
         failed += 1;
         logger.warn(
@@ -189,15 +190,15 @@ export class DockerProductionProvider implements ProductionProvider {
       }
       if (info.State?.Running !== true) {
         await container.start();
-        info = await container.inspect();
       }
     }
+    await this.reconcileActivation(websiteId, productionSlug);
     return this.runtime(
       websiteId,
       productionSlug,
       info.Id ?? container.id,
       info,
-      await this.optionalCurrentRelease(root),
+      await this.readVerifiedRelease(root),
       await this.isAuthorizationComplete(websiteId),
     );
   }
@@ -208,7 +209,14 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertSlug(input.productionSlug);
     const root = this.root(input.websiteId);
     await this.ensureLayout(root);
+    await this.reconcileActivation(input.websiteId, input.productionSlug);
     const currentRelease = await this.optionalCurrentRelease(root);
+    const previousVerifiedRelease = await this.readVerifiedRelease(root);
+    if (currentRelease !== previousVerifiedRelease)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production activation is still being reconciled',
+      );
     if (currentRelease === input.releaseId) {
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
       if (!(await this.waitForHealth(runtime.productionPort)))
@@ -217,7 +225,13 @@ export class DockerProductionProvider implements ProductionProvider {
           'The requested production release is current but did not pass its health check',
         );
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
-      return runtime;
+      await this.writeVerifiedRelease(root, input.releaseId);
+      if (input.firstPublish) await this.finalizeInitialPersistentState(root, input.releaseId);
+      return {
+        ...runtime,
+        currentReleaseId: input.releaseId,
+        status: runtime.authorized ? 'active' : 'authorization_required',
+      };
     }
     const archive = this.artifactPath(input.artifactStorageKey);
     const archiveInfo = await lstat(archive);
@@ -233,7 +247,7 @@ export class DockerProductionProvider implements ProductionProvider {
       'releases',
       `.staging-${input.releaseId}-${Date.now()}`,
     );
-    const previousRelease = currentRelease;
+    const previousRelease = previousVerifiedRelease;
     if (input.firstPublish && previousRelease)
       throw new ProductionOperationError(
         'PRODUCTION_STATE_CONFLICT',
@@ -281,6 +295,8 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
+      await this.writeVerifiedRelease(root, input.releaseId);
+      if (input.firstPublish) await this.finalizeInitialPersistentState(root, input.releaseId);
       await this.collectOldReleases(input.websiteId, input.releaseId, previousRelease).catch(
         (error: unknown) => {
           logger.warn(
@@ -320,9 +336,10 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertId(websiteId);
     this.assertSlug(productionSlug);
     const root = this.root(websiteId);
-    let currentReleaseId: string | null = null;
+    await this.reconcileActivation(websiteId, productionSlug);
+    const currentReleaseId = await this.readVerifiedRelease(root);
     try {
-      currentReleaseId = await this.currentRelease(root);
+      await this.currentRelease(root);
     } catch (error) {
       if (!this.isNotFound(error)) throw error;
     }
@@ -484,7 +501,17 @@ export class DockerProductionProvider implements ProductionProvider {
         'First publish no longer owns the persistent-state initialization',
       );
     await writeFileSecure(path.join(shared, '.ownership-v1'), 'v1\n');
-    await rm(initializationMarker);
+  }
+
+  private async finalizeInitialPersistentState(root: string, releaseId: string): Promise<void> {
+    const marker = path.join(root, 'shared', '.initializing-release');
+    const owner = (await readFile(marker, 'utf8').catch(() => '')).trim();
+    if (owner && owner !== releaseId)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'First publish no longer owns the persistent-state initialization',
+      );
+    if (owner === releaseId) await rm(marker);
   }
 
   private async rollbackInitialPersistentState(
@@ -504,7 +531,7 @@ export class DockerProductionProvider implements ProductionProvider {
 
   private async clearInitialPersistentState(root: string): Promise<void> {
     const shared = path.join(root, 'shared');
-    for (const directory of ['data', 'upload', 'config']) {
+    for (const directory of ['data', 'upload', 'config', 'runtime']) {
       const target = path.join(shared, directory);
       await mkdir(target, { recursive: true });
       for (const entry of await readdir(target))
@@ -725,7 +752,7 @@ export class DockerProductionProvider implements ProductionProvider {
     releaseId: string,
   ): Promise<void> {
     const shared = path.join(root, 'shared');
-    const database = path.join(shared, 'data', 'pbootcms.db');
+    const database = path.join(shared, 'data', 'cloudcrane.db');
     const initialDatabase = path.join(releaseDirectory, 'data', 'pbootcms.db');
     if (firstPublish) {
       let restartingRuntime = false;
@@ -811,7 +838,7 @@ export class DockerProductionProvider implements ProductionProvider {
     if (!/['"]type['"]\s*=>\s*['"]sqlite['"]/.test(config))
       throw new Error('trusted Pboot database configuration is not SQLite');
     const databaseSetting = /(['"]dbname['"]\s*=>\s*)['"][^'"]*['"]/g;
-    const rewritten = config.replace(databaseSetting, "$1'/site/shared/data/pbootcms.db'");
+    const rewritten = config.replace(databaseSetting, "$1'/data/cloudcrane.db'");
     if (rewritten === config || [...config.matchAll(databaseSetting)].length !== 1)
       throw new Error('trusted Pboot database configuration has an unexpected shape');
     return rewritten;
@@ -901,7 +928,7 @@ export class DockerProductionProvider implements ProductionProvider {
       productionSlug,
       info.Id ?? container.id,
       info,
-      await this.optionalCurrentRelease(root),
+      await this.readVerifiedRelease(root),
       await this.isAuthorizationComplete(websiteId),
     );
   }
@@ -1029,6 +1056,118 @@ export class DockerProductionProvider implements ProductionProvider {
     } catch (error) {
       if (this.isNotFound(error)) return null;
       throw error;
+    }
+  }
+
+  private async readVerifiedRelease(root: string): Promise<string | null> {
+    const value = await readFile(path.join(root, 'shared', '.verified-release'), 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return '';
+        throw error;
+      },
+    );
+    const releaseId = value.trim();
+    if (!releaseId) return null;
+    if (!isReleaseId(releaseId)) throw new Error('verified production release marker is invalid');
+    return releaseId;
+  }
+
+  private async writeVerifiedRelease(root: string, releaseId: string): Promise<void> {
+    if (!isReleaseId(releaseId)) throw new Error('invalid verified production release id');
+    const shared = path.join(root, 'shared');
+    const marker = path.join(shared, '.verified-release');
+    const temporary = path.join(shared, `.verified-release-${process.pid}-${Date.now()}`);
+    const file = await (await import('node:fs/promises')).open(temporary, 'wx', 0o640);
+    try {
+      await file.writeFile(`${releaseId}\n`, 'utf8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    try {
+      await rename(temporary, marker);
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async reconcileActivation(websiteId: string, productionSlug: string): Promise<void> {
+    const root = this.root(websiteId);
+    const current = await this.optionalCurrentRelease(root);
+    const verified = await this.readVerifiedRelease(root);
+    if (current === verified) {
+      if (current) {
+        const initializingRelease = (
+          await readFile(path.join(root, 'shared', '.initializing-release'), 'utf8').catch(() => '')
+        ).trim();
+        if (initializingRelease === current)
+          await this.finalizeInitialPersistentState(root, current);
+      }
+      return;
+    }
+
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    let info: Docker.ContainerInspectInfo;
+    try {
+      info = await container.inspect();
+    } catch (error) {
+      if (this.isNotFound(error)) return;
+      throw error;
+    }
+    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    if (!info.State?.Running) {
+      await container.start();
+      info = await container.inspect();
+    }
+    const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
+    const port = binding?.HostPort ? Number(binding.HostPort) : null;
+    if (current && (await this.waitForHealth(port))) {
+      const initializingRelease = (
+        await readFile(path.join(root, 'shared', '.initializing-release'), 'utf8').catch(() => '')
+      ).trim();
+      if (initializingRelease === current) await this.completeInitialPersistentState(root, current);
+      await this.writeVerifiedRelease(root, current);
+      if (initializingRelease === current) await this.finalizeInitialPersistentState(root, current);
+      logger.info(
+        { event: 'production.release.recovered', websiteId, releaseId: current },
+        'verified interrupted production activation',
+      );
+      return;
+    }
+
+    if (verified) {
+      if (current !== verified) await switchCurrentRelease(root, verified);
+      if (!(await this.waitForHealth(port)))
+        throw new ProductionOperationError(
+          'PRODUCTION_HEALTHCHECK_FAILED',
+          'The previously verified production release did not recover',
+        );
+      if (current && current !== verified) {
+        const failedDirectory = path.join(root, 'releases', current);
+        await this.makeWritable(failedDirectory).catch(() => undefined);
+        await rm(failedDirectory, { recursive: true, force: true });
+      }
+      logger.warn(
+        { event: 'production.release.recovered.rollback', websiteId, releaseId: current },
+        'restored the previously verified production release after an interrupted activation',
+      );
+      return;
+    }
+
+    const initializationOwner = (
+      await readFile(path.join(root, 'shared', '.initializing-release'), 'utf8').catch(() => '')
+    ).trim();
+    if (current && initializationOwner === current) {
+      await rm(path.join(root, 'current'), { force: true });
+      await this.rollbackInitialPersistentState(websiteId, root, current);
+      const failedDirectory = path.join(root, 'releases', current);
+      await this.makeWritable(failedDirectory).catch(() => undefined);
+      await rm(failedDirectory, { recursive: true, force: true });
+      logger.warn(
+        { event: 'production.release.recovery.failed', websiteId, releaseId: current },
+        'removed an unverified first production release after health check failure',
+      );
     }
   }
 

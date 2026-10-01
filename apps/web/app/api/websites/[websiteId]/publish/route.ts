@@ -4,6 +4,7 @@ import { AuthorizationError, assertSameOrigin, requireWebsiteAccess } from '@clo
 import {
   finishAuditEvent,
   insertAuditEvent,
+  operation,
   productionRuntime,
   website,
   websiteRelease,
@@ -152,6 +153,19 @@ export async function POST(
     }
 
     const startedAt = Date.now();
+    const publishHeartbeat = setInterval(() => {
+      void authDb
+        .update(operation)
+        .set({ updatedAt: new Date() })
+        .where(
+          and(
+            eq(operation.id as never, claim.operationId),
+            eq(operation.status as never, 'running'),
+          ) as never,
+        )
+        .catch(() => undefined);
+    }, 60_000);
+    publishHeartbeat.unref?.();
     let auditId: string | undefined;
     let releaseId: string | undefined;
     try {
@@ -226,8 +240,10 @@ export async function POST(
           'website publish succeeded but audit finalization failed',
         );
       });
+      clearInterval(publishHeartbeat);
       return NextResponse.json(result);
     } catch (error) {
+      clearInterval(publishHeartbeat);
       const isUnknown = error instanceof WebsitePublishError && error.unknownResult;
       const code =
         error instanceof WebsitePublishError

@@ -199,6 +199,8 @@
     "productionRepublish": "重新发布",
     "productionPublishing": "正在发布…",
     "productionProcessing": "发布正在处理中，请稍后刷新状态。",
+    "productionResume": "恢复发布",
+    "productionActivating": "正在验证新版本",
     "productionStatus": "正式网站状态",
     "productionAddress": "正式地址",
     "productionAuthorizationRequired": "等待 PbootCMS 正式域名授权",

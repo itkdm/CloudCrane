@@ -103,6 +103,14 @@ export function buildProductionGatewayServer(
         return { productionSlug };
       }
       if (!binding || !routableStatuses.has(binding.status)) {
+        if (binding?.status === 'activating' || binding?.status === 'provisioning') {
+          res.writeHead(503, {
+            'content-type': 'text/plain; charset=utf-8',
+            'retry-after': '3',
+          });
+          res.end('Service Unavailable');
+          return { productionSlug };
+        }
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('Not Found');
         return { productionSlug };

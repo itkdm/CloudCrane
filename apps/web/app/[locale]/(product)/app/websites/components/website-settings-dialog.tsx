@@ -19,6 +19,8 @@ const SHARE_DURATIONS = [
   { value: '7d', label: 'sevenDays' },
   { value: '30d', label: 'thirtyDays' },
 ] as const;
+const publishOperationKeyPrefix = 'cloudcrane:website-publish:';
+const publishResumeDelayMs = 10 * 60 * 1000;
 
 export function WebsiteSettingsDialog({
   website,
@@ -47,10 +49,14 @@ export function WebsiteSettingsDialog({
   const [publishing, setPublishing] = useState(false);
   const [productionAuthorizing, setProductionAuthorizing] = useState(false);
   const [productionPending, setProductionPending] = useState(false);
+  const [productionResumeAvailable, setProductionResumeAvailable] = useState(false);
   const [productionError, setProductionError] = useState('');
   const [productionNotice, setProductionNotice] = useState('');
   const [productionCopied, setProductionCopied] = useState(false);
   const productionAuthorizationKey = useRef<string | null>(null);
+  const productionPublishKey = useRef<string | null>(null);
+  const lastPublishResumeAttempt = useRef(0);
+  const resumePublishOperation = useRef<(() => void) | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -66,6 +72,34 @@ export function WebsiteSettingsDialog({
   const [shareError, setShareError] = useState('');
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
   const [, setShareClock] = useState(0);
+
+  useEffect(() => {
+    productionPublishKey.current = null;
+    if (!website) return;
+    try {
+      productionPublishKey.current = window.localStorage.getItem(
+        `${publishOperationKeyPrefix}${website.id}`,
+      );
+    } catch {
+      productionPublishKey.current = null;
+    }
+    if (productionPublishKey.current) {
+      const startedAtKey = `${publishOperationKeyPrefix}${website.id}:started-at`;
+      try {
+        if (!window.localStorage.getItem(startedAtKey))
+          window.localStorage.setItem(startedAtKey, String(Date.now()));
+      } catch {
+        // The in-memory idempotency key can still resume this tab's request.
+      }
+      setProductionPending(true);
+      setProductionResumeAvailable(true);
+      setProductionNotice(t('productionProcessing'));
+    } else {
+      setProductionPending(false);
+      setProductionResumeAvailable(false);
+      setProductionNotice('');
+    }
+  }, [website?.id, t]);
 
   useEffect(() => {
     if (!confirmingDelete) return;
@@ -116,7 +150,12 @@ export function WebsiteSettingsDialog({
   }, [shareOpen]);
 
   useEffect(() => {
-    if (!website || (website.production?.status !== 'provisioning' && !productionPending)) return;
+    if (
+      !website ||
+      (!['provisioning', 'activating'].includes(website.production?.status ?? '') &&
+        !productionPending)
+    )
+      return;
     let cancelled = false;
     const timer = window.setInterval(() => {
       void fetch(`/api/websites/${website.id}/production`)
@@ -124,7 +163,12 @@ export function WebsiteSettingsDialog({
           if (!response.ok) return;
           const result = (await response.json()) as { status?: string };
           await onRefresh();
-          if (!cancelled && result.status && result.status !== 'provisioning') {
+          if (
+            !cancelled &&
+            result.status &&
+            result.status !== 'provisioning' &&
+            result.status !== 'activating'
+          ) {
             setProductionPending(false);
             setProductionNotice('');
           }
@@ -136,6 +180,26 @@ export function WebsiteSettingsDialog({
       window.clearInterval(timer);
     };
   }, [website?.id, website?.production?.status, productionPending, onRefresh]);
+
+  useEffect(() => {
+    if (!website || !productionResumeAvailable) return;
+    const storageKey = `${publishOperationKeyPrefix}${website.id}`;
+    const timer = window.setInterval(() => {
+      if (!productionPublishKey.current || publishing) return;
+      let startedAt: number;
+      try {
+        startedAt = Number(window.localStorage.getItem(`${storageKey}:started-at`) ?? Date.now());
+      } catch {
+        return;
+      }
+      const now = Date.now();
+      if (now - startedAt < publishResumeDelayMs || now - lastPublishResumeAttempt.current < 60_000)
+        return;
+      lastPublishResumeAttempt.current = now;
+      resumePublishOperation.current?.();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [website?.id, productionResumeAvailable, publishing]);
 
   if (!website) return null;
   const currentWebsite = website;
@@ -176,29 +240,58 @@ export function WebsiteSettingsDialog({
     setPublishing(true);
     setProductionError('');
     setProductionNotice('');
+    let responseReceived = false;
     try {
+      const storageKey = `${publishOperationKeyPrefix}${currentWebsite.id}`;
+      let idempotencyKey = productionPublishKey.current;
+      if (!idempotencyKey) {
+        idempotencyKey = window.localStorage.getItem(storageKey) ?? crypto.randomUUID();
+        productionPublishKey.current = idempotencyKey;
+        window.localStorage.setItem(storageKey, idempotencyKey);
+        window.localStorage.setItem(`${storageKey}:started-at`, String(Date.now()));
+      }
+      setProductionResumeAvailable(true);
       const response = await fetch(`/api/websites/${currentWebsite.id}/publish`, {
         method: 'POST',
-        headers: { 'idempotency-key': crypto.randomUUID() },
+        headers: { 'idempotency-key': idempotencyKey },
       });
+      responseReceived = true;
       const payload = (await response.json()) as {
         status?: string;
         error?: { message?: string };
       };
-      if (!response.ok && response.status !== 202)
+      if (!response.ok && response.status !== 202) {
+        productionPublishKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        window.localStorage.removeItem(`${storageKey}:started-at`);
+        setProductionResumeAvailable(false);
         throw new Error(payload.error?.message || t('productionPublishError'));
+      }
       if (response.status === 202) {
         setProductionPending(true);
         setProductionNotice(t('productionProcessing'));
+      } else {
+        productionPublishKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        window.localStorage.removeItem(`${storageKey}:started-at`);
+        setProductionResumeAvailable(false);
+        setProductionPending(false);
       }
       await onRefresh();
     } catch (reason) {
-      setProductionPending(false);
-      setProductionError(reason instanceof Error ? reason.message : t('productionPublishError'));
+      if (!responseReceived) {
+        setProductionPending(true);
+        setProductionResumeAvailable(true);
+        setProductionNotice(t('productionProcessing'));
+      } else {
+        setProductionPending(false);
+        setProductionError(reason instanceof Error ? reason.message : t('productionPublishError'));
+      }
     } finally {
       setPublishing(false);
     }
   }
+  resumePublishOperation.current = () => void publishProduction();
 
   async function authorizeProduction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -575,7 +668,11 @@ export function WebsiteSettingsDialog({
                   onClick={() => void publishProduction()}
                   disabled={publishing || currentWebsite.status !== 'ready'}
                 >
-                  {publishing ? t('productionPublishing') : t('productionPublish')}
+                  {publishing
+                    ? t('productionPublishing')
+                    : productionResumeAvailable
+                      ? t('productionResume')
+                      : t('productionPublish')}
                 </button>
               </div>
             ) : (
@@ -644,13 +741,18 @@ export function WebsiteSettingsDialog({
                     onClick={() => void publishProduction()}
                     disabled={
                       publishing ||
-                      currentWebsite.production.status === 'provisioning' ||
+                      (['provisioning', 'activating'].includes(currentWebsite.production.status) &&
+                        !productionResumeAvailable) ||
                       currentWebsite.status !== 'ready'
                     }
                   >
-                    {publishing || currentWebsite.production.status === 'provisioning'
+                    {publishing ||
+                    (['provisioning', 'activating'].includes(currentWebsite.production.status) &&
+                      !productionResumeAvailable)
                       ? t('productionPublishing')
-                      : t('productionRepublish')}
+                      : productionResumeAvailable
+                        ? t('productionResume')
+                        : t('productionRepublish')}
                   </button>
                 ) : null}
               </div>
@@ -742,6 +844,8 @@ function productionStatusMessage(status: string): string {
   switch (status) {
     case 'provisioning':
       return 'productionProcessing';
+    case 'activating':
+      return 'productionActivating';
     case 'authorization_required':
       return 'productionAuthorizationRequired';
     case 'active':

@@ -853,13 +853,17 @@ Real-time Dev/Prod DB Sync
 
 - 已部署 Production runtime/release schema，已实现流式 Release ZIP builder、SHA-256/manifest 校验及受限 ZIP 解压器。
 - Runner 已增加独立 `DockerProductionProvider` 和 PHP 8.4 + Nginx production image。Provider 为每个 Website 创建独立网络/容器，runtime 代码只读、rootfs 只读、无额外 Linux capability，随机 HTTP 端口仅绑定 `127.0.0.1`；`current` 通过同目录临时 symlink + rename 原子切换。First publish 初始化共享数据，后续 Release 不从 Artifact 解出持久路径。
+- Production 镜像同时安装 `SQLite3` 与 `pdo_sqlite`：锁定的 PbootCMS 3.2.26 原生 SQLite 驱动使用 `SQLite3`。Workspace 的源数据库仍叫 `data/pbootcms.db`；Production 首发复制为每站独立的 `shared/data/cloudcrane.db`，受管 `config/database.php` 保持 `/data/cloudcrane.db` 站点相对路径，由 `current/data` symlink 连接共享数据。Production 授权 helper 从受管数据库配置解析文件位置。
+- Production Nginx 基于锁定 PbootCMS 版本的 `rewrite/nginx.txt` 路由规则：不存在的路径改写为 `index.php?p=...`；`/apps/admin/view/` 仅允许所需静态资源扩展名，`/core/code.php` 为唯一放行的 Core HTTP 入口。`/data`、`/config`、`/runtime`、其他 `/core`、其他 `/apps` 与 `/static/backup` 仍被拒绝。
 - Release manifest/ZIP builder、安全解压、独立 `DockerProductionProvider`、Production operation executor 和 Workspace Gateway dispatch 已实现。Release 使用独立 Production runtime，持久化数据与代码分离；切换失败会恢复旧 Release。ECS Runner 需要本机存在 `PRODUCTION_IMAGE` 指定的 Production image；CD 在配置正式域名后应构建该 image，再启动 Production Gateway。
 - Web Publish API 已接入账户 entitlement/quota、同源和网站访问授权、幂等 operation、审计、运行中 AgentRun 拒绝、Workspace 停止时按需启动、Release 制作/部署及未知结果查询。Website Settings 已有发布、状态、正式 URL 和 PbootCMS Production 授权界面。发布和授权目前仍需在实际域名/DNS/TLS 和 CI 集成验证完成后才可作为对外可用功能。
 - `apps/production-gateway` 只监听 `127.0.0.1:4104`，按随机 128-bit slug + 配置后缀从数据库查 Production Runtime，仅代理 `authorization_required` / `active` 状态，未知 Host 返回 404，数据库/上游错误返回 503/502。请求/响应按流转发并移除 hop-by-hop headers。Nginx 站点模板提供 wildcard Host、TLS、80→443 和 loopback proxy 配置；用受限变量列表运行 `envsubst`，避免改写 Nginx 自身变量。
 - Website 删除现在先销毁 Production Container、Network、持久化目录和其 Release Artifact，再删除 Workspace 与网站记录；Runner 启动时会为 Production Container 补齐 `unless-stopped` 策略并恢复有当前 Release 的停止容器。首发持久化初始化可按 release 所有权标记安全回滚和重试，stage/deploy 能从已有制品或当前健康 Release 恢复；跨 Runner 错误码保留明确的 Production 错误语义。Production 查询从宿主机授权标记读取状态，不依赖对停止容器执行 Docker exec。
+- 发布的 `current` symlink 只表示候选代码。Runner 在通过健康检查后原子写入 `shared/.verified-release`；启动恢复和 Production 状态查询会验证未提交的 `current`，健康则提交，失败则恢复上一个已验证版本。Web 在切换期间将 Production 状态置为 `activating`，Production Gateway 对该状态返回可重试的 503，防止将未验证版本公开服务。页面把发布 Idempotency-Key 保存在网站级 localStorage，刷新后可用同一 Key 恢复；运行中的请求定期更新时间戳，崩溃后由已有持久 operation/release 状态支持重试。
+- First publish 回滚还会清空 `shared/runtime`，仅对仍持有首发初始化 marker 且尚无已验证 Release 的操作生效；普通 Release 失败不会清理 Production runtime/session。
 - 成功发布后默认保留当前 Release、上一 Release 和最近 5 个 Release；旧 Release 目录及已登记 Artifact 可回收，未完成制品有 7 天保护期。`PRODUCTION_KEEP_RELEASES` 可设为 2 至 100。
 - 真实公网发布子域名尚未选定或核实，wildcard DNS、TLS 证书签发/续期、生产 Nginx 加载和 PbootCMS 官方授权尚未在线验收；当前模板和服务未启用。Artifact 仍使用 ECS 本地存储，没有 OSS；Production 首次成功发布和网站删除的线上完整端到端仍需在正式入口配置后验证。
-- GitHub-hosted Docker integration 已覆盖 Production image 构建、首发/后续发布、共享数据保留和容器边界。最近一次执行曾因容器 UID 与宿主机清理权限差异失败；代码已调整为通过受控容器/Workspace Daemon 清理，并有本地单元测试，但修复需等下一次 CI 执行确认。平台生产环境不能用本机 Docker 验收代替 ECS/CI 验收；本机 Docker 不是开发依赖。
+- GitHub-hosted Docker integration 覆盖 Production image 构建、锁定的真实 PbootCMS 3.2.26 Workspace 初始化、Production 首发、后台资源/验证码、数据库路径、敏感路径阻断、伪静态入口和第二次 Release 的 Production DB 保留；另有纯 PHP fixture 检查 Runner 的容器边界与失败恢复。CI 的 Docker integration 是该链路的真实容器验收；本机 Docker 不是开发依赖。
 
 ---
 

@@ -1,5 +1,6 @@
 export type ProductionRuntimeStatus =
   | 'provisioning'
+  | 'activating'
   | 'authorization_required'
   | 'active'
   | 'failed'

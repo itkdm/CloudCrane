@@ -1,4 +1,15 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -8,7 +19,10 @@ import { loadRunnerConfig } from './config.js';
 import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
 import { ProductionReleaseStager } from './application/production-release-stager.js';
 import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-client.js';
-import { DockerProductionProvider } from './infrastructure/docker/docker-production-provider.js';
+import {
+  DockerProductionProvider,
+  switchCurrentRelease,
+} from './infrastructure/docker/docker-production-provider.js';
 import { DockerWorkspaceProvider } from './infrastructure/docker/docker-workspace-provider.js';
 
 const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
@@ -89,6 +103,197 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       await rm(base, { recursive: true, force: true });
     }
   }, 180_000);
+
+  it('publishes the pinned PbootCMS base into the real Production image', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-real-pboot-production-'));
+    const workspaceId = '00000000-0000-4000-8000-000000000078';
+    const realWebsiteId = '00000000-0000-4000-8000-000000000079';
+    const managedBase = path.join(base, 'managed-pboot');
+    const config = loadRunnerConfig({
+      WORKSPACE_ROOT: path.join(base, 'workspaces'),
+      WORKSPACE_IMAGE: 'website-workspace-pboot:v1',
+      WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
+      RELEASE_ARTIFACT_ROOT: path.join(base, 'artifacts'),
+      PRODUCTION_ROOT: path.join(base, 'production'),
+      PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',
+      PRODUCTION_HOST_SUFFIX: 'sites.example.com',
+      WORKSPACE_CPU_LIMIT: '500000000',
+      WORKSPACE_MEMORY_LIMIT_BYTES: '268435456',
+      WORKSPACE_PIDS_LIMIT: '64',
+    });
+    const workspaceProvider = new DockerWorkspaceProvider(config);
+    const workspaceRuntime = new WorkspaceRuntimeService(workspaceProvider);
+    const docker = new Docker();
+    const provider = new DockerProductionProvider(config, docker);
+    let workspaceCreated = false;
+    let productionCreated = false;
+    let productionContainerRef: string | null = null;
+
+    try {
+      await workspaceProvider.create(workspaceId);
+      workspaceCreated = true;
+      const daemon = new WorkspaceDaemonClient(await workspaceProvider.getEndpoint(workspaceId));
+      const initialized = await daemon.exec({
+        command: 'cloudcrane-init-pboot',
+        args: [],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 90_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000080',
+      });
+      expect(initialized.exitCode).toBe(0);
+      expect(initialized.stdout).toContain('INITIALIZED');
+
+      const workspaceRoot = path.join(config.workspaceRoot, workspaceId, 'workspace');
+      await cp(workspaceRoot, managedBase, { recursive: true, errorOnExist: true });
+      await writeFile(
+        path.join(managedBase, '.cloudcrane-base'),
+        `pbootcms=3.2.26\nsourceCommit=${coreCommit}\n`,
+      );
+      const stager = new ProductionReleaseStager(workspaceRuntime, config);
+      const releaseId = '00000000-0000-4000-8000-000000000081';
+      const staged = await stager.stage(realWebsiteId, workspaceId, {
+        artifactStorageKey: `release-${releaseId}.zip`,
+        releaseId,
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: coreCommit,
+        firstPublish: true,
+      });
+
+      const runtime = await provider.ensureRuntime(realWebsiteId, 'real-pboot-integration');
+      productionCreated = true;
+      productionContainerRef = runtime.containerRef;
+      const published = await provider.deployRelease({
+        websiteId: realWebsiteId,
+        releaseId,
+        productionSlug: 'real-pboot-integration',
+        artifactStorageKey: staged.artifactStorageKey,
+        artifactSha256: staged.artifactSha256,
+        artifactSize: staged.artifactSize,
+        firstPublish: true,
+      });
+      expect(published.currentReleaseId).toBe(releaseId);
+
+      const container = docker.getContainer(productionContainerRef!);
+      const probe = await container.exec({
+        Cmd: [
+          'php',
+          '-r',
+          '$c=require "/site/current/config/database.php"; if (!extension_loaded("SQLite3")) exit(11); $p="/site/current".$c["database"]["dbname"]; $d=new SQLite3($p); if (!$d->querySingle("SELECT count(*) FROM sqlite_master")) exit(12);',
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const probeStream = await probe.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        probeStream.once('end', resolve);
+        probeStream.once('close', resolve);
+        probeStream.once('error', reject);
+        probeStream.resume();
+      });
+      expect((await probe.inspect()).ExitCode).toBe(0);
+
+      const origin = `http://127.0.0.1:${published.productionPort}`;
+      const home = await fetch(`${origin}/`);
+      expect(home.status).toBe(200);
+      const admin = await fetch(`${origin}/admin.php`, { redirect: 'manual' });
+      expect(admin.status).toBe(200);
+      const adminCss = await fetch(
+        `${origin}/apps/admin/view/default/layui/css/layui.css?v=2.13.9`,
+      );
+      expect(adminCss.status).toBe(200);
+      const captcha = await fetch(`${origin}/core/code.php`, { redirect: 'manual' });
+      expect(captcha.status).toBe(200);
+      expect((await fetch(`${origin}/data/cloudcrane.db`)).status).toBe(403);
+      expect((await fetch(`${origin}/static/backup/`)).status).toBe(403);
+      expect((await fetch(`${origin}/apps/admin/controller/IndexController.php`)).status).toBe(403);
+      expect((await fetch(`${origin}/core/database/Sqlite.php`)).status).toBe(403);
+      expect((await fetch(`${origin}/cloudcrane-rewrite-probe`)).status).toBeLessThan(500);
+
+      const markerSql = await container.exec({
+        Cmd: [
+          'php',
+          '-r',
+          '$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $d->exec("CREATE TABLE IF NOT EXISTS cloudcrane_e2e_marker (value TEXT)"); $d->exec("INSERT INTO cloudcrane_e2e_marker(value) VALUES (\'preserve-production-content\')");',
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const markerStream = await markerSql.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        markerStream.once('end', resolve);
+        markerStream.once('close', resolve);
+        markerStream.once('error', reject);
+        markerStream.resume();
+      });
+      expect((await markerSql.inspect()).ExitCode).toBe(0);
+
+      await daemon.write({
+        path: '/workspace/template/default/cloudcrane-release-note.txt',
+        content: 'second release',
+      });
+      const secondReleaseId = '00000000-0000-4000-8000-000000000082';
+      const secondArtifact = await stager.stage(realWebsiteId, workspaceId, {
+        artifactStorageKey: `release-${secondReleaseId}.zip`,
+        releaseId: secondReleaseId,
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: coreCommit,
+        firstPublish: false,
+      });
+      const secondPublished = await provider.deployRelease({
+        websiteId: realWebsiteId,
+        releaseId: secondReleaseId,
+        productionSlug: 'real-pboot-integration',
+        artifactStorageKey: secondArtifact.artifactStorageKey,
+        artifactSha256: secondArtifact.artifactSha256,
+        artifactSize: secondArtifact.artifactSize,
+        firstPublish: false,
+      });
+      expect(secondPublished.currentReleaseId).toBe(secondReleaseId);
+      const productionContent = await container.exec({
+        Cmd: [
+          'php',
+          '-r',
+          '$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); if ($d->querySingle("SELECT value FROM cloudcrane_e2e_marker LIMIT 1") !== "preserve-production-content") exit(13);',
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const contentStream = await productionContent.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        contentStream.once('end', resolve);
+        contentStream.once('close', resolve);
+        contentStream.once('error', reject);
+        contentStream.resume();
+      });
+      expect((await productionContent.inspect()).ExitCode).toBe(0);
+    } catch (error) {
+      if (productionContainerRef) {
+        const logs = await docker
+          .getContainer(productionContainerRef)
+          .logs({ stdout: true, stderr: true, tail: 40 })
+          .catch(() => Buffer.from('unable to retrieve production container logs'));
+        const details = Buffer.isBuffer(logs) ? logs.toString('utf8') : String(logs);
+        throw new Error(`${error instanceof Error ? error.message : String(error)}\n${details}`, {
+          cause: error,
+        });
+      }
+      throw error;
+    } finally {
+      if (productionCreated)
+        await provider.destroyRuntime(realWebsiteId, []).catch(() => undefined);
+      if (workspaceCreated)
+        await workspaceProvider.destroyRuntime(workspaceId).catch(() => undefined);
+      await rm(base, { recursive: true, force: true });
+    }
+  }, 300_000);
 
   it('atomically switches immutable code and preserves initialized production state', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-integration-'));
@@ -213,11 +418,30 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       runtimeCreated = true;
       runtimeContainerRef = runtime.containerRef ?? undefined;
       const firstArtifact = await buildRelease(firstReleaseId, true);
+      await mkdir(path.join(productionRoot, websiteId, 'shared', 'runtime', 'config'), {
+        recursive: true,
+      });
+      await writeFile(
+        path.join(productionRoot, websiteId, 'shared', 'runtime', 'config', 'failed-first-publish'),
+        'must be discarded',
+      );
       await expect(deployRelease(firstReleaseId, true, firstArtifact)).rejects.toMatchObject({
         code: 'PRODUCTION_HEALTHCHECK_FAILED',
       });
       await expect(
-        lstat(path.join(productionRoot, websiteId, 'shared', 'data', 'pbootcms.db')),
+        lstat(path.join(productionRoot, websiteId, 'shared', 'data', 'cloudcrane.db')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(
+        lstat(
+          path.join(
+            productionRoot,
+            websiteId,
+            'shared',
+            'runtime',
+            'config',
+            'failed-first-publish',
+          ),
+        ),
       ).rejects.toMatchObject({ code: 'ENOENT' });
       failInitialHealthCheck = false;
       await provider.ensureRuntime(websiteId, productionSlug);
@@ -226,6 +450,20 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         status: 'authorization_required',
         currentReleaseId: firstReleaseId,
       });
+      expect(
+        await readFile(path.join(productionRoot, websiteId, 'shared', '.verified-release'), 'utf8'),
+      ).toBe(`${firstReleaseId}\n`);
+      await expect(
+        lstat(path.join(productionRoot, websiteId, 'shared', '.initializing-release')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      await writeFile(
+        path.join(productionRoot, websiteId, 'shared', '.initializing-release'),
+        `${firstReleaseId}\n`,
+      );
+      await provider.getStatus(websiteId, productionSlug);
+      await expect(
+        lstat(path.join(productionRoot, websiteId, 'shared', '.initializing-release')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
       const firstResponse = await fetch(
         `http://127.0.0.1:${first.productionPort}/template/default/integration.php`,
       );
@@ -254,7 +492,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
 
       await writeFile(
         path.join(workspace, 'template', 'default', 'integration.php'),
-        "<?php $db = new PDO('sqlite:/site/shared/data/pbootcms.db'); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . $db->query('SELECT value FROM sample')->fetchColumn() . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
+        "<?php $db = new PDO('sqlite:/site/shared/data/cloudcrane.db'); echo file_get_contents('/site/shared/data/runtime-marker.txt') . '|release-two|' . $db->query('SELECT value FROM sample')->fetchColumn() . '|' . file_get_contents('/site/shared/data/initial-marker.txt') . '|' . file_get_contents('/site/shared/upload/logo.txt');\n",
       );
       await replaceWorkspaceDatabaseFixture(docker, config.productionImage, workspace);
       await writeFile(
@@ -263,6 +501,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       const second = await writeRelease(secondReleaseId, false);
       expect(second.currentReleaseId).toBe(secondReleaseId);
+      expect(
+        await readFile(path.join(productionRoot, websiteId, 'shared', '.verified-release'), 'utf8'),
+      ).toBe(`${secondReleaseId}\n`);
       const secondResponse = await fetch(
         `http://127.0.0.1:${second.productionPort}/template/default/integration.php`,
       );
@@ -271,6 +512,42 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         'production-owned|release-two|initial-production-db|initial-production-state|initial-production-upload',
       );
       expect(second.status).toBe('active');
+
+      const interruptedReleaseId = '00000000-0000-4000-8000-000000000077';
+      const interruptedDirectory = path.join(
+        productionRoot,
+        websiteId,
+        'releases',
+        interruptedReleaseId,
+      );
+      await mkdir(path.join(interruptedDirectory, 'template', 'default'), { recursive: true });
+      await writeFile(path.join(interruptedDirectory, 'index.php'), "<?php echo 'interrupted';\n");
+      await symlink(
+        path.join(productionRoot, websiteId, 'shared', 'data'),
+        path.join(interruptedDirectory, 'data'),
+        'dir',
+      );
+      await symlink(
+        path.join(productionRoot, websiteId, 'shared', 'upload'),
+        path.join(interruptedDirectory, 'static'),
+        'dir',
+      );
+      await switchCurrentRelease(productionRoot, interruptedReleaseId);
+      const recoveringProvider = new DockerProductionProvider(
+        config,
+        docker,
+        async (request, init) => {
+          const candidate = await readlink(path.join(productionRoot, websiteId, 'current'));
+          if (candidate.endsWith(interruptedReleaseId))
+            return new Response('unhealthy', { status: 503 });
+          return fetch(request, init);
+        },
+      );
+      const recovered = await recoveringProvider.getStatus(websiteId, productionSlug);
+      expect(recovered.currentReleaseId).toBe(secondReleaseId);
+      expect(await readlink(path.join(productionRoot, websiteId, 'current'))).toBe(
+        path.join('releases', secondReleaseId),
+      );
 
       expect(await readlink(path.join(productionRoot, websiteId, 'current'))).toBe(
         path.join('releases', secondReleaseId),

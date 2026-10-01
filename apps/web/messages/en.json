@@ -199,6 +199,8 @@
     "productionRepublish": "Republish",
     "productionPublishing": "Publishing…",
     "productionProcessing": "Publishing is still processing. Refresh the status shortly.",
+    "productionResume": "Resume publish",
+    "productionActivating": "Verifying the new release",
     "productionStatus": "Production status",
     "productionAddress": "Production address",
     "productionAuthorizationRequired": "PbootCMS production domain authorization required",

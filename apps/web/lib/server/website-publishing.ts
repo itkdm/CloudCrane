@@ -188,6 +188,10 @@ export async function publishWebsite(input: {
       .update(websiteRelease)
       .set({ status: 'activating' })
       .where(eq(websiteRelease.id as never, prepared.releaseId));
+    await input.db
+      .update(productionRuntime)
+      .set({ status: 'activating', updatedAt: new Date() })
+      .where(eq(productionRuntime.id as never, prepared.runtimeId));
     const activated = await input.client.deployRelease(
       {
         releaseId: prepared.releaseId,
@@ -240,6 +244,84 @@ export async function publishWebsite(input: {
   } catch (error) {
     if (isUnknown(error))
       throw new WebsitePublishError('UNKNOWN_RESULT', '发布结果正在确认中，请稍后刷新', true);
+    let recovered: Awaited<ReturnType<ProductionClient['status']>> | undefined;
+    try {
+      recovered = await input.client.status({ productionSlug: prepared.productionSlug });
+    } catch {
+      // Keep the activating state so the public Production gateway stays closed
+      // until a later status reconciliation can verify or restore a release.
+    }
+    const verifiedRecovery = recovered;
+    if (
+      verifiedRecovery &&
+      verifiedRecovery.currentReleaseId === prepared.releaseId &&
+      (verifiedRecovery.status === 'active' || verifiedRecovery.status === 'authorization_required')
+    ) {
+      try {
+        // The Runner may have committed the verified release even if the RPC or
+        // the first database finalization response was lost. Make the durable
+        // Web records agree with that verified state before reporting success.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await input.db.transaction(async (tx: any) => {
+          await tx
+            .update(websiteRelease)
+            .set({ status: 'superseded' })
+            .where(
+              and(
+                eq(websiteRelease.websiteId as never, input.websiteId),
+                eq(websiteRelease.status as never, 'active'),
+              ) as never,
+            );
+          await tx
+            .update(websiteRelease)
+            .set({ status: 'active', activatedAt: new Date() })
+            .where(eq(websiteRelease.id as never, prepared.releaseId));
+          await tx
+            .update(productionRuntime)
+            .set({
+              status: verifiedRecovery.status,
+              currentReleaseId: prepared.releaseId,
+              productionPort: verifiedRecovery.productionPort,
+              updatedAt: new Date(),
+              activatedAt: new Date(),
+              lastErrorCode: null,
+              lastErrorMessage: null,
+            })
+            .where(eq(productionRuntime.id as never, prepared.runtimeId));
+        });
+        return {
+          release: { id: prepared.releaseId, sequence: prepared.sequence, status: 'active' },
+          production: {
+            id: prepared.runtimeId,
+            status: verifiedRecovery.status,
+            productionSlug: prepared.productionSlug,
+          },
+          productionUrl,
+          requiresAuthorization: verifiedRecovery.status === 'authorization_required',
+        };
+      } catch {
+        throw new WebsitePublishError('UNKNOWN_RESULT', '发布结果正在确认中，请稍后刷新', true);
+      }
+    }
+    if (recovered) {
+      try {
+        await input.db
+          .update(productionRuntime)
+          .set({
+            status: recovered.status === 'missing' ? 'failed' : recovered.status,
+            currentReleaseId: recovered.currentReleaseId,
+            productionPort: recovered.productionPort,
+            updatedAt: new Date(),
+            ...(recovered.status === 'missing'
+              ? { lastErrorCode: 'PRODUCTION_RUNTIME_MISSING' }
+              : { lastErrorCode: null, lastErrorMessage: null }),
+          })
+          .where(eq(productionRuntime.id as never, prepared.runtimeId));
+      } catch {
+        // Keep the activating state so the public Production gateway stays closed
+        // until a later status reconciliation can verify or restore a release.
+      }
+    }
     const code = error instanceof ProductionClientError ? error.code : undefined;
     const publishCode: PublishErrorCode =
       code === 'PRODUCTION_STATE_CONFLICT'

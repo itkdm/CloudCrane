@@ -35,6 +35,7 @@ describe('platform schema', () => {
   it('defines independent Production and Release lifecycles with database guards', () => {
     expect(PRODUCTION_RUNTIME_STATUSES).toEqual([
       'provisioning',
+      'activating',
       'authorization_required',
       'active',
       'failed',

@@ -1,0 +1,2 @@
+ALTER TABLE "production_runtime" DROP CONSTRAINT "production_runtime_status_check";--> statement-breakpoint
+ALTER TABLE "production_runtime" ADD CONSTRAINT "production_runtime_status_check" CHECK ("production_runtime"."status" in ('provisioning', 'activating', 'authorization_required', 'active', 'failed', 'stopped', 'deleting'));

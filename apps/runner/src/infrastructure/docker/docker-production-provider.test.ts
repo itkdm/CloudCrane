@@ -185,7 +185,9 @@ describe('DockerProductionProvider', () => {
     const releaseId = 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53';
     const runtimeRoot = path.join(base, 'production', websiteId);
     await mkdir(path.join(runtimeRoot, 'releases'), { recursive: true });
+    await mkdir(path.join(runtimeRoot, 'shared'), { recursive: true });
     await symlink(path.join('releases', releaseId), path.join(runtimeRoot, 'current'), 'dir');
+    await writeFile(path.join(runtimeRoot, 'shared', '.verified-release'), `${releaseId}\n`);
     let running = false;
     let restartPolicy = 'no';
     const info = () => ({

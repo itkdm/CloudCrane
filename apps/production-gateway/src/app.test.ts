@@ -100,10 +100,11 @@ describe('Production Gateway Host routing', () => {
     });
   });
 
-  it('returns 404 for unknown Host and for a runtime outside an allowed lifecycle state', async () => {
+  it('returns 404 for unknown Host and 503 while runtime is provisioning or activating', async () => {
+    let runtimeStatus = 'provisioning';
     const store = {
       findBySlug: vi.fn(async (requestedSlug: string) =>
-        requestedSlug === slug ? { ...binding, status: 'provisioning' } : null,
+        requestedSlug === slug ? { ...binding, status: runtimeStatus } : null,
       ),
     };
     const gateway = buildProductionGatewayServer(
@@ -129,9 +130,15 @@ describe('Production Gateway Host routing', () => {
       port: address.port,
       host: `${slug}.sites.example.test`,
     });
+    runtimeStatus = 'activating';
+    const activating = await requestGateway({
+      port: address.port,
+      host: `${slug}.sites.example.test`,
+    });
     expect(invalidHost.statusCode).toBe(404);
-    expect(nonRoutableState.statusCode).toBe(404);
-    expect(store.findBySlug).toHaveBeenCalledOnce();
+    expect(nonRoutableState.statusCode).toBe(503);
+    expect(activating.statusCode).toBe(503);
+    expect(store.findBySlug).toHaveBeenCalledTimes(2);
   });
 });
 

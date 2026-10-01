@@ -85,6 +85,7 @@ export const productionOperationResultSchemas = {
     websiteId: z.string().uuid(),
     status: z.enum([
       'provisioning',
+      'activating',
       'authorization_required',
       'active',
       'failed',
@@ -106,6 +107,7 @@ export const productionOperationResultSchemas = {
     websiteId: z.string().uuid(),
     status: z.enum([
       'provisioning',
+      'activating',
       'authorization_required',
       'active',
       'failed',

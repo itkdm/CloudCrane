@@ -734,6 +734,7 @@ export const quotaReservation = pgTable(
 
 export const PRODUCTION_RUNTIME_STATUSES = [
   'provisioning',
+  'activating',
   'authorization_required',
   'active',
   'failed',
@@ -827,7 +828,7 @@ export const productionRuntime = pgTable(
     index('production_runtime_status_idx').on(table.status),
     check(
       'production_runtime_status_check',
-      sql`${table.status} in ('provisioning', 'authorization_required', 'active', 'failed', 'stopped', 'deleting')`,
+      sql`${table.status} in ('provisioning', 'activating', 'authorization_required', 'active', 'failed', 'stopped', 'deleting')`,
     ),
     check(
       'production_runtime_port_check',
