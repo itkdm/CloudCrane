@@ -295,7 +295,12 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
-      await this.clearPbootReleaseCaches(input.websiteId, root);
+      await this.refreshPbootReleaseState(input.websiteId, root);
+      if (!(await this.waitForHealth(runtime.productionPort, input.productionSlug)))
+        throw new ProductionOperationError(
+          'PRODUCTION_HEALTHCHECK_FAILED',
+          'Production runtime health check failed after release refresh',
+        );
       await this.writeVerifiedRelease(root, input.releaseId);
       if (input.firstPublish) await this.finalizeInitialPersistentState(root, input.releaseId);
       await this.collectOldReleases(input.websiteId, input.releaseId, previousRelease).catch(
@@ -710,6 +715,32 @@ export class DockerProductionProvider implements ProductionProvider {
     } finally {
       await helper.remove({ force: true }).catch(() => undefined);
     }
+
+    await this.reloadProductionPhpFpm(websiteId);
+  }
+
+  private async reloadProductionPhpFpm(websiteId: string): Promise<void> {
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    const command = await container.exec({
+      Cmd: [
+        '/bin/sh',
+        '-ec',
+        `master_pid="$(ps -o pid,ppid,comm | awk '$2 == 1 && $3 == "php-fpm" {print $1; exit}')"; test -n "$master_pid"; kill -USR2 "$master_pid"`,
+      ],
+      User: '1000:1000',
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+    });
+    const stream = await command.start({ hijack: true, stdin: false });
+    await new Promise<void>((resolve, reject) => {
+      stream.once('end', resolve);
+      stream.once('close', resolve);
+      stream.once('error', reject);
+      stream.resume();
+    });
+    if ((await command.inspect()).ExitCode !== 0)
+      throw new Error('Production PHP worker refresh failed');
   }
 
   private async restoreHostOwnership(websiteId: string, root: string): Promise<void> {
@@ -1008,7 +1039,7 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  private async clearPbootReleaseCaches(websiteId: string, productionRoot: string): Promise<void> {
+  private async refreshPbootReleaseState(websiteId: string, productionRoot: string): Promise<void> {
     const helper = await this.docker.createContainer({
       Image: this.config.productionImage,
       name: `cloudcrane-production-cache-${websiteId}-${Date.now()}`,

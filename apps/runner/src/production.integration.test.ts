@@ -145,6 +145,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(initialized.exitCode).toBe(0);
       expect(initialized.stdout).toContain('INITIALIZED');
 
+      await daemon.write({
+        path: '/workspace/cloudcrane-release-check.php',
+        content: "<?php echo 'release-one';\n",
+      });
       const workspaceRoot = path.join(config.workspaceRoot, workspaceId, 'workspace');
       await cp(workspaceRoot, managedBase, { recursive: true, errorOnExist: true });
       await writeFile(
@@ -198,6 +202,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await probe.inspect()).ExitCode).toBe(0);
 
       const origin = `http://127.0.0.1:${published.productionPort}`;
+      const firstReleaseCheck = await fetch(`${origin}/cloudcrane-release-check.php`);
+      expect(firstReleaseCheck.status).toBe(200);
+      expect(await firstReleaseCheck.text()).toBe('release-one');
       const health = await fetch(`${origin}/_cloudcrane/health`);
       expect(health.status).toBe(204);
       const home = await fetch(`${origin}/`);
@@ -250,6 +257,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         path: '/workspace/template/default/cloudcrane-release-note.txt',
         content: 'second release',
       });
+      await daemon.write({
+        path: '/workspace/cloudcrane-release-check.php',
+        content: "<?php echo 'release-two';\n",
+      });
       const secondReleaseId = '00000000-0000-4000-8000-000000000082';
       const secondArtifact = await stager.stage(realWebsiteId, workspaceId, {
         artifactStorageKey: `release-${secondReleaseId}.zip`,
@@ -287,6 +298,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         contentStream.resume();
       });
       expect((await productionContent.inspect()).ExitCode).toBe(0);
+      const secondReleaseCheck = await fetch(`${origin}/cloudcrane-release-check.php`);
+      expect(secondReleaseCheck.status).toBe(200);
+      expect(await secondReleaseCheck.text()).toBe('release-two');
     } catch (error) {
       if (productionContainerRef) {
         const logs = await docker
