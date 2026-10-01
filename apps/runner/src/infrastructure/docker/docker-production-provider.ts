@@ -655,7 +655,7 @@ export class DockerProductionProvider implements ProductionProvider {
       User: '0:0',
       Entrypoint: ['/bin/sh', '-c'],
       Cmd: [
-        'chown -R 1000:1000 /shared/data /shared/upload /shared/config /shared/runtime && chmod 0755 /shared/runtime',
+        'chmod 0755 /shared/runtime && chown -R 1000:1000 /shared/data /shared/upload /shared/config /shared/runtime',
       ],
       HostConfig: {
         Binds: [`${path.join(root, 'shared')}:/shared:rw`],
