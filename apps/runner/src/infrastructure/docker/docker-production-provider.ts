@@ -998,7 +998,11 @@ export class DockerProductionProvider implements ProductionProvider {
         signal: AbortSignal.timeout(5_000),
         redirect: 'manual',
       });
-      return response.status >= 200 && response.status < 400;
+      return (
+        (response.status >= 200 && response.status < 400) ||
+        // PbootCMS uses 403 while the site's production authorization is pending.
+        response.status === 403
+      );
     } catch {
       return false;
     }

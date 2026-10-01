@@ -174,6 +174,16 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         firstPublish: true,
       });
       expect(published.currentReleaseId).toBe(releaseId);
+      expect(published.status).toBe('authorization_required');
+      await provider.authorize(
+        realWebsiteId,
+        'real-pboot-integration',
+        'fixture-authorization-code',
+      );
+      expect(await provider.getStatus(realWebsiteId, 'real-pboot-integration')).toMatchObject({
+        status: 'active',
+        currentReleaseId: releaseId,
+      });
 
       const container = docker.getContainer(productionContainerRef!);
       const probe = await container.exec({
@@ -389,11 +399,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       );
       await writeFile(
         path.join(managedBase, 'config', 'database.php'),
-        "<?php return ['database' => ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db']];\n",
+        "<?php return ['database' => [\n  'type' => 'sqlite',\n  'dbname' => '/data/pbootcms.db',\n]];\n",
       );
       await writeFile(
         path.join(workspace, 'config', 'database.php'),
-        "<?php return ['database' => ['type' => 'sqlite', 'dbname' => '/data/pbootcms.db']];\n",
+        "<?php return ['database' => [\n  'type' => 'sqlite',\n  'dbname' => '/data/pbootcms.db',\n]];\n",
       );
       await writeFile(path.join(workspace, 'config', 'config.php'), '<?php return [];\n');
       await writeFile(
