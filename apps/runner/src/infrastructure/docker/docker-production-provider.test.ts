@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -80,6 +80,7 @@ describe('DockerProductionProvider', () => {
       productionRoot: path.join(base, 'production'),
       productionHostSuffix: 'sites.example.com',
       releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
       managedPbootBaseRoot: path.join(base, 'pboot-base'),
       productionImage: 'cloudcrane-production-pboot:test',
       workspaceImage: 'cloudcrane-workspace-pboot:test',
@@ -107,10 +108,149 @@ describe('DockerProductionProvider', () => {
         SecurityOpt: ['no-new-privileges:true'],
         CapDrop: ['ALL'],
         PidsLimit: 64,
+        RestartPolicy: { Name: 'unless-stopped' },
       });
       expect(options?.WorkingDir).toBe('/site');
       expect(options?.HostConfig?.Binds?.some((bind) => bind.includes('docker.sock'))).toBe(false);
       expect(createContainer).toHaveBeenCalledOnce();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a stopped runtime without executing inside the stopped container', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-stopped-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const runtimeDirectory = path.join(base, 'production', websiteId, 'shared', 'runtime');
+    await mkdir(runtimeDirectory, { recursive: true });
+    await writeFile(path.join(runtimeDirectory, '.cloudcrane-authorization-v1'), 'authorized');
+    const container = {
+      id: 'container-id',
+      inspect: vi.fn(async () => ({
+        Id: 'container-id',
+        State: { Running: false },
+        Config: {
+          Labels: {
+            'cloudcrane.service': 'production',
+            'cloudcrane.website_id': websiteId,
+            'cloudcrane.production_slug': 'production-website',
+          },
+          Image: 'cloudcrane-production-pboot:test',
+          User: '1000:1000',
+          WorkingDir: '/site',
+        },
+        HostConfig: {
+          PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+          Binds: ['/production:/site:ro'],
+          Privileged: false,
+          ReadonlyRootfs: true,
+          SecurityOpt: ['no-new-privileges:true'],
+          CapDrop: ['ALL'],
+          PidsLimit: 64,
+        },
+      })),
+      exec: vi.fn(),
+    };
+    const docker = { getContainer: vi.fn(() => container) } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: 'cloudcrane-production-pboot:test',
+      workspaceImage: 'cloudcrane-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    try {
+      const result = await new DockerProductionProvider(config, docker).getStatus(
+        websiteId,
+        'production-website',
+      );
+      expect(result.status).toBe('stopped');
+      expect(result.currentReleaseId).toBeNull();
+      expect(result.authorized).toBe(true);
+      expect(container.exec).not.toHaveBeenCalled();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('restores production containers with a current release and persistent restart policy', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-reconcile-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const releaseId = 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53';
+    const runtimeRoot = path.join(base, 'production', websiteId);
+    await mkdir(path.join(runtimeRoot, 'releases'), { recursive: true });
+    await symlink(path.join('releases', releaseId), path.join(runtimeRoot, 'current'), 'dir');
+    let running = false;
+    let restartPolicy = 'no';
+    const info = () => ({
+      Id: 'container-id',
+      State: { Running: running },
+      Config: {
+        Labels: {
+          'cloudcrane.service': 'production',
+          'cloudcrane.website_id': websiteId,
+          'cloudcrane.production_slug': 'production-website',
+        },
+        Image: 'cloudcrane-production-pboot:test',
+        User: '1000:1000',
+        WorkingDir: '/site',
+      },
+      HostConfig: {
+        RestartPolicy: { Name: restartPolicy },
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+        Binds: ['/production:/site:ro'],
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidsLimit: 64,
+      },
+    });
+    const container = {
+      inspect: vi.fn(async () => info()),
+      update: vi.fn(async (options: { RestartPolicy?: { Name?: string } }) => {
+        restartPolicy = options.RestartPolicy?.Name ?? restartPolicy;
+        return {};
+      }),
+      start: vi.fn(async () => {
+        running = true;
+      }),
+    };
+    const docker = {
+      listContainers: vi.fn(async () => [{ Id: 'container-id', Labels: info().Config.Labels }]),
+      getContainer: vi.fn(() => container),
+    } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: 'cloudcrane-production-pboot:test',
+      workspaceImage: 'cloudcrane-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    try {
+      await expect(
+        new DockerProductionProvider(config, docker).reconcileRuntimes(),
+      ).resolves.toEqual({
+        scanned: 1,
+        restored: 1,
+        failed: 0,
+      });
+      expect(container.update).toHaveBeenCalledWith({
+        RestartPolicy: { Name: 'unless-stopped' },
+      });
+      expect(container.start).toHaveBeenCalledOnce();
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -170,6 +310,7 @@ describe('DockerProductionProvider', () => {
       productionRoot: path.join(base, 'production'),
       productionHostSuffix: 'sites.example.com',
       releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
       managedPbootBaseRoot: path.join(base, 'pboot-base'),
       productionImage: 'cloudcrane-production-pboot:test',
       workspaceImage: 'cloudcrane-workspace-pboot:test',

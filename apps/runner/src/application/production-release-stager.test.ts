@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import type { ProcessExecRequest, ProcessExecResponse } from '@cloudcrane/workspace-protocol';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadRunnerConfig } from '../config.js';
 import type { WorkspaceDaemonClient } from '../infrastructure/daemon/workspace-daemon-client.js';
 import type { WorkspaceRuntimeService } from './workspace-runtime-service.js';
@@ -62,7 +62,7 @@ describe('ProductionReleaseStager', () => {
       },
     } as unknown as Pick<WorkspaceDaemonClient, 'exec' | 'mkdir'>;
     const runtime = {
-      endpoint: async () => 'http://workspace-daemon.test',
+      endpoint: vi.fn(async () => 'http://workspace-daemon.test'),
     } as unknown as WorkspaceRuntimeService;
     const config = loadRunnerConfig({
       WORKSPACE_ROOT: path.join(root, 'workspaces'),
@@ -93,6 +93,15 @@ describe('ProductionReleaseStager', () => {
         sourceGitHead: null,
         sourceGitDirty: true,
       });
+      const retry = await stager.stage(websiteId, workspaceId, {
+        artifactStorageKey: `release-${releaseId}.zip`,
+        releaseId,
+        sourcePbootVersion: '3.2.26',
+        sourceCoreCommit: coreCommit,
+        firstPublish: true,
+      });
+      expect(retry).toEqual(result);
+      expect(runtime.endpoint).toHaveBeenCalledOnce();
       expect(await readFile(path.join(workspaceRoot, 'data', 'pbootcms.db'), 'utf8')).toBe(
         'live workspace database',
       );

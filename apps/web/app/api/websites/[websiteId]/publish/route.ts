@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { AuthorizationError, assertSameOrigin, requireWebsiteAccess } from '@cloudcrane/auth';
 import {
@@ -249,6 +249,22 @@ export async function POST(
           .update(websiteRelease)
           .set({ status: 'failed', errorCode: code, errorMessage: '发布未能完成' })
           .where(eq(websiteRelease.id as never, claim.operationId) as never)
+          .catch(() => undefined);
+        await authDb
+          .update(productionRuntime)
+          .set({
+            status: 'failed',
+            lastErrorCode: code.slice(0, 64),
+            lastErrorMessage: 'Production 首次发布未能完成',
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(productionRuntime.websiteId as never, websiteId),
+              isNull(productionRuntime.currentReleaseId as never),
+              eq(productionRuntime.status as never, 'provisioning'),
+            ) as never,
+          )
           .catch(() => undefined);
       }
       if (auditId) {

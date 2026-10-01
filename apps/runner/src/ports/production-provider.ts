@@ -14,6 +14,7 @@ export type ProductionRuntime = {
   productionPort: number | null;
   containerRef: string | null;
   currentReleaseId: string | null;
+  authorized: boolean;
 };
 
 export type ProductionDeployInput = {
@@ -31,5 +32,5 @@ export interface ProductionProvider {
   deployRelease(input: ProductionDeployInput): Promise<ProductionRuntime>;
   getStatus(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
   authorize(websiteId: string, productionSlug: string, authorizationCode: string): Promise<void>;
-  destroyRuntime(websiteId: string): Promise<void>;
+  destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void>;
 }

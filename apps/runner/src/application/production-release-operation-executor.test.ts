@@ -75,6 +75,7 @@ describe('ProductionReleaseOperationExecutor', () => {
         productionPort: null,
         containerRef: null,
         currentReleaseId: null,
+        authorized: false,
       }),
       authorize: vi.fn().mockResolvedValue(undefined),
       destroyRuntime: vi.fn().mockResolvedValue(undefined),
@@ -141,7 +142,7 @@ describe('ProductionReleaseOperationExecutor', () => {
     const destroy = productionRunnerOperationSchema.parse({
       ...context,
       operation: 'production.destroy',
-      payload: {},
+      payload: { releaseIds: [] },
     });
     await expect(executor.execute(destroy)).resolves.toBeNull();
     const authorize = productionRunnerOperationSchema.parse({
@@ -155,7 +156,7 @@ describe('ProductionReleaseOperationExecutor', () => {
     await expect(executor.execute(authorize)).resolves.toEqual({ status: 'active' });
     expect(runtime.ensureRuntime).toHaveBeenCalledWith(context.websiteId, 'production-website');
     expect(runtime.status).toHaveBeenCalledWith(context.websiteId, 'production-website');
-    expect(runtime.destroyRuntime).toHaveBeenCalledWith(context.websiteId);
+    expect(runtime.destroyRuntime).toHaveBeenCalledWith(context.websiteId, []);
     expect(runtime.authorize).toHaveBeenCalledWith(
       context.websiteId,
       'production-website',

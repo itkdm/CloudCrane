@@ -20,6 +20,7 @@ import {
 import type { RunnerConfig } from '../../config.js';
 import { WorkspaceOperationHandler } from './workspace-operation-handler.js';
 import { WorkspaceDaemonClientError } from '../daemon/workspace-daemon-client.js';
+import { toProductionRemoteError } from '../../ports/production-operation-error.js';
 
 const logger = createLogger('runner-gateway-connection');
 const workspaceCapabilities = [
@@ -265,6 +266,9 @@ export class RunnerGatewayConnection {
 }
 
 function toRemoteError(error: unknown): RemoteError {
+  const productionError = toProductionRemoteError(error);
+  if (productionError)
+    return { ...productionError, message: sanitizeText(productionError.message) };
   const code = error instanceof WorkspaceDaemonClientError ? error.code : undefined;
   const parsedCode = code ? remoteErrorCodeSchema.safeParse(code) : undefined;
   if (parsedCode?.success) {

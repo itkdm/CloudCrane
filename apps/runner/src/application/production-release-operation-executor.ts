@@ -73,11 +73,11 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
           productionSlug: runtime.productionSlug,
           productionPort: runtime.productionPort,
           currentReleaseId: runtime.currentReleaseId,
-          authorized: runtime.status === 'active',
+          authorized: runtime.authorized,
         };
       }
       case 'production.destroy':
-        await this.runtime.destroyRuntime(operation.websiteId);
+        await this.runtime.destroyRuntime(operation.websiteId, operation.payload.releaseIds);
         return null;
       case 'production.authorize':
         await this.runtime.authorize(

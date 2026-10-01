@@ -1,13 +1,17 @@
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { lstat, rm } from 'node:fs/promises';
+import { lstat, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   buildProductionReleaseArchive,
   collectProductionReleaseInventory,
+  extractProductionReleaseArchive,
 } from '@cloudcrane/pboot-snapshot';
 import type { ProductionOperation } from '@cloudcrane/workspace-protocol';
 import { WorkspaceDaemonClient } from '../infrastructure/daemon/workspace-daemon-client.js';
 import type { RunnerConfig } from '../config.js';
+import { ProductionOperationError } from '../ports/production-operation-error.js';
 import type { WorkspaceRuntimeService } from './workspace-runtime-service.js';
 
 type ReleaseStageInput = Extract<ProductionOperation, { operation: 'release.stage' }>['payload'];
@@ -31,6 +35,12 @@ export class ProductionReleaseStager {
     const outputPath = path.resolve(artifactRoot, input.artifactStorageKey);
     if (!outputPath.startsWith(`${artifactRoot}${path.sep}`))
       throw new Error('production release artifact path is outside its root');
+
+    const existing = await lstat(outputPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
+      throw error;
+    });
+    if (existing) return this.reuseExistingArtifact(outputPath, artifactRoot, websiteId, input);
 
     const daemon = this.daemonFactory(await this.runtime.endpoint(workspaceId), 122_000);
     const sourceBefore = await this.captureSourceState(daemon, workspaceRoot, input.firstPublish);
@@ -107,6 +117,11 @@ export class ProductionReleaseStager {
         outputPath,
       });
       artifactCreated = true;
+      await this.writeArtifactMetadata(outputPath, {
+        websiteId,
+        releaseId: input.releaseId,
+        createdAt: result.manifest.createdAt,
+      });
 
       const sourceAfter = await this.captureSourceState(daemon, workspaceRoot, input.firstPublish);
       await this.assertDiffClean(daemon, sourceAfter.hasGitRepository);
@@ -117,7 +132,10 @@ export class ProductionReleaseStager {
       ) {
         await rm(outputPath, { force: true });
         artifactCreated = false;
-        throw new Error('WORKSPACE_CHANGED_DURING_PUBLISH');
+        throw new ProductionOperationError(
+          'WORKSPACE_CHANGED_DURING_PUBLISH',
+          'Workspace changed while the release was being staged',
+        );
       }
 
       return {
@@ -127,7 +145,10 @@ export class ProductionReleaseStager {
         manifest: result.manifest,
       };
     } catch (error) {
-      if (artifactCreated) await rm(outputPath, { force: true }).catch(() => undefined);
+      if (artifactCreated) {
+        await rm(outputPath, { force: true }).catch(() => undefined);
+        await rm(`${outputPath}.meta.json`, { force: true }).catch(() => undefined);
+      }
       throw error;
     } finally {
       await daemon.exec(
@@ -142,6 +163,117 @@ export class ProductionReleaseStager {
         },
         32_000,
       );
+    }
+  }
+
+  private async reuseExistingArtifact(
+    outputPath: string,
+    artifactRoot: string,
+    websiteId: string,
+    input: ReleaseStageInput,
+  ) {
+    const info = await lstat(outputPath);
+    if (!info.isFile() || info.isSymbolicLink() || info.size <= 0 || info.size > 500 * 1024 * 1024)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'An invalid artifact already exists for this release',
+      );
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(outputPath)) hash.update(chunk);
+    const sha256 = hash.digest('hex');
+    const verificationDirectory = path.join(
+      artifactRoot,
+      `.verify-${input.releaseId}-${randomUUID()}`,
+    );
+    let manifest: Awaited<ReturnType<typeof extractProductionReleaseArchive>>;
+    try {
+      manifest = await extractProductionReleaseArchive({
+        archivePath: outputPath,
+        expectedSha256: sha256,
+        expectedWebsiteId: websiteId,
+        expectedReleaseId: input.releaseId,
+        destination: verificationDirectory,
+      });
+    } catch {
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'The existing release artifact failed identity or integrity verification',
+      );
+    } finally {
+      await rm(verificationDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+    if (
+      manifest.sourcePbootVersion !== input.sourcePbootVersion ||
+      manifest.sourceCoreCommit !== input.sourceCoreCommit ||
+      manifest.firstPublish !== input.firstPublish
+    )
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'The existing release artifact does not match the requested release metadata',
+      );
+
+    const metadata = {
+      websiteId,
+      releaseId: input.releaseId,
+      createdAt: manifest.createdAt,
+    };
+    const metadataPath = `${outputPath}.meta.json`;
+    const existingMetadata = await readFile(metadataPath, 'utf8').catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      },
+    );
+    if (existingMetadata) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(existingMetadata);
+      } catch {
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'The existing release artifact metadata is invalid',
+        );
+      }
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (parsed as Record<string, unknown>).websiteId !== websiteId ||
+        (parsed as Record<string, unknown>).releaseId !== input.releaseId
+      )
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'The existing release artifact belongs to different release metadata',
+        );
+    } else {
+      await this.writeArtifactMetadata(outputPath, metadata);
+    }
+    return {
+      artifactStorageKey: input.artifactStorageKey,
+      artifactSha256: sha256,
+      artifactSize: info.size,
+      manifest,
+    };
+  }
+
+  private async writeArtifactMetadata(
+    outputPath: string,
+    metadata: { websiteId: string; releaseId: string; createdAt: string },
+  ): Promise<void> {
+    const filename = `${outputPath}.meta.json`;
+    try {
+      await writeFile(filename, JSON.stringify(metadata), {
+        encoding: 'utf8',
+        flag: 'wx',
+        mode: 0o440,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const current = JSON.parse(await readFile(filename, 'utf8')) as Record<string, unknown>;
+      if (current.websiteId !== metadata.websiteId || current.releaseId !== metadata.releaseId)
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'Release artifact metadata conflicts with another website',
+        );
     }
   }
 

@@ -11,7 +11,14 @@ import {
   requireSession,
 } from '@cloudcrane/auth';
 import { auth } from '../../../../lib/server/auth.js';
-import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
+import {
+  finishAuditEvent,
+  insertAuditEvent,
+  productionRuntime,
+  websiteRelease,
+} from '@cloudcrane/db';
+import { ProductionClient } from '@cloudcrane/workspace-client';
+import { eq } from 'drizzle-orm';
 import { getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../../lib/server/observability.js';
 import {
@@ -142,6 +149,30 @@ export async function DELETE(
 
       await store.updateWebsiteStatus(websiteId, 'deleting');
       await disposeAgentRuntime(websiteId);
+      const [production] = await platform.db
+        .select({ id: productionRuntime.id })
+        .from(productionRuntime)
+        .where(eq(productionRuntime.websiteId as never, websiteId) as never)
+        .limit(1);
+      const releases = await platform.db
+        .select({ id: websiteRelease.id })
+        .from(websiteRelease)
+        .where(eq(websiteRelease.websiteId as never, websiteId) as never);
+      if (production || releases.length > 0) {
+        const endpoint = process.env.WORKSPACE_GATEWAY_ENDPOINT;
+        const token = process.env.WORKSPACE_GATEWAY_CLIENT_TOKEN;
+        if (!endpoint || !token) throw new Error('production gateway is not configured');
+        await new ProductionClient(endpoint, token, {
+          websiteId,
+          workspaceId: workspace.id,
+        }).destroy(
+          {
+            idempotencyKey: `website-delete-${billingOperationId}`,
+            deadlineMs: 180_000,
+          },
+          releases.map((release: { id: string }) => release.id),
+        );
+      }
       if (workspace.status !== 'missing') {
         const runtime = createProductionRuntime(websiteId, workspace.id);
         if (!runtime.destroy) throw new Error('workspace runtime destroy is not configured');

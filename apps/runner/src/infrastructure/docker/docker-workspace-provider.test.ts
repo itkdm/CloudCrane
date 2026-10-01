@@ -22,6 +22,7 @@ const config = {
   productionRoot: '/tmp/cloudcrane-production',
   productionImage: 'test-production-image',
   releaseArtifactRoot: '/tmp/cloudcrane-releases',
+  productionKeepReleases: 5,
   workspaceImage: 'test-image',
   daemonPort: 7070,
   cpuLimit: 1_000_000,

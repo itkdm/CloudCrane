@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-const emptyPayloadSchema = z.object({});
-
 export const productionOperationPayloadSchemas = {
   'release.stage': z.object({
     artifactStorageKey: z.string().regex(/^release-[0-9a-f-]+\.zip$/i),
@@ -33,7 +31,9 @@ export const productionOperationPayloadSchemas = {
     productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
     authorizationCode: z.string().min(1).max(2048),
   }),
-  'production.destroy': emptyPayloadSchema,
+  'production.destroy': z.object({
+    releaseIds: z.array(z.string().uuid()).max(10_000).default([]),
+  }),
 } as const;
 
 export const productionOperationVariants = [

@@ -23,6 +23,7 @@ describe('runner production configuration', () => {
     expect(config.productionImage).toBe('cloudcrane-production-pboot:v1');
     expect(config.productionHostSuffix).toBe('sites.example.com');
     expect(config.releaseArtifactRoot).toBe('/srv/cloudcrane/release-artifacts');
+    expect(config.productionKeepReleases).toBe(5);
   });
 
   it('accepts production runtime storage and image configuration', () => {

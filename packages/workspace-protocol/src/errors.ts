@@ -28,6 +28,9 @@ export const remoteErrorCodeSchema = z.enum([
   'RELEASE_NOT_FOUND',
   'VERIFICATION_FAILED',
   'INVALID_STATE',
+  'WORKSPACE_CHANGED_DURING_PUBLISH',
+  'PRODUCTION_STATE_CONFLICT',
+  'PRODUCTION_HEALTHCHECK_FAILED',
 ]);
 
 export const remoteErrorSchema = z.object({

@@ -23,7 +23,7 @@ export class ProductionRuntimeService {
     return this.provider.authorize(websiteId, productionSlug, authorizationCode);
   }
 
-  destroyRuntime(websiteId: string): Promise<void> {
-    return this.provider.destroyRuntime(websiteId);
+  destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void> {
+    return this.provider.destroyRuntime(websiteId, releaseIds);
   }
 }

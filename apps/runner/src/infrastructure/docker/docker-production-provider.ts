@@ -15,14 +15,17 @@ import {
 import path from 'node:path';
 import Docker from 'dockerode';
 import { extractProductionReleaseArchive } from '@cloudcrane/pboot-snapshot';
+import { createLogger } from '@cloudcrane/shared';
 import type { RunnerConfig } from '../../config.js';
 import type {
   ProductionDeployInput,
   ProductionProvider,
   ProductionRuntime,
 } from '../../ports/production-provider.js';
+import { ProductionOperationError } from '../../ports/production-operation-error.js';
 
 type CurrentLinkOperations = Pick<typeof import('node:fs/promises'), 'symlink' | 'rename'>;
+const logger = createLogger('runner-production-provider');
 
 export async function switchCurrentRelease(
   productionRoot: string,
@@ -51,6 +54,46 @@ export class DockerProductionProvider implements ProductionProvider {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
+  async reconcileRuntimes(): Promise<{ scanned: number; restored: number; failed: number }> {
+    const containers = await this.docker.listContainers({
+      all: true,
+      filters: JSON.stringify({ label: ['cloudcrane.service=production'] }),
+    });
+    let restored = 0;
+    let failed = 0;
+    for (const item of containers) {
+      const labels = item.Labels ?? {};
+      const websiteId = labels['cloudcrane.website_id'];
+      const productionSlug = labels['cloudcrane.production_slug'];
+      if (!websiteId || !productionSlug) continue;
+      const container = this.docker.getContainer(item.Id);
+      try {
+        let info = await container.inspect();
+        this.assertRuntimeMatches(info, websiteId, productionSlug);
+        if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
+          await container.update({ RestartPolicy: { Name: 'unless-stopped' } });
+          info = await container.inspect();
+        }
+        const release = await this.optionalCurrentRelease(this.root(websiteId));
+        if (!info.State?.Running && release) {
+          await container.start();
+          restored += 1;
+        }
+      } catch (error) {
+        failed += 1;
+        logger.warn(
+          {
+            event: 'production.runtime.reconcile.failed',
+            websiteId,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+          },
+          'production runtime reconciliation failed',
+        );
+      }
+    }
+    return { scanned: containers.length, restored, failed };
+  }
+
   async ensureRuntime(websiteId: string, productionSlug: string): Promise<ProductionRuntime> {
     this.assertId(websiteId);
     this.assertSlug(productionSlug);
@@ -59,7 +102,10 @@ export class DockerProductionProvider implements ProductionProvider {
     const slugPath = path.join(root, '.production-slug');
     if (await this.exists(slugPath)) {
       if ((await readFile(slugPath, 'utf8')) !== productionSlug)
-        throw new Error('PRODUCTION_STATE_CONFLICT: production slug does not match runtime');
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'Production slug does not match the existing runtime',
+        );
     } else {
       await writeFileSecure(slugPath, productionSlug);
     }
@@ -117,6 +163,7 @@ export class DockerProductionProvider implements ProductionProvider {
               '/var/cache/nginx': 'rw,noexec,nosuid,size=16m',
             },
             AutoRemove: false,
+            RestartPolicy: { Name: 'unless-stopped' },
             LogConfig: {
               Type: 'json-file',
               Config: { 'max-size': '10m', 'max-file': '5' },
@@ -134,12 +181,16 @@ export class DockerProductionProvider implements ProductionProvider {
         await network?.remove().catch(() => undefined);
         throw error;
       }
-    } else if (info.State?.Running !== true) {
-      this.assertRuntimeMatches(info, websiteId, productionSlug);
-      await container.start();
-      info = await container.inspect();
     } else {
       this.assertRuntimeMatches(info, websiteId, productionSlug);
+      if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
+        await container.update({ RestartPolicy: { Name: 'unless-stopped' } });
+        info = await container.inspect();
+      }
+      if (info.State?.Running !== true) {
+        await container.start();
+        info = await container.inspect();
+      }
     }
     return this.runtime(
       websiteId,
@@ -157,6 +208,17 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertSlug(input.productionSlug);
     const root = this.root(input.websiteId);
     await this.ensureLayout(root);
+    const currentRelease = await this.optionalCurrentRelease(root);
+    if (currentRelease === input.releaseId) {
+      const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
+      if (!(await this.waitForHealth(runtime.productionPort)))
+        throw new ProductionOperationError(
+          'PRODUCTION_HEALTHCHECK_FAILED',
+          'The requested production release is current but did not pass its health check',
+        );
+      if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
+      return runtime;
+    }
     const archive = this.artifactPath(input.artifactStorageKey);
     const archiveInfo = await lstat(archive);
     if (
@@ -171,13 +233,22 @@ export class DockerProductionProvider implements ProductionProvider {
       'releases',
       `.staging-${input.releaseId}-${Date.now()}`,
     );
-    const previousRelease = await this.optionalCurrentRelease(root);
+    const previousRelease = currentRelease;
     if (input.firstPublish && previousRelease)
-      throw new Error('PRODUCTION_STATE_CONFLICT: first publish cannot replace an active release');
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'First publish cannot replace an active release',
+      );
     if (!input.firstPublish && !previousRelease)
-      throw new Error('PRODUCTION_STATE_CONFLICT: production runtime has no current release');
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production runtime has no current release',
+      );
     if (await this.exists(releaseDirectory))
-      throw new Error('PRODUCTION_STATE_CONFLICT: release directory already exists');
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'The requested release directory already exists',
+      );
 
     const manifest = await extractProductionReleaseArchive({
       archivePath: archive,
@@ -190,7 +261,13 @@ export class DockerProductionProvider implements ProductionProvider {
     try {
       if (manifest.firstPublish !== input.firstPublish)
         throw new Error('production release first-publish flag does not match request');
-      await this.initializePersistentState(root, stagingDirectory, manifest, input.firstPublish);
+      await this.initializePersistentState(
+        root,
+        stagingDirectory,
+        manifest,
+        input.firstPublish,
+        input.releaseId,
+      );
       await this.installSharedLinks(root, stagingDirectory, releaseDirectory);
       await rename(stagingDirectory, releaseDirectory);
       await this.makeReleaseReadOnly(releaseDirectory);
@@ -198,8 +275,25 @@ export class DockerProductionProvider implements ProductionProvider {
       switched = true;
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
       if (!(await this.waitForHealth(runtime.productionPort)))
-        throw new Error('PRODUCTION_HEALTHCHECK_FAILED: production runtime health check failed');
+        throw new ProductionOperationError(
+          'PRODUCTION_HEALTHCHECK_FAILED',
+          'Production runtime health check failed',
+        );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
+      if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
+      await this.collectOldReleases(input.websiteId, input.releaseId, previousRelease).catch(
+        (error: unknown) => {
+          logger.warn(
+            {
+              event: 'production.release.gc.failed',
+              websiteId: input.websiteId,
+              releaseId: input.releaseId,
+              errorType: error instanceof Error ? error.constructor.name : typeof error,
+            },
+            'production release cleanup failed',
+          );
+        },
+      );
       return {
         ...runtime,
         currentReleaseId: input.releaseId,
@@ -216,6 +310,10 @@ export class DockerProductionProvider implements ProductionProvider {
         await this.makeWritable(releaseDirectory).catch(() => undefined);
         await rm(releaseDirectory, { recursive: true, force: true }).catch(() => undefined);
       }
+      if (input.firstPublish && !previousRelease)
+        await this.rollbackInitialPersistentState(input.websiteId, root, input.releaseId).catch(
+          () => undefined,
+        );
       throw error;
     }
   }
@@ -251,6 +349,7 @@ export class DockerProductionProvider implements ProductionProvider {
           productionPort: null,
           containerRef: null,
           currentReleaseId,
+          authorized: false,
         };
       throw error;
     }
@@ -331,7 +430,7 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  async destroyRuntime(websiteId: string): Promise<void> {
+  async destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void> {
     this.assertId(websiteId);
     const container = this.docker.getContainer(this.containerName(websiteId));
     try {
@@ -347,10 +446,186 @@ export class DockerProductionProvider implements ProductionProvider {
       if (!this.isNotFound(error)) throw error;
     }
     const root = this.root(websiteId);
+    const ownedReleaseIds = new Set(
+      (
+        await readdir(path.join(root, 'releases')).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return [];
+          throw error;
+        })
+      ).filter((entry) => isReleaseId(entry)),
+    );
     if (await this.exists(root)) {
       await this.restoreHostOwnership(websiteId, root);
       await this.makeWritable(root);
       await rm(root, { recursive: true, force: true });
+    }
+    for (const releaseId of new Set(releaseIds)) {
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          releaseId,
+        )
+      )
+        throw new Error('invalid release id for artifact cleanup');
+      const artifact = this.artifactPath(`release-${releaseId}.zip`);
+      const metadata = await this.readArtifactMetadata(`${artifact}.meta.json`);
+      if (!ownedReleaseIds.has(releaseId) && metadata?.websiteId !== websiteId) continue;
+      await rm(artifact, { force: true });
+      await rm(`${artifact}.meta.json`, { force: true });
+    }
+    await this.removeWebsiteArtifacts(websiteId);
+  }
+
+  private async completeInitialPersistentState(root: string, releaseId: string): Promise<void> {
+    const shared = path.join(root, 'shared');
+    const initializationMarker = path.join(shared, '.initializing-release');
+    const owner = (await readFile(initializationMarker, 'utf8').catch(() => '')).trim();
+    if (!owner && (await this.exists(path.join(shared, '.ownership-v1')))) return;
+    if (owner !== releaseId)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'First publish no longer owns the persistent-state initialization',
+      );
+    await writeFileSecure(path.join(shared, '.ownership-v1'), 'v1\n');
+    await rm(initializationMarker);
+  }
+
+  private async rollbackInitialPersistentState(
+    websiteId: string,
+    root: string,
+    releaseId: string,
+  ): Promise<void> {
+    const shared = path.join(root, 'shared');
+    const marker = path.join(shared, '.initializing-release');
+    if ((await readFile(marker, 'utf8').catch(() => '')).trim() !== releaseId) return;
+    if (await this.optionalCurrentRelease(root)) return;
+    await this.stopRuntimeIfRunning(websiteId);
+    await this.clearInitialPersistentState(root);
+    await rm(marker, { force: true });
+  }
+
+  private async clearInitialPersistentState(root: string): Promise<void> {
+    const shared = path.join(root, 'shared');
+    for (const directory of ['data', 'upload', 'config']) {
+      const target = path.join(shared, directory);
+      await mkdir(target, { recursive: true });
+      for (const entry of await readdir(target))
+        await rm(path.join(target, entry), { recursive: true, force: true });
+    }
+    await rm(path.join(shared, '.ownership-v1'), { force: true });
+  }
+
+  private async stopRuntimeIfRunning(websiteId: string): Promise<void> {
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    try {
+      const info = await container.inspect();
+      if (info.State?.Running) await container.stop();
+    } catch (error) {
+      if (!this.isNotFound(error)) throw error;
+    }
+  }
+
+  private async startRuntime(websiteId: string): Promise<void> {
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    const info = await container.inspect();
+    if (!info.State?.Running) await container.start();
+  }
+
+  private async collectOldReleases(
+    websiteId: string,
+    currentReleaseId: string,
+    previousReleaseId: string | null,
+  ): Promise<void> {
+    const root = this.root(websiteId);
+    const releaseRoot = path.join(root, 'releases');
+    const releases = await readdir(releaseRoot, { withFileTypes: true });
+    const directories: Array<{ id: string; modifiedAt: number }> = [];
+    for (const entry of releases) {
+      if (!entry.isDirectory() || !isReleaseId(entry.name)) continue;
+      const info = await lstat(path.join(releaseRoot, entry.name));
+      directories.push({ id: entry.name, modifiedAt: info.mtimeMs });
+    }
+    directories.sort((left, right) => right.modifiedAt - left.modifiedAt);
+    const keep = new Set([
+      currentReleaseId,
+      ...(previousReleaseId ? [previousReleaseId] : []),
+      ...directories.slice(0, this.config.productionKeepReleases).map((release) => release.id),
+    ]);
+    for (const release of directories) {
+      if (keep.has(release.id)) continue;
+      const directory = path.join(releaseRoot, release.id);
+      await this.makeWritable(directory);
+      await rm(directory, { recursive: true, force: true });
+      const artifact = this.artifactPath(`release-${release.id}.zip`);
+      const metadata = await this.readArtifactMetadata(`${artifact}.meta.json`);
+      if (!metadata || (metadata.websiteId === websiteId && metadata.releaseId === release.id)) {
+        await rm(artifact, { force: true });
+        await rm(`${artifact}.meta.json`, { force: true });
+      }
+    }
+    await this.collectExpiredWebsiteArtifacts(websiteId, keep);
+  }
+
+  private async collectExpiredWebsiteArtifacts(
+    websiteId: string,
+    keep: Set<string>,
+  ): Promise<void> {
+    const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
+    const entries = await readdir(artifactRoot).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    const now = Date.now();
+    const gracePeriodMs = 7 * 24 * 60 * 60 * 1000;
+    for (const entry of entries) {
+      if (!/^release-[0-9a-f-]{36}\.zip\.meta\.json$/i.test(entry)) continue;
+      const metadataPath = path.join(artifactRoot, entry);
+      const metadata = await this.readArtifactMetadata(metadataPath);
+      if (!metadata || metadata.websiteId !== websiteId || keep.has(metadata.releaseId)) continue;
+      if (now - Date.parse(metadata.createdAt) < gracePeriodMs) continue;
+      const artifact = this.artifactPath(`release-${metadata.releaseId}.zip`);
+      await rm(artifact, { force: true });
+      await rm(metadataPath, { force: true });
+    }
+  }
+
+  private async removeWebsiteArtifacts(websiteId: string): Promise<void> {
+    const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
+    const entries = await readdir(artifactRoot).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const entry of entries) {
+      if (!/^release-[0-9a-f-]{36}\.zip\.meta\.json$/i.test(entry)) continue;
+      const metadataPath = path.join(artifactRoot, entry);
+      const metadata = await this.readArtifactMetadata(metadataPath);
+      if (metadata?.websiteId !== websiteId) continue;
+      await rm(this.artifactPath(`release-${metadata.releaseId}.zip`), { force: true });
+      await rm(metadataPath, { force: true });
+    }
+  }
+
+  private async readArtifactMetadata(
+    filename: string,
+  ): Promise<{ websiteId: string; releaseId: string; createdAt: string } | undefined> {
+    try {
+      const value: unknown = JSON.parse(await readFile(filename, 'utf8'));
+      if (!value || typeof value !== 'object') return undefined;
+      const metadata = value as Record<string, unknown>;
+      if (
+        typeof metadata.websiteId !== 'string' ||
+        typeof metadata.releaseId !== 'string' ||
+        !isReleaseId(metadata.releaseId) ||
+        typeof metadata.createdAt !== 'string' ||
+        !Number.isFinite(Date.parse(metadata.createdAt))
+      )
+        return undefined;
+      return {
+        websiteId: metadata.websiteId,
+        releaseId: metadata.releaseId,
+        createdAt: metadata.createdAt,
+      };
+    } catch {
+      return undefined;
     }
   }
 
@@ -371,6 +646,7 @@ export class DockerProductionProvider implements ProductionProvider {
     websiteId: string,
     root: string,
     force = false,
+    persistMarker = true,
   ): Promise<void> {
     const marker = path.join(root, 'shared', '.ownership-v1');
     if (!force && (await this.exists(marker))) return;
@@ -404,7 +680,7 @@ export class DockerProductionProvider implements ProductionProvider {
       const result = await helper.wait();
       if (result.StatusCode !== 0)
         throw new Error(`Production shared ownership setup failed (${result.StatusCode})`);
-      if (!(await this.exists(marker))) await writeFileSecure(marker, 'v1\n');
+      if (persistMarker && !(await this.exists(marker))) await writeFileSecure(marker, 'v1\n');
     } finally {
       await helper.remove({ force: true }).catch(() => undefined);
     }
@@ -446,22 +722,47 @@ export class DockerProductionProvider implements ProductionProvider {
     releaseDirectory: string,
     manifest: Awaited<ReturnType<typeof extractProductionReleaseArchive>>,
     firstPublish: boolean,
+    releaseId: string,
   ): Promise<void> {
     const shared = path.join(root, 'shared');
     const database = path.join(shared, 'data', 'pbootcms.db');
     const initialDatabase = path.join(releaseDirectory, 'data', 'pbootcms.db');
     if (firstPublish) {
-      if (await this.exists(path.join(shared, '.ownership-v1')))
-        throw new Error(
-          'PRODUCTION_STATE_CONFLICT: shared production state is already provisioned',
+      let restartingRuntime = false;
+      const ownershipMarker = path.join(shared, '.ownership-v1');
+      const initializationMarker = path.join(shared, '.initializing-release');
+      if (await this.exists(ownershipMarker))
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'Shared production state is already provisioned',
         );
+      if (await this.exists(initializationMarker)) {
+        const owner = (await readFile(initializationMarker, 'utf8')).trim();
+        if (owner !== releaseId)
+          throw new ProductionOperationError(
+            'PRODUCTION_STATE_CONFLICT',
+            'Shared production state is owned by another initialization',
+          );
+        await this.stopRuntimeIfRunning(manifest.sourceWebsiteId);
+        restartingRuntime = true;
+        await this.clearInitialPersistentState(root);
+      } else {
+        if (
+          (await readdir(path.join(shared, 'data'))).length > 0 ||
+          (await readdir(path.join(shared, 'upload'))).length > 0 ||
+          (await readdir(path.join(shared, 'config'))).length > 0
+        )
+          throw new ProductionOperationError(
+            'PRODUCTION_STATE_CONFLICT',
+            'Persistent production state already exists',
+          );
+        await writeFileSecure(initializationMarker, `${releaseId}\n`);
+      }
       if (await this.exists(database))
-        throw new Error('PRODUCTION_STATE_CONFLICT: persistent database already exists');
-      if (
-        (await readdir(path.join(shared, 'upload'))).length > 0 ||
-        (await readdir(path.join(shared, 'config'))).length > 0
-      )
-        throw new Error('PRODUCTION_STATE_CONFLICT: persistent production files already exist');
+        throw new ProductionOperationError(
+          'PRODUCTION_STATE_CONFLICT',
+          'Persistent production database already exists',
+        );
       if (!manifest.files.entries.some((entry) => entry.path === 'data/pbootcms.db'))
         throw new Error('first publish archive is missing the SQLite database snapshot');
       const databaseInfo = await lstat(initialDatabase);
@@ -489,9 +790,13 @@ export class DockerProductionProvider implements ProductionProvider {
         constants.COPYFILE_EXCL,
       );
       await writeFileSecure(path.join(shared, 'config', 'database.php'), renderedDatabaseConfig);
-      await this.provisionSharedOwnership(manifest.sourceWebsiteId, root, true);
+      await this.provisionSharedOwnership(manifest.sourceWebsiteId, root, true, false);
+      if (restartingRuntime) await this.startRuntime(manifest.sourceWebsiteId);
     } else if (!(await this.exists(path.join(shared, '.ownership-v1')))) {
-      throw new Error('PRODUCTION_STATE_CONFLICT: production shared state is not provisioned');
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production shared state is not provisioned',
+      );
     }
   }
 
@@ -623,6 +928,7 @@ export class DockerProductionProvider implements ProductionProvider {
       productionPort: binding?.HostPort ? Number(binding.HostPort) : null,
       containerRef,
       currentReleaseId: currentReleaseId ?? null,
+      authorized,
     };
   }
 
@@ -652,7 +958,10 @@ export class DockerProductionProvider implements ProductionProvider {
       ) ||
       binds.some((bind) => bind.includes('docker.sock'))
     )
-      throw new Error('PRODUCTION_STATE_CONFLICT: runtime security configuration drifted');
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production runtime security configuration drifted',
+      );
   }
 
   private async healthCheck(port: number | null): Promise<boolean> {
@@ -686,22 +995,17 @@ export class DockerProductionProvider implements ProductionProvider {
   }
 
   private async isAuthorizationComplete(websiteId: string): Promise<boolean> {
-    const container = this.docker.getContainer(this.containerName(websiteId));
-    try {
-      const command = await container.exec({
-        Cmd: ['test', '-f', '/site/shared/runtime/.cloudcrane-authorization-v1'],
-        User: '1000:1000',
-        AttachStdout: false,
-        AttachStderr: false,
-      });
-      const stream = await command.start({ hijack: false, stdin: false });
-      await readStream(stream);
-      const result = await command.inspect();
-      return result.ExitCode === 0;
-    } catch (error) {
-      if (this.isNotFound(error)) return false;
+    const marker = path.join(
+      this.root(websiteId),
+      'shared',
+      'runtime',
+      '.cloudcrane-authorization-v1',
+    );
+    const info = await lstat(marker).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return undefined;
       throw error;
-    }
+    });
+    return Boolean(info?.isFile() && !info.isSymbolicLink());
   }
 
   private async waitForHealth(port: number | null): Promise<boolean> {
@@ -794,6 +1098,10 @@ async function writeFileSecure(filename: string, contents: string): Promise<void
   } finally {
     await file.close();
   }
+}
+
+function isReleaseId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 async function readStream(stream: Readable): Promise<string> {

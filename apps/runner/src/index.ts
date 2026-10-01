@@ -14,6 +14,14 @@ const observability = startObservability(loadTracingConfig('runner'));
 const config = loadRunnerConfig();
 const provider = new DockerWorkspaceProvider(config);
 const productionProvider = new DockerProductionProvider(config);
+const reconciliation = await productionProvider.reconcileRuntimes();
+logger.info(
+  {
+    event: 'production.runtime.reconcile.completed',
+    ...reconciliation,
+  },
+  'production runtime reconciliation completed',
+);
 export const workspaceRuntimeService = new WorkspaceRuntimeService(provider);
 const productionExecutor = new ProductionReleaseOperationExecutor(
   new ProductionReleaseStager(workspaceRuntimeService, config),

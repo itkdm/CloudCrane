@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -107,15 +107,23 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       WORKSPACE_MEMORY_LIMIT_BYTES: '268435456',
       WORKSPACE_PIDS_LIMIT: '64',
     });
-    const provider = new DockerProductionProvider(config, docker);
+    let failInitialHealthCheck = true;
+    const fetcher: typeof fetch = async (input, init) => {
+      if (failInitialHealthCheck) {
+        failInitialHealthCheck = false;
+        return new Response('unavailable', { status: 503 });
+      }
+      return fetch(input, init);
+    };
+    const provider = new DockerProductionProvider(config, docker, fetcher);
     const firstReleaseId = '00000000-0000-4000-8000-000000000072';
     const secondReleaseId = '00000000-0000-4000-8000-000000000073';
     let runtimeCreated = false;
     let runtimeContainerRef: string | undefined;
 
-    const writeRelease = async (releaseId: string, firstPublish: boolean) => {
+    const buildRelease = async (releaseId: string, firstPublish: boolean) => {
       const archivePath = path.join(artifacts, `release-${releaseId}.zip`);
-      const result = await buildProductionReleaseArchive({
+      return buildProductionReleaseArchive({
         workspaceRoot: workspace,
         managedBaseRoot: managedBase,
         sourceWebsiteId: websiteId,
@@ -127,16 +135,23 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         releaseId,
         outputPath: archivePath,
       });
-      return provider.deployRelease({
+    };
+    const deployRelease = async (
+      releaseId: string,
+      firstPublish: boolean,
+      artifact: Awaited<ReturnType<typeof buildProductionReleaseArchive>>,
+    ) =>
+      provider.deployRelease({
         websiteId,
         releaseId,
         productionSlug,
         artifactStorageKey: `release-${releaseId}.zip`,
-        artifactSha256: result.sha256,
-        artifactSize: result.size,
+        artifactSha256: artifact.sha256,
+        artifactSize: artifact.size,
         firstPublish,
       });
-    };
+    const writeRelease = async (releaseId: string, firstPublish: boolean) =>
+      deployRelease(releaseId, firstPublish, await buildRelease(releaseId, firstPublish));
 
     try {
       for (const directory of [
@@ -200,7 +215,15 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const runtime = await provider.ensureRuntime(websiteId, productionSlug);
       runtimeCreated = true;
       runtimeContainerRef = runtime.containerRef ?? undefined;
-      const first = await writeRelease(firstReleaseId, true);
+      const firstArtifact = await buildRelease(firstReleaseId, true);
+      await expect(deployRelease(firstReleaseId, true, firstArtifact)).rejects.toMatchObject({
+        code: 'PRODUCTION_HEALTHCHECK_FAILED',
+      });
+      await expect(
+        lstat(path.join(productionRoot, websiteId, 'shared', 'data', 'pbootcms.db')),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+      await provider.ensureRuntime(websiteId, productionSlug);
+      const first = await deployRelease(firstReleaseId, true, firstArtifact);
       expect(first).toMatchObject({
         status: 'authorization_required',
         currentReleaseId: firstReleaseId,
@@ -295,7 +318,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       }
       throw error;
     } finally {
-      if (runtimeCreated) await provider.destroyRuntime(websiteId).catch(() => undefined);
+      if (runtimeCreated) await provider.destroyRuntime(websiteId, []).catch(() => undefined);
       await rm(base, { recursive: true, force: true });
     }
   }, 180_000);

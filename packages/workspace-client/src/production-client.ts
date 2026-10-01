@@ -91,8 +91,8 @@ export class ProductionClient {
     return this.call('production.authorize', payload, options);
   }
 
-  destroy(options?: ProductionRequestOptions) {
-    return this.call('production.destroy', {}, options);
+  destroy(options?: ProductionRequestOptions, releaseIds: string[] = []) {
+    return this.call('production.destroy', { releaseIds }, options);
   }
 
   private async call<K extends ProductionOperationName>(

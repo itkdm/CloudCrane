@@ -10,6 +10,7 @@ export type RunnerConfig = {
   productionHostSuffix?: string;
   productionImage: string;
   releaseArtifactRoot: string;
+  productionKeepReleases: number;
   workspaceImage: string;
   daemonPort: number;
   cpuLimit: number;
@@ -48,6 +49,12 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
       (env.NODE_ENV === 'production'
         ? '/var/lib/cloudcrane/release-artifacts'
         : '.cloudcrane-data/releases'),
+    productionKeepReleases: z.coerce
+      .number()
+      .int()
+      .min(2)
+      .max(100)
+      .parse(env.PRODUCTION_KEEP_RELEASES ?? '5'),
     workspaceImage: env.WORKSPACE_IMAGE ?? 'website-workspace-pboot:v1',
     daemonPort: 7070,
     cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),
