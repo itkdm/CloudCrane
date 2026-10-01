@@ -2,11 +2,10 @@
 declare(strict_types=1);
 
 $releaseRoot = '/site/current';
-$requiredDirectories = [
-    $releaseRoot . '/config',
-    $releaseRoot . '/data',
-    $releaseRoot . '/runtime',
-    $releaseRoot . '/static/upload',
+$requiredWritableDirectories = [
+    'data' => $releaseRoot . '/data',
+    'runtime' => $releaseRoot . '/runtime',
+    'upload' => $releaseRoot . '/static/upload',
 ];
 
 function healthProbeUnavailable(string $reason): never
@@ -20,9 +19,16 @@ if (!is_file($releaseRoot . '/index.php') || !is_readable($releaseRoot . '/index
     healthProbeUnavailable('release_entry');
 }
 
-foreach ($requiredDirectories as $directory) {
+foreach ($requiredWritableDirectories as $name => $directory) {
     if (!is_dir($directory) || !is_writable($directory)) {
-        healthProbeUnavailable('shared_directory');
+        healthProbeUnavailable('shared_directory_' . $name);
+    }
+}
+
+foreach (['config.php', 'database.php'] as $configFile) {
+    $path = $releaseRoot . '/config/' . $configFile;
+    if (!is_file($path) || !is_readable($path)) {
+        healthProbeUnavailable('config_file');
     }
 }
 
