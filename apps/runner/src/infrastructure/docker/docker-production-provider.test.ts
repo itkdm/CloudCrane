@@ -42,6 +42,98 @@ describe('production current release switching', () => {
 });
 
 describe('DockerProductionProvider', () => {
+  it('health-checks the public canonical host while Production authorization is pending', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-health-host-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const currentReleaseId = 'ded2a9d3-b4bd-4df9-9162-95b1a7b3ac53';
+    const runtimeRoot = path.join(base, 'production', websiteId);
+    await mkdir(path.join(runtimeRoot, 'releases', currentReleaseId), { recursive: true });
+    await mkdir(path.join(runtimeRoot, 'shared'), { recursive: true });
+    await symlink(
+      path.join('releases', currentReleaseId),
+      path.join(runtimeRoot, 'current'),
+      'dir',
+    );
+
+    const container = {
+      id: 'container-id',
+      inspect: vi.fn(async () => ({
+        Id: 'container-id',
+        State: { Running: true },
+        Config: {
+          Labels: {
+            'cloudcrane.service': 'production',
+            'cloudcrane.website_id': websiteId,
+            'cloudcrane.production_slug': 'production-website',
+          },
+          Image: 'cloudcrane-production-pboot:test',
+          User: '1000:1000',
+          WorkingDir: '/site',
+        },
+        HostConfig: {
+          RestartPolicy: { Name: 'unless-stopped' },
+          PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '43127' }] },
+          Binds: ['/production:/site:ro'],
+          Privileged: false,
+          ReadonlyRootfs: true,
+          SecurityOpt: ['no-new-privileges:true'],
+          CapDrop: ['ALL'],
+          PidsLimit: 64,
+        },
+        NetworkSettings: { Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '43127' }] } },
+      })),
+    };
+    const docker = { getContainer: vi.fn(() => container) } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: 'cloudcrane-production-pboot:test',
+      workspaceImage: 'website-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      return new Response('authorization pending', {
+        status:
+          (init?.headers as Record<string, string> | undefined)?.host ===
+          'production-website.sites.example.com'
+            ? 403
+            : 404,
+      });
+    });
+
+    try {
+      const runtime = await new DockerProductionProvider(config, docker, fetcher).ensureRuntime(
+        websiteId,
+        'production-website',
+      );
+
+      expect(runtime).toMatchObject({
+        status: 'authorization_required',
+        currentReleaseId,
+        productionPort: 43127,
+      });
+      expect(fetcher).toHaveBeenCalledWith(
+        'http://127.0.0.1:43127/',
+        expect.objectContaining({
+          headers: {
+            host: 'production-website.sites.example.com',
+            'x-forwarded-host': 'production-website.sites.example.com',
+            'x-forwarded-proto': 'https',
+          },
+        }),
+      );
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   it('creates a separate, restricted runtime with a loopback-only random port', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-provider-'));
     const inspect = vi.fn(async () => ({

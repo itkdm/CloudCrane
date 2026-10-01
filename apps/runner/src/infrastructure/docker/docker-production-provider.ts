@@ -219,7 +219,7 @@ export class DockerProductionProvider implements ProductionProvider {
       );
     if (currentRelease === input.releaseId) {
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
-      if (!(await this.waitForHealth(runtime.productionPort)))
+      if (!(await this.waitForHealth(runtime.productionPort, input.productionSlug)))
         throw new ProductionOperationError(
           'PRODUCTION_HEALTHCHECK_FAILED',
           'The requested production release is current but did not pass its health check',
@@ -288,7 +288,7 @@ export class DockerProductionProvider implements ProductionProvider {
       await switchCurrentRelease(root, input.releaseId);
       switched = true;
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
-      if (!(await this.waitForHealth(runtime.productionPort)))
+      if (!(await this.waitForHealth(runtime.productionPort, input.productionSlug)))
         throw new ProductionOperationError(
           'PRODUCTION_HEALTHCHECK_FAILED',
           'Production runtime health check failed',
@@ -379,9 +379,7 @@ export class DockerProductionProvider implements ProductionProvider {
     this.assertSlug(productionSlug);
     if (!authorizationCode.trim() || authorizationCode.length > 2048)
       throw new Error('INVALID_AUTHORIZATION_CODE');
-    const hostSuffix = this.config.productionHostSuffix;
-    if (!hostSuffix) throw new Error('PRODUCTION_HOST_SUFFIX is not configured');
-    const canonicalHost = `${productionSlug}.${hostSuffix}`;
+    const canonicalHost = this.canonicalHost(productionSlug);
     const container = this.docker.getContainer(this.containerName(websiteId));
     let info: Docker.ContainerInspectInfo;
     try {
@@ -991,10 +989,15 @@ export class DockerProductionProvider implements ProductionProvider {
       );
   }
 
-  private async healthCheck(port: number | null): Promise<boolean> {
+  private async healthCheck(port: number | null, canonicalHost: string): Promise<boolean> {
     if (!port) return false;
     try {
       const response = await this.fetcher(`http://127.0.0.1:${port}/`, {
+        headers: {
+          host: canonicalHost,
+          'x-forwarded-host': canonicalHost,
+          'x-forwarded-proto': 'https',
+        },
         signal: AbortSignal.timeout(5_000),
         redirect: 'manual',
       });
@@ -1025,6 +1028,12 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
+  private canonicalHost(productionSlug: string): string {
+    const hostSuffix = this.config.productionHostSuffix;
+    if (!hostSuffix) throw new Error('PRODUCTION_HOST_SUFFIX is not configured');
+    return `${productionSlug}.${hostSuffix}`;
+  }
+
   private async isAuthorizationComplete(websiteId: string): Promise<boolean> {
     const marker = path.join(
       this.root(websiteId),
@@ -1039,9 +1048,10 @@ export class DockerProductionProvider implements ProductionProvider {
     return Boolean(info?.isFile() && !info.isSymbolicLink());
   }
 
-  private async waitForHealth(port: number | null): Promise<boolean> {
+  private async waitForHealth(port: number | null, productionSlug: string): Promise<boolean> {
+    const canonicalHost = this.canonicalHost(productionSlug);
     for (let attempt = 0; attempt < 40; attempt += 1) {
-      if (await this.healthCheck(port)) return true;
+      if (await this.healthCheck(port, canonicalHost)) return true;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     return false;
@@ -1126,7 +1136,7 @@ export class DockerProductionProvider implements ProductionProvider {
     }
     const binding = info.NetworkSettings?.Ports?.['8080/tcp']?.[0];
     const port = binding?.HostPort ? Number(binding.HostPort) : null;
-    if (current && (await this.waitForHealth(port))) {
+    if (current && (await this.waitForHealth(port, productionSlug))) {
       const initializingRelease = (
         await readFile(path.join(root, 'shared', '.initializing-release'), 'utf8').catch(() => '')
       ).trim();
@@ -1142,7 +1152,7 @@ export class DockerProductionProvider implements ProductionProvider {
 
     if (verified) {
       if (current !== verified) await switchCurrentRelease(root, verified);
-      if (!(await this.waitForHealth(port)))
+      if (!(await this.waitForHealth(port, productionSlug)))
         throw new ProductionOperationError(
           'PRODUCTION_HEALTHCHECK_FAILED',
           'The previously verified production release did not recover',
