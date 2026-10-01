@@ -311,9 +311,7 @@ export class DockerProductionProvider implements ProductionProvider {
         await rm(releaseDirectory, { recursive: true, force: true }).catch(() => undefined);
       }
       if (input.firstPublish && !previousRelease)
-        await this.rollbackInitialPersistentState(input.websiteId, root, input.releaseId).catch(
-          () => undefined,
-        );
+        await this.rollbackInitialPersistentState(input.websiteId, root, input.releaseId);
       throw error;
     }
   }
