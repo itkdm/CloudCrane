@@ -101,8 +101,8 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 ### 当前已知实现
 
-- `.github/workflows/ci.yml` 配置了 push-to-main 和 Pull Request CI；截至 2026-10-01，CI `#410` 对 `661f87d` 的质量、数据库迁移和 Docker 集成作业全绿。
-- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已配置；Deploy production `#7` 已部署 `661f87d`，服务器 SHA 文件与提交一致，公开 Web 和 Agent 健康入口返回 200。
+- `.github/workflows/ci.yml` 配置了 push-to-main 和 Pull Request CI；截至 2026-10-01，CI `#452` 对 `e37ef02d` 的质量、数据库迁移、Workspace/Production 镜像构建、Production Docker 集成和远程执行集成全部通过。
+- `.github/workflows/deploy-production.yml` 在 CI 成功的 `main` push 后部署对应 SHA，不部署 PR，也不部署 CI 失败的提交。仓库 Secret `CLOUDCRANE_DEPLOY_SSH_KEY` 已配置；Deploy production `#51` 已成功部署 `e37ef02d`，公开认证和 Agent 健康入口检查通过。部署脚本仅在配置 `PRODUCTION_HOST_SUFFIX` 时于 ECS 构建 Production 镜像；该构建条件不表示 Website Production 公网入口已配置。
 - [生产部署手册](cloudcrane-production-deploy.md)仍保留人工 SSH 运维/恢复指引；日常发布由上述 CD 自动执行。
 - 2026-09-30 只读检查确认生产主机 `xunmao-sg219` 使用 tmux 会话 `cloudcrane-production` 管理 `web`、`agent`、`gateway`、`runner` 和 `preview` 窗口；对应 systemd unit 当前均 inactive。HTTP 健康检查返回 200，Nginx 配置检查通过。
 - 当前 CloudCrane 平台公网入口确定使用 Nginx：主机 Nginx active、Caddy inactive；Nginx 转发 `app.itkdm.com` 和 `*.preview.itkdm.com`，配置包含 WebSocket Upgrade 头。证书覆盖这两个域名，当前有效至 2026-12-17；但 Certbot renewal 配置使用 `manual` authenticator，未配置 auth hook。timer active 不等于无人值守续期已验证，需在证书到期前修复并演练续期。
@@ -115,18 +115,18 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 ## 尚待解决的文档冲突与部署问题
 
 - **生产入口已定为 Nginx**：平台入口和 Website Production Gateway 使用不同 Nginx vhost。Production Gateway、wildcard Nginx 配置模板和 systemd unit 已进入仓库；公网 wildcard 域名、DNS、TLS 证书、Nginx 加载和生产进程仍未配置/验收，因此模板不能视为线上能力已启用。
-- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布；`.github/workflows/deploy-production.yml` 发布的是 CloudCrane 平台自身。Production Publish V1 已实现数据库 runtime/release、manifest/ZIP、安全解压、Production operation dispatch、Runner Docker provider、发布/状态/授权 API 和 Settings UI。当前仍有三个上线门槛：下一次 GitHub Docker integration 必须通过（上一轮发现的 Linux 文件权限问题已修复但未复验）、Production image 必须随 CD 部署到 ECS Runner、wildcard 域名/DNS/TLS/Nginx 必须实际配置。功能不能当作已在线端到端验收。
+- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布；`.github/workflows/deploy-production.yml` 发布的是 CloudCrane 平台自身。Production Publish V1 已实现数据库 runtime/release、manifest/ZIP、安全解压、Production operation dispatch、Runner Docker provider、发布/状态/授权 API 和 Settings UI。CI `#452` 的两个 Docker 镜像构建与 Production 发布集成测试已通过；CD `#51` 已部署平台提交 `e37ef02d` 并通过公网健康检查。随后用线上专用账号打开 `CloudCrane Production E2E`（PbootCMS 显示 Authorized、Ready），点击发布后收到“正式网站入口尚未配置”，没有创建 Production release。故真实授权站点的 Production 发布尚未端到端完成；当前已实测的外部阻塞是 Production 入口配置。wildcard 域名/DNS/TLS/Nginx 配置和实际生产进程仍需单独核实/启用。CI 中真实 PbootCMS 使用每次变化的随机域名且没有对应官方授权码，只能验证授权拦截和数据库/文件/容器路径行为；获授权后的页面和 Release 切换由合成 Pboot 夹具覆盖，不等同于真实授权站点验收。
 - **Workspace egress 已核实**：2026-10-01 生产主机上的 Workspace 网络为 `bridge` 且 `internal=false`，`DOCKER-USER` 没有自定义规则，UFW inactive；从运行中的 Workspace 请求 `https://example.com` 得到 HTTP 200，因此至少公网 HTTPS 可达，未配置域名级 egress allowlist。Workspace 使用独立网络、容器以非 root 用户运行且未挂载 Docker socket，降低了其他风险，但不等于出站过滤。对 `100.100.100.200:80` 的主机和容器 TCP 探测均超时；没有找到显式阻断规则，因此不能据此证明 ECS metadata 已被策略封锁。Tech-02 允许 V1 按需使用公网，但明确要求阻断 metadata；这台主机目前没有可核实的显式 metadata deny 规则，应作为安全整改项。
 - **数据库回滚边界**：部署脚本在迁移前生成 PostgreSQL custom-format 备份，并在健康检查失败时尝试恢复上一版应用；它不会自动恢复数据库，以免删除部署后产生的新数据。Schema migration 必须保持旧版本可兼容，恢复数据库需按运维手册人工评估和执行。
 - **生产 Compose 配置管理**：实际的 `docker/compose/docker-compose.server.yml` 含内嵌 PostgreSQL 密码，只应留在服务器并由 `.gitignore` 排除，不能提交真实文件。仓库提供 `docker-compose.server.example.yml` 与 `postgres.env.example` 作为无密钥模板；建议后续将当前内嵌密码协调迁移到权限为 600 的 `docker/compose/postgres.env`。现有数据库密码迁移必须同时处理 PostgreSQL 角色和应用连接配置，不能只改 Compose 环境变量。
 
 ## 当前验收能力限制
 
-- DEVTOOLS MCP 不在本轮可用工具中；本轮使用 Codex 内置浏览器只读检查了正式首页，没有登录或修改数据。约 910px 窄视口截图可见水平滚动条，需另行确认响应式布局。
+- DEVTOOLS MCP 不在本轮可用工具中；使用 Codex 内置浏览器登录专用 E2E 账号并检查 Production 发布设置，页面显示 PbootCMS Authorized、网站 Ready；触发发布后被“正式网站入口尚未配置”拒绝，未创建发布。此前正式首页约 910px 窄视口截图可见水平滚动条，响应式表现仍需专项确认。
 - 本次检查时本机 `3000`、`3001`、`15432`、`4101`、`4102`、`4103` 没有监听，SSH 隧道未建立；本机 `5432` 有 PostgreSQL 进程监听，但本轮没有连接或检查其中的数据。生产服务器 SSH 本身可连接。
 - 本机 Docker CLI 不可用，所以本轮没有启动 Compose PostgreSQL、Workspace 容器或真实本地全栈，也没有执行数据库迁移/集成测试。
-- Production Docker CI 会使用固定提交的 PbootCMS 3.2.26 启动真实 Workspace 和 Production 镜像。CI 的 Production 端口和访问 IP 每次随机变化，且 CI 不持有可用于该临时域名的官方 Pboot 授权码，因此真实 Pboot 首页应返回“未匹配到本域名有效授权码”并保持 `authorization_required`；这不代表 PHP、SQLite 或镜像启动失败。CI 仍验证 Pboot 数据库、生产 DB 路径、资源和敏感路径规则，以及后续 Release 对持久数据的保留。使用合成 Pboot 夹具验证授权后页面、授权状态及 Release 切换。没有正式授权码时，不把真实 Pboot 首页/后台页面验收写成通过；需要对稳定且已授权域名做单独验收。
-- 本轮通过 CI-only 占位环境完成 `pnpm build` 和 22 条 migration lineage 检查；Build 未连接本机数据库。本机质量检查可验证代码本身，但不能取代远程数据库、Workspace、Runner、Preview 或线上浏览器链路的验收。
+- Production Docker CI 使用固定提交的 PbootCMS 3.2.26 启动真实 Workspace 和 Production 镜像。CI 的 Production 端口和访问 IP 每次随机变化，且 CI 不持有可用于该临时域名的官方 Pboot 授权码，因此真实 Pboot 首页应返回“未匹配到本域名有效授权码”并保持 `authorization_required`；这不代表 PHP、SQLite 或镜像启动失败。CI `#452` 已验证真实镜像构建、Pboot 数据库、生产 DB 路径、资源和敏感路径规则，以及第二个 Release 对持久数据的保留。合成 Pboot 夹具验证授权后页面、授权状态及 Release 切换。没有正式授权码时，不把真实 Pboot 首页/后台页面验收写成通过；需要对稳定且已授权域名做单独验收。
+- CI `#452` 通过 `pnpm build` 和 23 条 migration lineage 检查；本机没有启动 Docker 全栈，也没有连接本机数据库。该轮还通过线上浏览器对真实发布入口做了可见流程检查，错误提示确认入口配置是当前门槛；这没有验证授权 Pboot 正式页面或已发布 Production 站点。
 - Next.js build 在配置收集阶段会导入数据库和认证模块，因此本机缺少 `DATABASE_URL` 时会报 `DATABASE_URL is required`，缺少/过短的 `BETTER_AUTH_SECRET` 时会报认证密钥配置错误；这些是构建环境初始化错误，不代表数据库连接或认证服务失败。本机构建可仅对当前进程设置指向未监听回环端口的占位 PostgreSQL URL（例如 `postgresql://cloudcrane:cloudcrane@127.0.0.1:65432/cloudcrane`）和至少 32 字符的非生产占位 `BETTER_AUTH_SECRET`，再运行 `pnpm build`。构建不会访问该数据库端口或读写数据库；不要用这些占位值验证数据库、网站列表或远程服务状态。GitHub CI 使用隔离的临时 PostgreSQL 与 CI-only 密钥。
 
 这些是本次检查环境的事实，不应复制成永久服务器配置结论。每次验收前重新检查。
