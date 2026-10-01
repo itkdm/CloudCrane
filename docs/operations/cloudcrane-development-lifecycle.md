@@ -131,3 +131,9 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 - Next.js build 在配置收集阶段会导入数据库和认证模块，因此本机缺少 `DATABASE_URL` 时会报 `DATABASE_URL is required`，缺少/过短的 `BETTER_AUTH_SECRET` 时会报认证密钥配置错误；这些是构建环境初始化错误，不代表数据库连接或认证服务失败。本机构建可仅对当前进程设置指向未监听回环端口的占位 PostgreSQL URL（例如 `postgresql://cloudcrane:cloudcrane@127.0.0.1:65432/cloudcrane`）和至少 32 字符的非生产占位 `BETTER_AUTH_SECRET`，再运行 `pnpm build`。构建不会访问该数据库端口或读写数据库；不要用这些占位值验证数据库、网站列表或远程服务状态。GitHub CI 使用隔离的临时 PostgreSQL 与 CI-only 密钥。
 
 这些是本次检查环境的事实，不应复制成永久服务器配置结论。每次验收前重新检查。
+
+### 2026-10-01 Production E2E 后续进展
+
+本节更新上面的历史检查记录，以此处为准：目标 Production 测试站已提交正式域名授权并显示上线；当前 Release #12（`e16c5b4e-1efc-4ded-b35b-7be034229dfe`）为 active，公网首页显示 Workspace 的 `Release 2 验收` 标记。SQLite SHA-256 保持 `0c4b920c…f32e01b`，上传文件数保持 25。发布中刷新浏览器、发布完成后离开 Settings 丢弃 Web 响应两种情形下，发布操作都在后台完成，分别留下 Release #11 和 #12；重新访问页面可读回完成状态。
+
+Production 容器被替换/重建（不是单纯 `docker restart`）时，Docker 曾将 loopback 端口从 `32798` 改为 `32799`，而控制库仍记旧端口，导致 Gateway 502。核对实际容器映射、active Release 和探针后，只更新测试站对应的 `production_runtime.production_port`，公网站点恢复。新修复已写入源码但尚未部署：Runner 在站点 Production root 持久化 `.production-port`，容器重建时优先复用；Production 状态 API 把 Runner 查询到的当前端口写回控制库。后续还需通过 CI/CD 部署后验证端口复用、Production 容器重建和 Runner 重启。旧章节关于“授权仍待输入”“第二次发布未执行”“缓存修复尚未自动化”的描述已过期，以本节和此前已记录的 Release #10–#12 结果为准。

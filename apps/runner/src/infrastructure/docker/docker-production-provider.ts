@@ -111,6 +111,7 @@ export class DockerProductionProvider implements ProductionProvider {
       await writeFileSecure(slugPath, productionSlug);
     }
     const containerName = this.containerName(websiteId);
+    const persistedPort = await this.readProductionPort(root);
     const container = this.docker.getContainer(containerName);
     let info: Docker.ContainerInspectInfo | undefined;
     try {
@@ -148,7 +149,9 @@ export class DockerProductionProvider implements ProductionProvider {
               `${path.join(root, 'shared', 'runtime')}:/site/shared/runtime:rw`,
             ],
             NetworkMode: networkName,
-            PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '0' }] },
+            PortBindings: {
+              '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(persistedPort ?? 0) }],
+            },
             Privileged: false,
             ReadonlyRootfs: true,
             SecurityOpt: ['no-new-privileges:true'],
@@ -174,6 +177,8 @@ export class DockerProductionProvider implements ProductionProvider {
         try {
           await created.start();
           info = await created.inspect();
+          const assignedPort = this.runtimePort(info);
+          if (assignedPort) await this.persistProductionPort(root, assignedPort);
         } catch (error) {
           await created.remove({ force: true }).catch(() => undefined);
           throw error;
@@ -190,7 +195,10 @@ export class DockerProductionProvider implements ProductionProvider {
       }
       if (info.State?.Running !== true) {
         await container.start();
+        info = await container.inspect();
       }
+      const assignedPort = this.runtimePort(info);
+      if (assignedPort) await this.persistProductionPort(root, assignedPort);
     }
     await this.reconcileActivation(websiteId, productionSlug);
     return this.runtime(
@@ -953,6 +961,8 @@ export class DockerProductionProvider implements ProductionProvider {
     const info = await container.inspect();
     this.assertRuntimeMatches(info, websiteId, productionSlug);
     const root = this.root(websiteId);
+    const productionPort = this.runtimePort(info);
+    if (productionPort) await this.persistProductionPort(root, productionPort);
     return this.runtime(
       websiteId,
       productionSlug,
@@ -961,6 +971,31 @@ export class DockerProductionProvider implements ProductionProvider {
       await this.readVerifiedRelease(root),
       await this.isAuthorizationComplete(websiteId),
     );
+  }
+
+  private async readProductionPort(root: string): Promise<number | undefined> {
+    const filename = path.join(root, '.production-port');
+    try {
+      const value = (await readFile(filename, 'utf8')).trim();
+      const port = Number(value);
+      return Number.isInteger(port) && port >= 1 && port <= 65_535 ? port : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async persistProductionPort(root: string, port: number): Promise<void> {
+    const filename = path.join(root, '.production-port');
+    const current = await this.readProductionPort(root);
+    if (current === port) return;
+    const temporary = `${filename}.${process.pid}.${Date.now()}.tmp`;
+    await writeFileSecure(temporary, `${port}\n`);
+    await rename(temporary, filename);
+  }
+
+  private runtimePort(info: Docker.ContainerInspectInfo): number | undefined {
+    const value = Number(info.NetworkSettings?.Ports?.['8080/tcp']?.[0]?.HostPort);
+    return Number.isInteger(value) && value >= 1 && value <= 65_535 ? value : undefined;
   }
 
   private runtime(

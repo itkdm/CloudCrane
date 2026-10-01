@@ -84,6 +84,7 @@ export async function GET(
             .set({
               status: persistedStatus,
               currentReleaseId: status.currentReleaseId,
+              productionPort: status.productionPort,
               updatedAt: new Date(),
               ...(status.status === 'missing'
                 ? { lastErrorCode: 'PRODUCTION_RUNTIME_MISSING' }
@@ -96,6 +97,7 @@ export async function GET(
           .update(productionRuntime)
           .set({
             status: persistedStatus,
+            productionPort: status.productionPort,
             updatedAt: new Date(),
             ...(status.status === 'missing' ? { lastErrorCode: 'PRODUCTION_RUNTIME_MISSING' } : {}),
           })

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -151,7 +151,7 @@ describe('DockerProductionProvider', () => {
     15_000,
   );
 
-  it('creates a separate, restricted runtime with a loopback-only random port', async () => {
+  it('persists the loopback port and reuses it when recreating the runtime', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-provider-'));
     const inspect = vi.fn(async () => ({
       Id: 'container-id',
@@ -222,6 +222,19 @@ describe('DockerProductionProvider', () => {
       expect(options?.WorkingDir).toBe('/site');
       expect(options?.HostConfig?.Binds?.some((bind) => bind.includes('docker.sock'))).toBe(false);
       expect(createContainer).toHaveBeenCalledOnce();
+      expect(
+        await readFile(
+          path.join(base, 'production', '00000000-0000-4000-8000-000000000001', '.production-port'),
+          'utf8',
+        ),
+      ).toBe('43127\n');
+
+      await provider.ensureRuntime('00000000-0000-4000-8000-000000000001', 'production-website');
+      expect(createContainer).toHaveBeenCalledTimes(2);
+      const recreatedOptions = createContainer.mock.calls[1]?.[0];
+      expect(recreatedOptions?.HostConfig?.PortBindings).toEqual({
+        '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: '43127' }],
+      });
     } finally {
       await rm(base, { recursive: true, force: true });
     }
