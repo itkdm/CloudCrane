@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { copyTextWithFallback, PBOOT_AUTHORIZATION_URL } from '@/lib/website-authorization';
 import { isWebsiteStatus } from '@/lib/presentation/website-status';
@@ -27,6 +27,7 @@ export function WebsiteSettingsDialog({
   onTemplateRetried,
   onDeleteStart,
   onDeleted,
+  onRefresh,
 }: {
   website: CreatedWebsite | null;
   onClose: () => void;
@@ -34,6 +35,7 @@ export function WebsiteSettingsDialog({
   onTemplateRetried: () => void;
   onDeleteStart: () => void;
   onDeleted: () => Promise<void>;
+  onRefresh: () => Promise<void>;
 }) {
   const t = useTranslations('websites');
   const statusT = useTranslations('status');
@@ -41,6 +43,14 @@ export function WebsiteSettingsDialog({
   const common = useTranslations('common');
   const format = useFormatter();
   const [authorizationCode, setAuthorizationCode] = useState('');
+  const [productionCode, setProductionCode] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [productionAuthorizing, setProductionAuthorizing] = useState(false);
+  const [productionPending, setProductionPending] = useState(false);
+  const [productionError, setProductionError] = useState('');
+  const [productionNotice, setProductionNotice] = useState('');
+  const [productionCopied, setProductionCopied] = useState(false);
+  const productionAuthorizationKey = useRef<string | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
@@ -105,6 +115,28 @@ export function WebsiteSettingsDialog({
     return () => window.clearInterval(timer);
   }, [shareOpen]);
 
+  useEffect(() => {
+    if (!website || (website.production?.status !== 'provisioning' && !productionPending)) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void fetch(`/api/websites/${website.id}/production`)
+        .then(async (response) => {
+          if (!response.ok) return;
+          const result = (await response.json()) as { status?: string };
+          await onRefresh();
+          if (!cancelled && result.status && result.status !== 'provisioning') {
+            setProductionPending(false);
+            setProductionNotice('');
+          }
+        })
+        .catch(() => undefined);
+    }, 4_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [website?.id, website?.production?.status, productionPending, onRefresh]);
+
   if (!website) return null;
   const currentWebsite = website;
   const statusKey = isWebsiteStatus(currentWebsite.status) ? currentWebsite.status : 'unknown';
@@ -137,6 +169,85 @@ export function WebsiteSettingsDialog({
       window.setTimeout(() => setCopied(false), 1600);
     } else {
       setError(t('copyError'));
+    }
+  }
+
+  async function publishProduction() {
+    setPublishing(true);
+    setProductionError('');
+    setProductionNotice('');
+    try {
+      const response = await fetch(`/api/websites/${currentWebsite.id}/publish`, {
+        method: 'POST',
+        headers: { 'idempotency-key': crypto.randomUUID() },
+      });
+      const payload = (await response.json()) as {
+        status?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok && response.status !== 202)
+        throw new Error(payload.error?.message || t('productionPublishError'));
+      if (response.status === 202) {
+        setProductionPending(true);
+        setProductionNotice(t('productionProcessing'));
+      }
+      await onRefresh();
+    } catch (reason) {
+      setProductionPending(false);
+      setProductionError(reason instanceof Error ? reason.message : t('productionPublishError'));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function authorizeProduction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProductionAuthorizing(true);
+    setProductionError('');
+    productionAuthorizationKey.current ??= crypto.randomUUID();
+    try {
+      const response = await fetch(`/api/websites/${currentWebsite.id}/production/authorization`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': productionAuthorizationKey.current,
+        },
+        body: JSON.stringify({ authorizationCode: productionCode }),
+      });
+      const payload = (await response.json()) as {
+        status?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok && response.status !== 202)
+        throw new Error(payload.error?.message || t('productionAuthorizationError'));
+      if (response.status === 202) {
+        setProductionPending(true);
+        setProductionNotice(t('productionProcessing'));
+        return;
+      }
+      setProductionPending(false);
+      productionAuthorizationKey.current = null;
+      setProductionCode('');
+      await onRefresh();
+    } catch (reason) {
+      setProductionPending(false);
+      setProductionError(
+        reason instanceof Error ? reason.message : t('productionAuthorizationError'),
+      );
+      productionAuthorizationKey.current = null;
+    } finally {
+      setProductionAuthorizing(false);
+    }
+  }
+
+  async function copyProductionUrl() {
+    const url = currentWebsite.production?.url;
+    if (!url) return;
+    if (await copyTextWithFallback(url)) {
+      setProductionCopied(true);
+      window.setTimeout(() => setProductionCopied(false), 1600);
+    } else {
+      setProductionError(t('copyProductionError'));
     }
   }
 
@@ -453,6 +564,104 @@ export function WebsiteSettingsDialog({
               </div>
             ) : null}
           </section>
+          <section className="website-settings-section" aria-labelledby="website-production-title">
+            <h3 id="website-production-title">{t('productionTitle')}</h3>
+            {!currentWebsite.production ? (
+              <div className="website-settings-authorization">
+                <p>{t('productionNotPublished')}</p>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void publishProduction()}
+                  disabled={publishing || currentWebsite.status !== 'ready'}
+                >
+                  {publishing ? t('productionPublishing') : t('productionPublish')}
+                </button>
+              </div>
+            ) : (
+              <div className="website-settings-authorization">
+                <div className="website-settings-row">
+                  <span>{t('productionStatus')}</span>
+                  <strong>{t(productionStatusMessage(currentWebsite.production.status))}</strong>
+                </div>
+                {currentWebsite.production.url ? (
+                  <div className="website-settings-row website-settings-preview">
+                    <span>{t('productionAddress')}</span>
+                    <code>{currentWebsite.production.url}</code>
+                    <div className="website-settings-preview-actions">
+                      <a
+                        className="secondary-button"
+                        href={currentWebsite.production.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {t('openProduction')}
+                      </a>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={copyProductionUrl}
+                      >
+                        {productionCopied ? common('copied') : t('copyAddress')}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {currentWebsite.production.status === 'authorization_required' ? (
+                  <form className="website-settings-authorization" onSubmit={authorizeProduction}>
+                    <p>{t('productionAuthorizationDescription')}</p>
+                    <p>
+                      {t('productionAuthorizationStep')}{' '}
+                      <a href={PBOOT_AUTHORIZATION_URL} target="_blank" rel="noopener noreferrer">
+                        {t('officialAuthorization')}
+                      </a>
+                    </p>
+                    <label htmlFor="production-authorization-code">{t('authorizationCode')}</label>
+                    <textarea
+                      id="production-authorization-code"
+                      value={productionCode}
+                      onChange={(event) => setProductionCode(event.target.value)}
+                      placeholder={t('authorizationPlaceholder')}
+                      maxLength={2048}
+                      disabled={productionAuthorizing}
+                      required
+                    />
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={productionAuthorizing}
+                    >
+                      {productionAuthorizing
+                        ? t('productionAuthorizing')
+                        : t('productionAuthorize')}
+                    </button>
+                  </form>
+                ) : null}
+                {currentWebsite.production.status !== 'authorization_required' ? (
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => void publishProduction()}
+                    disabled={
+                      publishing ||
+                      currentWebsite.production.status === 'provisioning' ||
+                      currentWebsite.status !== 'ready'
+                    }
+                  >
+                    {publishing || currentWebsite.production.status === 'provisioning'
+                      ? t('productionPublishing')
+                      : t('productionRepublish')}
+                  </button>
+                ) : null}
+              </div>
+            )}
+            {productionNotice ? <p role="status">{productionNotice}</p> : null}
+            {productionError ? (
+              <p className="website-modal-error" role="alert">
+                {productionError}
+              </p>
+            ) : null}
+          </section>
         </div>
 
         <div className={`website-settings-delete${confirmingDelete ? ' is-confirming' : ''}`}>
@@ -476,7 +685,7 @@ export function WebsiteSettingsDialog({
                 className="secondary-button danger-button"
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
-                disabled={authorizing || retryingTemplate}
+                disabled={authorizing || retryingTemplate || publishing || productionAuthorizing}
               >
                 {t('deleteWebsite')}
               </button>
@@ -527,4 +736,21 @@ export function WebsiteSettingsDialog({
       </section>
     </div>
   );
+}
+
+function productionStatusMessage(status: string): string {
+  switch (status) {
+    case 'provisioning':
+      return 'productionProcessing';
+    case 'authorization_required':
+      return 'productionAuthorizationRequired';
+    case 'active':
+      return 'productionActive';
+    case 'failed':
+      return 'productionFailed';
+    case 'stopped':
+      return 'productionStopped';
+    default:
+      return 'productionProcessing';
+  }
 }

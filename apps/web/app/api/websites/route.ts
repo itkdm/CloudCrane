@@ -18,9 +18,16 @@ import {
 import { auth } from '../../../lib/server/auth.js';
 import { attachTemplateReference } from '../../../lib/server/template-attachment.js';
 import { createTemplateCatalog, TEMPLATE_PUBLISHED } from '../../../lib/server/template-catalog.js';
-import { finishAuditEvent, insertAuditEvent } from '@cloudcrane/db';
+import {
+  finishAuditEvent,
+  insertAuditEvent,
+  productionRuntime,
+  websiteRelease,
+} from '@cloudcrane/db';
+import { eq, inArray } from 'drizzle-orm';
 import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { withWebRequestContext } from '../../../lib/server/observability.js';
+import { productionUrlForSlug } from '../../../lib/server/website-publishing.js';
 import { toWebsiteCreationResponse } from '../../../lib/website-creation-response.js';
 import {
   claimWebsiteCreateOperation,
@@ -42,10 +49,50 @@ export async function GET(request: Request) {
       );
       try {
         const websites = await listWebsites(store);
+        const productionRows = websites.length
+          ? await platform.db
+              .select({
+                websiteId: productionRuntime.websiteId,
+                status: productionRuntime.status,
+                productionSlug: productionRuntime.productionSlug,
+                currentReleaseId: productionRuntime.currentReleaseId,
+                currentReleaseSequence: websiteRelease.sequence,
+                updatedAt: productionRuntime.updatedAt,
+              })
+              .from(productionRuntime)
+              .leftJoin(
+                websiteRelease,
+                eq(
+                  websiteRelease.id as never,
+                  productionRuntime.currentReleaseId as never,
+                ) as never,
+              )
+              .where(
+                inArray(
+                  productionRuntime.websiteId as never,
+                  websites.map((item) => item.id),
+                ) as never,
+              )
+          : [];
+        const productionByWebsite = new Map(productionRows.map((item) => [item.websiteId, item]));
         return NextResponse.json(
           websites.map((website) => ({
             ...website,
             previewUrl: website.previewSlug ? previewUrlForWebsite(website.previewSlug) : undefined,
+            ...(productionByWebsite.has(website.id)
+              ? {
+                  production: {
+                    status: productionByWebsite.get(website.id)!.status,
+                    url: productionUrlForSlugIfConfigured(
+                      productionByWebsite.get(website.id)!.productionSlug,
+                    ),
+                    currentReleaseId: productionByWebsite.get(website.id)!.currentReleaseId,
+                    currentReleaseSequence: productionByWebsite.get(website.id)!
+                      .currentReleaseSequence,
+                    updatedAt: productionByWebsite.get(website.id)!.updatedAt,
+                  },
+                }
+              : {}),
           })),
         );
       } finally {
@@ -337,4 +384,13 @@ export async function POST(request: Request) {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function productionUrlForSlugIfConfigured(productionSlug: string): string | undefined {
+  if (!process.env.PRODUCTION_GATEWAY_ORIGIN_TEMPLATE) return undefined;
+  try {
+    return productionUrlForSlug(productionSlug);
+  } catch {
+    return undefined;
+  }
 }

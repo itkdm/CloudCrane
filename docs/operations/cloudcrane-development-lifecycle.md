@@ -114,8 +114,8 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 
 ## 尚待解决的文档冲突与部署问题
 
-- **生产入口已定为 Nginx**：平台入口和未来 Website Production Gateway 都采用 Nginx，但职责不同。现有 Nginx 只服务平台固定域名；用户网站的动态 Host 路由、证书签发/续期、安全配置生成仍未实现，不能将当前配置视为已具备这些能力。
-- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布；`.github/workflows/deploy-production.yml` 发布的是 CloudCrane 平台自身。Production Publish V1 正在按阶段实现：数据库运行时/Release 表、Release Manifest/ZIP builder 与安全解压器已部署；独立 `production.operation` 协议、ProductionClient 和 Workspace Gateway dispatch route 已部署；Runner 的 DockerProductionProvider 和 PHP 8.4 + Nginx 镜像已有代码，首发/后续发布 Docker 集成验收已加入 GitHub CI，尚待首次执行。Runner 当前不广播 production capabilities；发布 API、正式授权、用户网站 Production Gateway、授权 UI 与端到端发布流程仍未完成，不能对用户开放。
+- **生产入口已定为 Nginx**：平台入口和 Website Production Gateway 使用不同 Nginx vhost。Production Gateway、wildcard Nginx 配置模板和 systemd unit 已进入仓库；公网 wildcard 域名、DNS、TLS 证书、Nginx 加载和生产进程仍未配置/验收，因此模板不能视为线上能力已启用。
+- **网站发布与平台发布**：Tech-03 描述 Website Workspace → Website Production 的产品发布；`.github/workflows/deploy-production.yml` 发布的是 CloudCrane 平台自身。Production Publish V1 已实现数据库 runtime/release、manifest/ZIP、安全解压、Production operation dispatch、Runner Docker provider、发布/状态/授权 API 和 Settings UI。当前仍有三个上线门槛：下一次 GitHub Docker integration 必须通过（上一轮发现的 Linux 文件权限问题已修复但未复验）、Production image 必须随 CD 部署到 ECS Runner、wildcard 域名/DNS/TLS/Nginx 必须实际配置。功能不能当作已在线端到端验收。
 - **Workspace egress 已核实**：2026-10-01 生产主机上的 Workspace 网络为 `bridge` 且 `internal=false`，`DOCKER-USER` 没有自定义规则，UFW inactive；从运行中的 Workspace 请求 `https://example.com` 得到 HTTP 200，因此至少公网 HTTPS 可达，未配置域名级 egress allowlist。Workspace 使用独立网络、容器以非 root 用户运行且未挂载 Docker socket，降低了其他风险，但不等于出站过滤。对 `100.100.100.200:80` 的主机和容器 TCP 探测均超时；没有找到显式阻断规则，因此不能据此证明 ECS metadata 已被策略封锁。Tech-02 允许 V1 按需使用公网，但明确要求阻断 metadata；这台主机目前没有可核实的显式 metadata deny 规则，应作为安全整改项。
 - **数据库回滚边界**：部署脚本在迁移前生成 PostgreSQL custom-format 备份，并在健康检查失败时尝试恢复上一版应用；它不会自动恢复数据库，以免删除部署后产生的新数据。Schema migration 必须保持旧版本可兼容，恢复数据库需按运维手册人工评估和执行。
 - **生产 Compose 配置管理**：实际的 `docker/compose/docker-compose.server.yml` 含内嵌 PostgreSQL 密码，只应留在服务器并由 `.gitignore` 排除，不能提交真实文件。仓库提供 `docker-compose.server.example.yml` 与 `postgres.env.example` 作为无密钥模板；建议后续将当前内嵌密码协调迁移到权限为 600 的 `docker/compose/postgres.env`。现有数据库密码迁移必须同时处理 PostgreSQL 角色和应用连接配置，不能只改 Compose 环境变量。
@@ -125,6 +125,7 @@ Remove-Item Env:DATABASE_URL, Env:BETTER_AUTH_SECRET, Env:MODEL_CREDENTIAL_ENCRY
 - DEVTOOLS MCP 不在本轮可用工具中；本轮使用 Codex 内置浏览器只读检查了正式首页，没有登录或修改数据。约 910px 窄视口截图可见水平滚动条，需另行确认响应式布局。
 - 本次检查时本机 `3000`、`3001`、`15432`、`4101`、`4102`、`4103` 没有监听，SSH 隧道未建立；本机 `5432` 有 PostgreSQL 进程监听，但本轮没有连接或检查其中的数据。生产服务器 SSH 本身可连接。
 - 本机 Docker CLI 不可用，所以本轮没有启动 Compose PostgreSQL、Workspace 容器或真实本地全栈，也没有执行数据库迁移/集成测试。
-- 本轮通过 CI-only 占位环境完成 `pnpm build` 和 21 条 migration lineage 检查；Build 未连接本机数据库。本机质量检查可验证代码本身，但不能取代远程数据库、Workspace、Runner、Preview 或线上浏览器链路的验收。
+- 本轮通过 CI-only 占位环境完成 `pnpm build` 和 22 条 migration lineage 检查；Build 未连接本机数据库。本机质量检查可验证代码本身，但不能取代远程数据库、Workspace、Runner、Preview 或线上浏览器链路的验收。
+- Next.js build 在配置收集阶段会导入数据库和认证模块，因此本机缺少 `DATABASE_URL` 时会报 `DATABASE_URL is required`，缺少/过短的 `BETTER_AUTH_SECRET` 时会报认证密钥配置错误；这些是构建环境初始化错误，不代表数据库连接或认证服务失败。本机构建可仅对当前进程设置指向未监听回环端口的占位 PostgreSQL URL（例如 `postgresql://cloudcrane:cloudcrane@127.0.0.1:65432/cloudcrane`）和至少 32 字符的非生产占位 `BETTER_AUTH_SECRET`，再运行 `pnpm build`。构建不会访问该数据库端口或读写数据库；不要用这些占位值验证数据库、网站列表或远程服务状态。GitHub CI 使用隔离的临时 PostgreSQL 与 CI-only 密钥。
 
 这些是本次检查环境的事实，不应复制成永久服务器配置结论。每次验收前重新检查。

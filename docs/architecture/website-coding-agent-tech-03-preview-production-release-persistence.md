@@ -853,8 +853,11 @@ Real-time Dev/Prod DB Sync
 
 - 已部署 Production runtime/release schema，已实现流式 Release ZIP builder、SHA-256/manifest 校验及受限 ZIP 解压器。
 - Runner 已增加独立 `DockerProductionProvider` 和 PHP 8.4 + Nginx production image。Provider 为每个 Website 创建独立网络/容器，runtime 代码只读、rootfs 只读、无额外 Linux capability，随机 HTTP 端口仅绑定 `127.0.0.1`；`current` 通过同目录临时 symlink + rename 原子切换。First publish 初始化共享数据，后续 Release 不从 Artifact 解出持久路径。
-- Runtime/provider 尚未接入 Runner 的 Production operation executor。GitHub-hosted Docker integration 已加入首发/后续发布、共享数据保留和容器边界用例，等待首次 CI 执行结果。SQLite Online Backup、正式 Authorization、Production Gateway/Host 路由、Publish API/UI、Storage OSS、删除和失败恢复完整路径仍未闭环。当前不能对用户开放 Publish。
-- 当前 GitHub-hosted Docker integration 仅构建 Production Docker image 作为 CI 验证，尚未将 image 交付到 ECS Runner。平台生产环境不能用本机 Docker 验收代替 ECS/CI 验收；本机没有以 Docker 服务作为默认开发依赖。
+- Release manifest/ZIP builder、安全解压、独立 `DockerProductionProvider`、Production operation executor 和 Workspace Gateway dispatch 已实现。Release 使用独立 Production runtime，持久化数据与代码分离；切换失败会恢复旧 Release。ECS Runner 需要本机存在 `PRODUCTION_IMAGE` 指定的 Production image；CD 在配置正式域名后应构建该 image，再启动 Production Gateway。
+- Web Publish API 已接入账户 entitlement/quota、同源和网站访问授权、幂等 operation、审计、运行中 AgentRun 拒绝、Workspace 停止时按需启动、Release 制作/部署及未知结果查询。Website Settings 已有发布、状态、正式 URL 和 PbootCMS Production 授权界面。发布和授权目前仍需在实际域名/DNS/TLS 和 CI 集成验证完成后才可作为对外可用功能。
+- `apps/production-gateway` 只监听 `127.0.0.1:4104`，按随机 128-bit slug + 配置后缀从数据库查 Production Runtime，仅代理 `authorization_required` / `active` 状态，未知 Host 返回 404，数据库/上游错误返回 503/502。请求/响应按流转发并移除 hop-by-hop headers。Nginx 站点模板提供 wildcard Host、TLS、80→443 和 loopback proxy 配置；用受限变量列表运行 `envsubst`，避免改写 Nginx 自身变量。
+- 真实公网发布子域名尚未选定或核实，wildcard DNS、TLS 证书签发/续期、生产 Nginx 加载和 PbootCMS 官方授权尚未在线验收；当前模板和服务未启用。Artifact 仍使用 ECS 本地存储，没有 OSS；SQLite Online Backup、面向用户的删除/恢复流程和真实站点发布端到端验收仍未闭环。
+- GitHub-hosted Docker integration 已覆盖 Production image 构建、首发/后续发布、共享数据保留和容器边界。最近一次执行曾因容器 UID 与宿主机清理权限差异失败；代码已调整为通过受控容器/Workspace Daemon 清理，并有本地单元测试，但修复需等下一次 CI 执行确认。平台生产环境不能用本机 Docker 验收代替 ECS/CI 验收；本机 Docker 不是开发依赖。
 
 ---
 
@@ -865,7 +868,7 @@ Real-time Dev/Prod DB Sync
                             │
                           EIP
                             │
-              Nginx Website Production Gateway (future)
+             Nginx Website Production Gateway (not enabled)
                             │
             ┌───────────────┴───────────────┐
             │                               │

@@ -147,6 +147,21 @@ importers:
         specifier: 4.5.4
         version: 4.5.4
 
+  apps/production-gateway:
+    dependencies:
+      '@cloudcrane/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@cloudcrane/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.0)(@types/pg@8.23.1)(kysely@0.29.6)(pg@8.23.0)
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
   apps/runner:
     dependencies:
       '@cloudcrane/pboot-snapshot':

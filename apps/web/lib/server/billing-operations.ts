@@ -4,6 +4,7 @@ import { operation } from '@cloudcrane/db';
 
 export const WEBSITE_CREATE_OPERATION = 'website.create';
 export const WEBSITE_DELETE_OPERATION = 'website.delete';
+export const WEBSITE_PUBLISH_OPERATION = 'website.publish';
 const STALE_OPERATION_AFTER_MS = 10 * 60 * 1000;
 
 export type WebsiteCreateOperationClaim =
@@ -13,6 +14,11 @@ export type WebsiteCreateOperationClaim =
   | { kind: 'failed'; operationId: string; errorCode: string | null };
 
 export type WebsiteOperationClaim = WebsiteCreateOperationClaim;
+export type WebsitePublishOperationClaim =
+  | { kind: 'claimed'; operationId: string }
+  | { kind: 'replay'; operationId: string; releaseId: string }
+  | { kind: 'pending'; operationId: string }
+  | { kind: 'failed'; operationId: string; errorCode: string | null };
 
 export function websiteCreateRequestHash(input: { name: string; templateId?: string }): string {
   return createHash('sha256')
@@ -24,6 +30,10 @@ export function websiteDeleteRequestHash(websiteId: string): string {
   return createHash('sha256').update(JSON.stringify({ websiteId })).digest('hex');
 }
 
+export function websitePublishRequestHash(websiteId: string): string {
+  return createHash('sha256').update(JSON.stringify({ websiteId })).digest('hex');
+}
+
 export async function claimWebsiteCreateOperation(input: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
@@ -32,7 +42,10 @@ export async function claimWebsiteCreateOperation(input: {
   requestHash: string;
   requestId?: string;
 }): Promise<WebsiteCreateOperationClaim> {
-  return claimWebsiteOperation({ ...input, operationType: WEBSITE_CREATE_OPERATION });
+  return (await claimWebsiteOperation({
+    ...input,
+    operationType: WEBSITE_CREATE_OPERATION,
+  })) as WebsiteCreateOperationClaim;
 }
 
 export async function claimWebsiteDeleteOperation(input: {
@@ -43,7 +56,25 @@ export async function claimWebsiteDeleteOperation(input: {
   requestHash: string;
   requestId?: string;
 }): Promise<WebsiteOperationClaim> {
-  return claimWebsiteOperation({ ...input, operationType: WEBSITE_DELETE_OPERATION });
+  return (await claimWebsiteOperation({
+    ...input,
+    operationType: WEBSITE_DELETE_OPERATION,
+  })) as WebsiteOperationClaim;
+}
+
+export async function claimWebsitePublishOperation(input: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any;
+  billingAccountId: string;
+  websiteId: string;
+  idempotencyKey: string;
+  requestHash: string;
+  requestId?: string;
+}): Promise<WebsitePublishOperationClaim> {
+  return (await claimWebsiteOperation({
+    ...input,
+    operationType: WEBSITE_PUBLISH_OPERATION,
+  })) as WebsitePublishOperationClaim;
 }
 
 async function claimWebsiteOperation(input: {
@@ -54,7 +85,8 @@ async function claimWebsiteOperation(input: {
   requestHash: string;
   requestId?: string;
   operationType: string;
-}): Promise<WebsiteOperationClaim> {
+  websiteId?: string;
+}): Promise<WebsiteCreateOperationClaim | WebsitePublishOperationClaim> {
   const existing = await findOperation(input);
   if (existing) return resolveExisting(input, existing);
 
@@ -64,6 +96,7 @@ async function claimWebsiteOperation(input: {
       .insert(operation)
       .values({
         billingAccountId: input.billingAccountId,
+        ...(input.websiteId ? { websiteId: input.websiteId } : {}),
         type: input.operationType,
         status: 'pending',
         idempotencyKey: input.idempotencyKey,
@@ -108,6 +141,30 @@ export async function finishWebsiteDeleteOperation(input: {
   return finishWebsiteOperation(input);
 }
 
+export async function finishWebsitePublishOperation(input: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any;
+  operationId: string;
+  status: 'succeeded' | 'failed';
+  websiteId: string;
+  releaseId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+}): Promise<void> {
+  await input.db
+    .update(operation)
+    .set({
+      status: input.status,
+      websiteId: input.websiteId,
+      ...(input.releaseId ? { resultResourceId: input.releaseId } : {}),
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+      ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(operation.id as never, input.operationId));
+}
+
 async function finishWebsiteOperation(input: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
@@ -140,6 +197,7 @@ async function findOperation(input: {
   const rows = await input.db
     .select({
       id: operation.id,
+      websiteId: operation.websiteId,
       status: operation.status,
       requestHash: operation.requestHash,
       resultResourceId: operation.resultResourceId,
@@ -160,21 +218,24 @@ async function findOperation(input: {
 
 async function resolveExisting(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  input: { db: any; requestHash: string },
+  input: { db: any; requestHash: string; operationType: string },
   existing: {
     id: string;
+    websiteId: string | null;
     status: string;
     requestHash: string | null;
     resultResourceId: string | null;
     errorCode: string | null;
     updatedAt: Date;
   },
-): Promise<WebsiteCreateOperationClaim> {
+): Promise<WebsiteCreateOperationClaim | WebsitePublishOperationClaim> {
   if (existing.requestHash !== input.requestHash)
     throw new WebsiteOperationIdempotencyError('IDEMPOTENCY_KEY_REUSED');
 
   if (existing.status === 'succeeded' && existing.resultResourceId)
-    return { kind: 'replay', operationId: existing.id, websiteId: existing.resultResourceId };
+    return input.operationType === WEBSITE_PUBLISH_OPERATION
+      ? { kind: 'replay', operationId: existing.id, releaseId: existing.resultResourceId }
+      : { kind: 'replay', operationId: existing.id, websiteId: existing.resultResourceId };
   if (existing.status === 'failed')
     return { kind: 'failed', operationId: existing.id, errorCode: existing.errorCode };
   if (

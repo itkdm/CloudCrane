@@ -95,6 +95,7 @@ jobs:
       - run: pnpm --filter @cloudcrane/pi-adapter... build
       - run: pnpm --filter @cloudcrane/agent-service... build
       - run: pnpm --filter @cloudcrane/preview-gateway... build
+      - run: pnpm --filter @cloudcrane/production-gateway... build
       - name: Start Agent Service health process
         run: |
           nohup node apps/agent-service/dist/index.js >/tmp/cloudcrane-agent-service.log 2>&1 &

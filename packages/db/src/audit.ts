@@ -56,6 +56,7 @@ export const AUDIT_SUMMARY_ALLOWED_KEYS = new Set([
   'agentRunId',
   'templateId',
   'referenceId',
+  'releaseId',
   'artifactSize',
   'artifactSha256',
   'descriptionLength',

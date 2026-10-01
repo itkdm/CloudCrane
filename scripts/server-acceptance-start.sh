@@ -18,6 +18,13 @@ fi
 mkdir -p "${LOG_DIR}"
 chmod 750 "${LOG_DIR}"
 
+set -a
+. "${ENV_FILE}"
+if [[ -f "${PRIVATE_ENV_FILE}" ]]; then
+  . "${PRIVATE_ENV_FILE}"
+fi
+set +a
+
 start_service() {
   local window_name="$1"
   local package_name="$2"
@@ -30,10 +37,17 @@ tmux new-session -d -s "${SESSION_NAME}" -n gateway \
 start_service runner @cloudcrane/runner
 start_service agent @cloudcrane/agent-service
 start_service preview @cloudcrane/preview-gateway
+if [[ -n "${PRODUCTION_HOST_SUFFIX:-}" ]]; then
+  start_service production @cloudcrane/production-gateway
+fi
 tmux new-window -t "${SESSION_NAME}" -n web \
     "cd '${ROOT_DIR}' && set -a && . '${ENV_FILE}' && if [[ -f '${PRIVATE_ENV_FILE}' ]]; then . '${PRIVATE_ENV_FILE}'; fi && export NEXT_PUBLIC_AGENT_SERVICE_URL=\"\${NEXT_PUBLIC_AGENT_SERVICE_URL:-http://localhost:4101}\" && set +a && exec pnpm --filter @cloudcrane/web exec next start -H 127.0.0.1"
 
-for window in gateway runner agent preview web; do
+windows=(gateway runner agent preview web)
+if [[ -n "${PRODUCTION_HOST_SUFFIX:-}" ]]; then
+  windows+=(production)
+fi
+for window in "${windows[@]}"; do
   tmux pipe-pane -t "${SESSION_NAME}:${window}" -o "cat >> '${LOG_DIR}/${window}.log'"
 done
 

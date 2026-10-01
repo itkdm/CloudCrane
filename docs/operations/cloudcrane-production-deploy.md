@@ -109,7 +109,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 `.github/workflows/deploy-production.yml` 只响应 `main` push 对应的 CI 成功事件，并部署同一个 commit。GitHub Actions 使用专用 SSH key；服务器公钥通过 `restrict` 和强制命令限制为部署入口，不能获得交互式 shell 或转发能力。私钥只存放在 GitHub Actions Secret `CLOUDCRANE_DEPLOY_SSH_KEY`。
 
-`scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，先备份 PostgreSQL，再运行迁移与 Preview slug 回填，重启 `cloudcrane-production` tmux 会话，检查 Web、Agent、Workspace Gateway、Preview Gateway，并验证 Nginx 配置。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。
+`scripts/deploy-production.sh` 在独立 worktree 中安装依赖和构建，验证 Nginx 配置；设置了 `PRODUCTION_HOST_SUFFIX` 时，还会在 ECS 构建 Runner 使用的 Production Docker image。然后备份 PostgreSQL、运行迁移与 Preview slug 回填、重启 `cloudcrane-production` tmux 会话，并检查 Web、Agent、Workspace Gateway、Preview Gateway 和（启用时）Production Gateway。健康检查失败时会尝试重启上一版应用。数据库备份位于 `/var/backups/cloudcrane/postgres/`；应用回滚不会自动恢复数据库，Schema migration 必须保持应用版本兼容。Production image 由 CI 构建同一 Dockerfile 做验证，再由 ECS CD 构建到 Runner 所用的本机 Docker daemon；CI runner 不会把 Docker image 自动交付到 ECS。
 
 服务器的 `docker/compose/docker-compose.server.yml` 是含内嵌数据库凭据的主机私有文件，自动脚本用它定位 PostgreSQL 容器；应留在服务器并忽略，禁止提交。仓库的 `docker-compose.server.example.yml` 与 `postgres.env.example` 是可提交模板。建议后续把当前内嵌凭据协调迁移到权限为 600 的实际 `postgres.env`；更新已有数据库凭据还需协调 PostgreSQL 角色和应用连接配置，不能只更改 Compose 环境文件。数据库备份恢复流程尚未实测，后续再安排恢复演练。
 

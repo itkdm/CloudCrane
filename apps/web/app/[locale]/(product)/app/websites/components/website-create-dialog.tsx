@@ -9,6 +9,13 @@ export type CreatedWebsite = {
   status: string;
   createdAt: string;
   previewUrl?: string;
+  production?: {
+    status: string;
+    url?: string;
+    currentReleaseId: string | null;
+    currentReleaseSequence: number | null;
+    updatedAt: string;
+  };
 };
 
 export function WebsiteCreateDialog({

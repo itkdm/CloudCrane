@@ -41,6 +41,13 @@ describe('ProductionReleaseStager', () => {
         return { path: virtualPath, created: true };
       },
       exec: async (request: ProcessExecRequest): Promise<ProcessExecResponse> => {
+        if (request.command === 'rm') {
+          await rm(path.join(workspaceRoot, String(request.args[2]).slice('/workspace/'.length)), {
+            recursive: true,
+            force: true,
+          });
+          return processResult(request.executionId ?? releaseId, '');
+        }
         const command = String(request.args[1] ?? '');
         if (command === 'PRAGMA integrity_check;')
           return processResult(request.executionId ?? releaseId, 'ok\n');

@@ -1,12 +1,13 @@
 # systemd 运行模板
 
-仓库同时提供五个明确的生产 unit：
+仓库同时提供六个明确的生产 unit：
 
 - `cloudcrane-web.service`
 - `cloudcrane-agent.service`
 - `cloudcrane-workspace-gateway.service`
 - `cloudcrane-runner.service`
 - `cloudcrane-preview-gateway.service`
+- `cloudcrane-production-gateway.service`（配置正式域名后启用）
 
 `cloudcrane-node@.service` 是便于临时迁移或测试的通用模板。所有 unit 都只引用服务器上的
 `/etc/cloudcrane/cloudcrane.env`，不会把 Secret 写入 unit 文件。保留 tmux 作为当前兼容启动方式，

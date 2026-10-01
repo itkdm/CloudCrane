@@ -46,6 +46,15 @@ set +a
 pnpm build
 nginx -t
 
+# Build the runtime image on the ECS that owns the Docker daemon used by Runner.
+# GitHub CI builds the same Dockerfile for validation; Runner cannot pull images from CI.
+if [[ -n "${PRODUCTION_HOST_SUFFIX:-}" ]]; then
+  docker build \
+    -f docker/production-pboot/Dockerfile \
+    -t "${PRODUCTION_IMAGE:-cloudcrane-production-pboot:v1}" \
+    .
+fi
+
 DB_CONTAINER="$(docker compose -f "${CONTROL_DIR}/docker/compose/docker-compose.server.yml" ps -q postgres)"
 if [[ -z "${DB_CONTAINER}" ]]; then
   echo "production PostgreSQL container is not running" >&2
@@ -70,7 +79,8 @@ healthy() {
   curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/api/auth/get-session >/dev/null &&
     curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4101/health >/dev/null &&
     curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4102/health >/dev/null &&
-    curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4103/health >/dev/null
+    curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4103/health >/dev/null &&
+    { [[ -z "${PRODUCTION_HOST_SUFFIX:-}" ]] || curl --fail --silent --show-error --max-time 5 http://127.0.0.1:4104/health >/dev/null; }
 }
 
 healthy_after=0

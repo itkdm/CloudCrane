@@ -130,7 +130,18 @@ export class ProductionReleaseStager {
       if (artifactCreated) await rm(outputPath, { force: true }).catch(() => undefined);
       throw error;
     } finally {
-      await rm(stagingHostPath, { recursive: true, force: true });
+      await daemon.exec(
+        {
+          command: 'rm',
+          args: ['-rf', '--', stagingVirtualPath],
+          cwd: '/workspace',
+          env: {},
+          timeoutMs: 30_000,
+          maxOutputBytes: 1_024,
+          executionId: randomUUID(),
+        },
+        32_000,
+      );
     }
   }
 

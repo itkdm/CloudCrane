@@ -753,6 +753,7 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
           if (settingsWebsiteId) setDeletingWebsiteId(settingsWebsiteId);
         }}
         onDeleted={handleDeleteWebsite}
+        onRefresh={loadWebsites}
       />
     </div>
   );

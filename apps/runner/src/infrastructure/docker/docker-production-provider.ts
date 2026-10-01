@@ -147,7 +147,7 @@ export class DockerProductionProvider implements ProductionProvider {
       info.Id ?? container.id,
       info,
       await this.optionalCurrentRelease(root),
-      await this.isAuthorizationComplete(root),
+      await this.isAuthorizationComplete(websiteId),
     );
   }
 
@@ -199,7 +199,7 @@ export class DockerProductionProvider implements ProductionProvider {
       const runtime = await this.inspectRuntime(input.websiteId, input.productionSlug);
       if (!(await this.waitForHealth(runtime.productionPort)))
         throw new Error('PRODUCTION_HEALTHCHECK_FAILED: production runtime health check failed');
-      const authorized = await this.isAuthorizationComplete(root);
+      const authorized = await this.isAuthorizationComplete(input.websiteId);
       return {
         ...runtime,
         currentReleaseId: input.releaseId,
@@ -240,7 +240,7 @@ export class DockerProductionProvider implements ProductionProvider {
         info.Id ?? container.id,
         info,
         currentReleaseId,
-        await this.isAuthorizationComplete(root),
+        await this.isAuthorizationComplete(websiteId),
       );
     } catch (error) {
       if (this.isNotFound(error))
@@ -575,7 +575,7 @@ export class DockerProductionProvider implements ProductionProvider {
       info.Id ?? container.id,
       info,
       await this.optionalCurrentRelease(root),
-      await this.isAuthorizationComplete(root),
+      await this.isAuthorizationComplete(websiteId),
     );
   }
 
@@ -663,8 +663,23 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  private async isAuthorizationComplete(root: string): Promise<boolean> {
-    return this.exists(path.join(root, 'shared', 'runtime', '.cloudcrane-authorization-v1'));
+  private async isAuthorizationComplete(websiteId: string): Promise<boolean> {
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    try {
+      const command = await container.exec({
+        Cmd: ['test', '-f', '/site/shared/runtime/.cloudcrane-authorization-v1'],
+        User: '1000:1000',
+        AttachStdout: false,
+        AttachStderr: false,
+      });
+      const stream = await command.start({ hijack: false, stdin: false });
+      await readStream(stream);
+      const result = await command.inspect();
+      return result.ExitCode === 0;
+    } catch (error) {
+      if (this.isNotFound(error)) return false;
+      throw error;
+    }
   }
 
   private async waitForHealth(port: number | null): Promise<boolean> {

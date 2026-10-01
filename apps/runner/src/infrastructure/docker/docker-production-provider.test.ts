@@ -55,7 +55,14 @@ describe('DockerProductionProvider', () => {
       wait: vi.fn(async () => ({ StatusCode: 0 })),
       remove: vi.fn(async () => undefined),
     };
-    const missing = { id: 'cloudcrane-production-00000000-0000-4000-8000-000000000001' };
+    const authorizationCheck = {
+      start: vi.fn(async () => Readable.from([])),
+      inspect: vi.fn(async () => ({ ExitCode: 1 })),
+    };
+    const missing = {
+      id: 'cloudcrane-production-00000000-0000-4000-8000-000000000001',
+      exec: vi.fn(async () => authorizationCheck),
+    };
     const createContainer = vi.fn(async (options: Docker.ContainerCreateOptions) => {
       return (options.Entrypoint ? ownerHelper : created) as unknown as Docker.Container;
     });
