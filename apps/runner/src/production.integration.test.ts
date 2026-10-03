@@ -653,10 +653,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         content: '<p>Durable CMS create idempotency.</p>',
         source: 'CloudCrane integration',
       };
+      const createCacheProbe =
+        '/site/shared/runtime/cache/cloudcrane-cms-create-invalidation-probe';
       expect(
         await runProductionContainerCommand(
           container,
-          'mkdir -p /site/shared/runtime/cache && chmod 0500 /site/shared/runtime/cache',
+          `mkdir -p /site/shared/runtime/cache && printf 'stale-public-page' > '${createCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
         ),
       ).toBe(0);
       await expect(
@@ -680,6 +682,9 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         item: { title: createPayload.title },
         replayed: true,
       });
+      expect(
+        await runProductionContainerCommand(container, `test ! -e '${createCacheProbe}'`),
+      ).toBe(0);
       const createdItems = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.list',
         payload: { query: createPayload.title, limit: 10 },
