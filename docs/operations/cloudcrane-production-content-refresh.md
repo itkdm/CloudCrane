@@ -15,6 +15,7 @@ Production SQLite + uploads → Workspace SQLite + uploads
 - 刷新期间阻止新的 Agent run 与发布操作进入。Production 网站继续对外服务。
 - Production SQLite 使用 PHP `SQLite3::backup()` 在线备份，并执行 `PRAGMA integrity_check`。上传目录在备份前后和复制后比较 SHA-256 清单；如果目录在复制窗口内有变化，刷新会失败并要求重试，避免把时间点不同的数据库与上传内容拼在一起。
 - 替换前在 Workspace 持久目录保留数据库、SQLite sidecar 和上传目录备份。Preview 在替换时停止，替换后重新启动并再次检查数据库完整性；启动或检查失败时恢复原 Workspace 内容。持久恢复标记使 Runner 重启后可以在 Workspace 再次启动前回滚未完成替换。
+- 暂存目录、备份和文件切换由无网络的临时 helper container 在 Workspace 持久卷中执行，文件归属保持为 Workspace UID 1000。Runner 不需要直接写入容器拥有的目录，也不需要放宽 Workspace 目录权限；helper 完成后立即删除。
 - 正式数据库只通过 SQLite Online Backup 读取。禁止通过普通文件复制读取正在使用的 `cloudcrane.db`。
 
 ## 操作步骤
