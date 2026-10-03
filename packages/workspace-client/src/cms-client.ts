@@ -24,6 +24,13 @@ export class CmsClient {
     return this.production.cmsGetContent(input, options);
   }
 
+  createContent(
+    input: Record<string, unknown> & { categoryCode: string; title: string },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.production.cmsCreateContent(input, options);
+  }
+
   updateContent(
     input: { contentId: string; expectedVersion: string; patch: Record<string, unknown> },
     options?: ProductionRequestOptions,

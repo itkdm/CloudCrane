@@ -32,6 +32,19 @@ export const cmsActionSchemas = {
     cursor: contentIdSchema.optional(),
   }),
   'cms.content.get': z.object({ contentId: contentIdSchema }),
+  'cms.content.create': z
+    .object({
+      categoryCode: pbootCodeSchema,
+      ...fields,
+      title: z.string().min(1).max(100),
+      extensionFields: z
+        .record(
+          z.string().regex(extensionFieldName),
+          z.union([z.string().max(100_000), z.array(z.string().max(10_000)).max(100)]),
+        )
+        .optional(),
+    })
+    .strict(),
   'cms.content.update': z.object({
     contentId: contentIdSchema,
     expectedVersion: versionSchema,
@@ -83,6 +96,10 @@ export const cmsOperationSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('cms.content.get'),
     payload: cmsActionSchemas['cms.content.get'],
+  }),
+  z.object({
+    operation: z.literal('cms.content.create'),
+    payload: cmsActionSchemas['cms.content.create'],
   }),
   z.object({
     operation: z.literal('cms.content.update'),
@@ -171,6 +188,11 @@ export const cmsOperationResultSchemas = {
   }),
   'cms.content.get': cmsContentSchema,
   'cms.content.update': z.object({
+    item: cmsContentSchema,
+    workspaceContentStale: z.literal(true),
+    replayed: z.boolean(),
+  }),
+  'cms.content.create': z.object({
     item: cmsContentSchema,
     workspaceContentStale: z.literal(true),
     replayed: z.boolean(),

@@ -27,6 +27,7 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.content.create',
       'cms.content.update',
       'cms.company.get',
       'cms.company.update',
@@ -117,12 +118,14 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       case 'cms.categories.list':
       case 'cms.content.list':
       case 'cms.content.get':
+      case 'cms.content.create':
       case 'cms.content.update':
       case 'cms.company.get':
       case 'cms.company.update': {
         return this.runtime.cmsOperation(operation.websiteId, {
           operation: operation.operation,
           payload: operation.payload,
+          idempotencyKey: operation.idempotencyKey,
         });
       }
       case 'production.authorize':

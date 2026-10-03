@@ -1,6 +1,7 @@
 import { Type, type Static } from 'typebox';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { CmsClient } from '@cloudcrane/workspace-client';
+import { ProductionClientError } from '@cloudcrane/workspace-client';
 
 const categoryCode = Type.String({ pattern: '^[a-zA-Z0-9_-]{1,20}$' });
 const contentId = Type.String({ pattern: '^\\d{1,12}$' });
@@ -54,6 +55,12 @@ const companyPatch = Type.Object({
   blicense: Type.Optional(Type.String({ maxLength: 20 })),
   other: Type.Optional(Type.String({ maxLength: 200 })),
 });
+const createContentParameters = Type.Object({
+  categoryCode,
+  ...contentPatch.properties,
+  title: Type.String({ minLength: 1, maxLength: 100 }),
+  idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
+});
 
 export function createCmsTools(client: CmsClient) {
   return {
@@ -74,6 +81,28 @@ export function createCmsTools(client: CmsClient) {
       'Read one content item and its current version from the live Production CMS before editing it.',
       Type.Object({ contentId }),
       (input) => client.getContent(input),
+    ),
+    cms_content_create: tool(
+      'cms_content_create',
+      'Create one item in an existing active list category in the live Production CMS. Read categories first. New items default to hidden status 0; set status to 1 only when explicitly requested. This does not create categories or upload media. If the result is UNKNOWN_RESULT, retry the exact same fields with the returned idempotencyKey; never make a new key for that attempt. Production content writes can leave Preview stale until Production → Workspace Refresh.',
+      createContentParameters,
+      async (input, toolCallId) => {
+        const { idempotencyKey: suppliedKey, ...payload } = input;
+        const idempotencyKey = suppliedKey ?? operationKey('create', toolCallId);
+        try {
+          return await client.createContent(payload, { idempotencyKey });
+        } catch (error) {
+          if (error instanceof ProductionClientError && error.code === 'UNKNOWN_RESULT') {
+            return {
+              status: 'unknown',
+              code: error.code,
+              idempotencyKey,
+              retry: 'Repeat the identical cms_content_create payload and this idempotencyKey.',
+            };
+          }
+          throw error;
+        }
+      },
     ),
     cms_update_content: tool(
       'cms_update_content',

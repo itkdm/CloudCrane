@@ -126,6 +126,13 @@ export class ProductionClient {
     return this.call('cms.content.get', payload, options);
   }
 
+  cmsCreateContent(
+    payload: Record<string, unknown> & { categoryCode: string; title: string },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.call('cms.content.create', payload, options);
+  }
+
   cmsUpdateContent(
     payload: { contentId: string; expectedVersion: string; patch: Record<string, unknown> },
     options?: ProductionRequestOptions,

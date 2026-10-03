@@ -555,7 +555,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const contentList = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.list',
         payload: { limit: 5 },
-      })) as { items: Array<{ id: string; title: string }> };
+      })) as { items: Array<{ id: string; title: string; categoryCode: string }> };
       expect(contentList.items.length).toBeGreaterThan(1);
       const content = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.get',
@@ -645,6 +645,55 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         },
       })) as { replayed: boolean };
       expect(replay.replayed).toBe(true);
+
+      const createKey = `cms-create-${realWebsiteId}`;
+      const createPayload = {
+        categoryCode: contentList.items[0]!.categoryCode,
+        title: 'CloudCrane CMS durable create integration',
+        content: '<p>Durable CMS create idempotency.</p>',
+        source: 'CloudCrane integration',
+      };
+      expect(
+        await runProductionContainerCommand(container, 'chmod 0500 /site/shared/runtime/cache'),
+      ).toBe(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.create',
+          payload: createPayload,
+          idempotencyKey: createKey,
+        }),
+      ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
+      expect(
+        await runProductionContainerCommand(container, 'chmod 0700 /site/shared/runtime/cache'),
+      ).toBe(0);
+      await container.restart({ t: 10 });
+      await waitForProductionHealth(origin);
+      const createReplay = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.create',
+        payload: createPayload,
+        idempotencyKey: createKey,
+      })) as { item: { id: string; title: string }; replayed: boolean };
+      expect(createReplay).toMatchObject({
+        item: { title: createPayload.title },
+        replayed: true,
+      });
+      const createdItems = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.list',
+        payload: { query: createPayload.title, limit: 10 },
+      })) as { items: Array<{ id: string; title: string; status: string }> };
+      expect(createdItems.items).toHaveLength(1);
+      expect(createdItems.items[0]).toMatchObject({
+        id: createReplay.item.id,
+        title: createPayload.title,
+        status: '0',
+      });
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.create',
+          payload: { ...createPayload, title: `${createPayload.title} changed` },
+          idempotencyKey: createKey,
+        }),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
 
       const externalTitle = 'Manual Pboot Admin edit';
       const externalUpdate = await container.exec({

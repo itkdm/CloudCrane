@@ -891,6 +891,13 @@ Real-time Dev/Prod DB Sync
 
 ---
 
+## Implementation Status (2026-10-04): CMS Content Create V2
+
+- Production CMS 新增内容只允许选择已存在且启用的列表模型栏目；单页模型、栏目创建和媒体上传不在此能力范围内。默认 `status=0`（未发布），只有用户明确要求立即发布时才允许 `status=1`。
+- Create 的请求幂等键必填，并与规范化业务请求哈希绑定。Runner 内存缓存拒绝同 key 不同请求；受信 Pboot adapter 在同一个 SQLite `BEGIN IMMEDIATE` 事务里提交内容行、扩展字段和幂等结果指针，因此 Runner/容器重启或响应丢失后仍能安全重试。
+- SQLite 只保存幂等 key 的 SHA-256、请求哈希、创建出的内容 ID 和时间，不保存原 key 或文章正文。相同 key/相同请求返回既有内容；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；内容后来被删除时返回 `CMS_CREATE_RESULT_UNAVAILABLE`，避免误建第二条。
+- adapter 基线与指定线上站的 3.2.24 不同。版本号本身不要求重建网站；发布前仍要由 CI Docker integration 同时验证 3.2.24 与 3.2.26 的 schema/规范化兼容，再完成目标站真实 E2E。本轮代码的容器验证尚未完成，不能视为上线验收通过。
+
 # 31. 当前最终架构
 
 ```text

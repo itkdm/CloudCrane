@@ -12,7 +12,7 @@ function failCms(string $code, string $message): never {
 }
 function okCms(mixed $result): never {
     $json = json_encode(['result' => $result], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-    if (!is_string($json) || strlen($json) > 2_000_000) failCms('CMS_OPERATION_FAILED', 'Production CMS response is too large');
+    if (!is_string($json) || strlen($json) > 8_000_000) failCms('CMS_OPERATION_FAILED', 'Production CMS response is too large');
     echo $json;
     exit(0);
 }
@@ -177,6 +177,117 @@ function applyContentPatch(PDO $pdo, string $id, array $patch): array {
     }
     return logicalContent($pdo, $id);
 }
+function canonicalize(mixed $value): mixed {
+    if (!is_array($value)) return $value;
+    if (array_is_list($value)) return array_map('canonicalize', $value);
+    ksort($value, SORT_STRING);
+    foreach ($value as $key => $entry) $value[$key] = canonicalize($entry);
+    return $value;
+}
+function createContent(PDO $pdo, array $input, string $idempotencyKey): array {
+    pbootFunctions();
+    if ($idempotencyKey === '' || strlen($idempotencyKey) > 255)
+        failCms('CMS_INVALID_VALUE', 'Content create idempotency key is invalid');
+    if (!isset($input['categoryCode'], $input['title']) || trim((string)$input['title']) === '')
+        failCms('CMS_INVALID_VALUE', 'PbootCMS content category and title are required');
+    assertPatch(array_diff_key($input, ['categoryCode' => true]), [...LIST_CONTENT_FIELDS, 'extensionFields']);
+    $pdo->exec('CREATE TABLE IF NOT EXISTS cloudcrane_cms_content_create_ops (
+        idempotency_key_hash TEXT PRIMARY KEY,
+        request_hash TEXT NOT NULL,
+        content_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )');
+    $keyHash = hash('sha256', $idempotencyKey);
+    $requestHash = hash('sha256', json_encode(canonicalize($input), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $prior = $pdo->prepare('SELECT request_hash,content_id FROM cloudcrane_cms_content_create_ops WHERE idempotency_key_hash=:key');
+        $prior->execute([':key' => $keyHash]);
+        $existing = $prior->fetch();
+        if ($existing) {
+            if (!hash_equals((string)$existing['request_hash'], $requestHash))
+                failCms('IDEMPOTENCY_KEY_REUSED', 'This CMS create idempotency key was already used with different content');
+            $itemCheck = $pdo->prepare('SELECT 1 FROM ay_content c JOIN ay_content_sort s ON s.scode=c.scode AND s.acode=c.acode WHERE c.id=:id AND c.acode=:acode LIMIT 1');
+            $itemCheck->execute([':id' => $existing['content_id'], ':acode' => defaultAcode($pdo)]);
+            if (!$itemCheck->fetch()) failCms('CMS_CREATE_RESULT_UNAVAILABLE', 'The CMS create was committed, but its content item is no longer available');
+            $item = logicalContent($pdo, (string)$existing['content_id']);
+            $pdo->commit();
+            return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => true];
+        }
+
+        $acode = defaultAcode($pdo);
+        requireColumns($pdo, 'ay_content_sort', ['scode', 'acode', 'mcode', 'status']);
+        requireColumns($pdo, 'ay_model', ['mcode', 'type']);
+        $category = $pdo->prepare('SELECT s.scode,s.status,m.type FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.scode=:scode AND s.acode=:acode LIMIT 1');
+        $category->execute([':scode' => $input['categoryCode'], ':acode' => $acode]);
+        $categoryRow = $category->fetch();
+        if (!$categoryRow || (string)$categoryRow['status'] !== '1') failCms('CMS_INVALID_VALUE', 'CMS content category is missing or inactive');
+        if ((string)$categoryRow['type'] !== '2') failCms('CMS_INVALID_FIELD', 'CMS content can only be created in an existing list category');
+
+        $values = [
+            'acode' => $acode, 'scode' => (string)$categoryRow['scode'], 'subscode' => '',
+            'title' => (string)$input['title'], 'titlecolor' => '#333333',
+            'subtitle' => (string)($input['subtitle'] ?? ''), 'filename' => trim((string)($input['filename'] ?? ''), '/'),
+            'author' => (string)($input['author'] ?? ''), 'source' => (string)($input['source'] ?? ''),
+            'outlink' => (string)($input['outlink'] ?? ''), 'ico' => '', 'pics' => '', 'picstitle' => '',
+            'content' => (string)($input['content'] ?? ''), 'tags' => str_replace('，', ',', (string)($input['tags'] ?? '')),
+            'enclosure' => '', 'date' => (string)($input['date'] ?? date('Y-m-d H:i:s')),
+            'sorting' => 255, 'status' => (string)($input['status'] ?? '0'),
+            'istop' => 0, 'isrecommend' => 0, 'isheadline' => 0,
+            'visits' => 0, 'likes' => 0, 'oppose' => 0,
+            'create_user' => 'cloudcrane-agent', 'update_user' => 'cloudcrane-agent',
+            'create_time' => date('Y-m-d H:i:s'), 'update_time' => date('Y-m-d H:i:s'),
+        ];
+        if (!preg_match('/^[01]$/', $values['status'])) failCms('CMS_INVALID_VALUE', 'PbootCMS status must be 0 or 1');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/', $values['date'])) failCms('CMS_INVALID_VALUE', 'PbootCMS date is invalid');
+        if ($values['filename'] !== '' && !preg_match('/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/', $values['filename'])) failCms('CMS_INVALID_VALUE', 'PbootCMS filename contains unsupported characters');
+        if (trim($values['filename']) !== '') {
+            $filenameCheck = $pdo->prepare('SELECT id FROM ay_content WHERE filename=:filename AND acode=:acode LIMIT 1');
+            $filenameCheck->execute([':filename' => $values['filename'], ':acode' => $acode]);
+            if ($filenameCheck->fetch()) failCms('CMS_INVALID_VALUE', 'PbootCMS filename is already in use');
+            if (ctype_digit($values['filename'])) {
+                $idCheck = $pdo->prepare('SELECT id FROM ay_content WHERE id=:id LIMIT 1');
+                $idCheck->execute([':id' => $values['filename']]);
+                if ($idCheck->fetch()) failCms('CMS_INVALID_VALUE', 'PbootCMS filename conflicts with a content ID');
+            }
+        }
+        $values['content'] = stripslashes(normalize_richtext_for_storage($values['content']));
+        $values['description'] = (string)($input['description'] ?? '');
+        if ($values['description'] === '' && isset($input['content'])) $values['description'] = mb_substr(strip_tags((string)$input['content']), 0, 150, 'UTF-8');
+        $values['description'] = clear_html_blank(encodePboot($values['description']));
+        foreach (['title','subtitle','filename','author','source','outlink','tags','keywords'] as $field)
+            $values[$field] = encodePboot((string)($field === 'keywords' ? ($input[$field] ?? '') : $values[$field]));
+        $columns = tableColumns($pdo, 'ay_content');
+        requireColumns($pdo, 'ay_content', ['id','acode','scode','title','content','status','date']);
+        $insertValues = array_filter($values, static fn($value, $field) => isset($columns[$field]), ARRAY_FILTER_USE_BOTH);
+        $names = array_map(static fn($field) => '"' . $field . '"', array_keys($insertValues));
+        $params = array_map(static fn($field) => ':' . $field, array_keys($insertValues));
+        $insert = $pdo->prepare('INSERT INTO ay_content (' . implode(',', $names) . ') VALUES (' . implode(',', $params) . ')');
+        $insert->execute(array_combine($params, array_values($insertValues)));
+        $id = (string)$pdo->lastInsertId();
+
+        $extensionFields = $input['extensionFields'] ?? [];
+        if ($extensionFields) {
+            $available = array_filter(array_keys(tableColumns($pdo, 'ay_content_ext')), static fn($key) => preg_match('/^ext_[\w-]+$/', $key));
+            $extValues = [];
+            foreach ($extensionFields as $field => $value) {
+                if (!in_array($field, $available, true)) failCms('CMS_INVALID_FIELD', 'CMS extension field does not exist in the Production CMS schema');
+                $extValues[$field] = is_array($value)
+                    ? implode(',', array_map(static fn($part) => encodePboot((string)$part), $value))
+                    : stripslashes(normalize_richtext_for_storage((string)$value));
+            }
+            $extNames = ['contentid', ...array_map(static fn($field) => '"' . $field . '"', array_keys($extValues))];
+            $extParams = [':id', ...array_map(static fn($field) => ':' . $field, array_keys($extValues))];
+            $extInsert = $pdo->prepare('INSERT INTO ay_content_ext (' . implode(',', $extNames) . ') VALUES (' . implode(',', $extParams) . ')');
+            $extInsert->execute([':id' => $id, ...array_combine(array_map(static fn($field) => ':' . $field, array_keys($extValues)), array_values($extValues))]);
+        }
+        $save = $pdo->prepare('INSERT INTO cloudcrane_cms_content_create_ops (idempotency_key_hash,request_hash,content_id,created_at) VALUES (:key,:request,:id,:at)');
+        $save->execute([':key' => $keyHash, ':request' => $requestHash, ':id' => $id, ':at' => date('Y-m-d H:i:s')]);
+        $item = logicalContent($pdo, $id);
+        $pdo->commit();
+        return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => false];
+    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+}
 function normalizedContentValue(string $field, mixed $value): string {
     pbootFunctions();
     $value = (string)$value;
@@ -202,7 +313,8 @@ function matchesPatch(array $current, array $patch, bool $content): bool {
     }
     return true;
 }
-function handleCms(PDO $pdo, string $operation, array $input): mixed {
+function handleCms(PDO $pdo, string $operation, array $input, string $idempotencyKey = ''): mixed {
+    if ($operation === 'cms.content.create') return createContent($pdo, $input, $idempotencyKey);
     if ($operation === 'cms.categories.list') {
         pbootFunctions();
         requireColumns($pdo, 'ay_content_sort', ['id', 'acode', 'mcode', 'pcode', 'scode', 'name', 'status', 'filename']);
@@ -262,9 +374,11 @@ function handleCms(PDO $pdo, string $operation, array $input): mixed {
     }
     failCms('CMS_INVALID_FIELD','Unsupported CMS operation');
 }
-$raw = file_get_contents('php://stdin', false, null, 0, 1_100_000);
-if (!is_string($raw) || strlen($raw) >= 1_100_000) failCms('CMS_INVALID_VALUE','CMS operation request is too large');
+$raw = file_get_contents('php://stdin', false, null, 0, 5_000_000);
+if (!is_string($raw) || strlen($raw) >= 5_000_000) failCms('CMS_INVALID_VALUE','CMS operation request is too large');
 $request = json_decode($raw, true);
 if (!is_array($request) || !isset($request['operation']) || !is_array($request['payload'] ?? null)) failCms('CMS_INVALID_VALUE','CMS operation request is invalid');
-try { okCms(handleCms(db(), (string)$request['operation'], $request['payload'])); }
+try {
+    okCms(handleCms(db(), (string)$request['operation'], $request['payload'], (string)($request['idempotencyKey'] ?? '')));
+}
 catch (Throwable) { failCms('CMS_OPERATION_FAILED','Production CMS operation failed'); }

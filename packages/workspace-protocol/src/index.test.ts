@@ -17,6 +17,10 @@ import {
   isProductionMutationOperation,
   productionOperationSchema,
 } from './production/operations.js';
+import {
+  productionClientOperationSchema,
+  productionRunnerOperationSchema,
+} from './production/remote.js';
 
 describe('workspace envelope', () => {
   it('accepts the shared envelope fields', () => {
@@ -91,6 +95,29 @@ describe('workspace envelope', () => {
     });
     expect(refresh.operation).toBe('production.refresh');
     expect(isProductionMutationOperation(refresh.operation)).toBe(true);
+  });
+
+  it('requires a durable idempotency key for Production CMS content creation', () => {
+    const operation = {
+      operation: 'cms.content.create' as const,
+      requestId: '00000000-0000-4000-8000-000000000021',
+      traceId: '00000000-0000-4000-8000-000000000022',
+      websiteId: '00000000-0000-4000-8000-000000000023',
+      workspaceId: '00000000-0000-4000-8000-000000000024',
+      deadlineMs: 120_000,
+      payload: { categoryCode: 'news01', title: 'New article' },
+    };
+    expect(productionClientOperationSchema.safeParse(operation).success).toBe(false);
+    const withKey = { ...operation, idempotencyKey: 'cms-create-operation-1' };
+    expect(productionClientOperationSchema.parse(withKey).idempotencyKey).toBe(
+      'cms-create-operation-1',
+    );
+    expect(
+      productionRunnerOperationSchema.safeParse({
+        ...withKey,
+        type: 'production.operation',
+      }).success,
+    ).toBe(true);
   });
 
   it('validates operation envelopes and central mutation classification', () => {

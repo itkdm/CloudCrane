@@ -49,7 +49,7 @@ export class ProductionDispatchService {
       const auditFinalized = await this.finishAudit(auditId, {
         status: 'SUCCESS',
         durationMs: Date.now() - startedAt,
-        resultSummary: cmsAuditSummary(operation),
+        resultSummary: cmsAuditSummary(operation, result.result),
       });
       if (!auditFinalized && isProductionMutationOperation(operation.operation))
         throw remoteError(
@@ -135,15 +135,24 @@ export class ProductionDispatchService {
 
 function cmsAuditSummary(
   operation: ProductionClientOperation,
+  result?: unknown,
 ): Record<string, unknown> | undefined {
-  if (operation.operation !== 'cms.content.update' && operation.operation !== 'cms.company.update')
+  if (
+    operation.operation !== 'cms.content.create' &&
+    operation.operation !== 'cms.content.update' &&
+    operation.operation !== 'cms.company.update'
+  )
     return undefined;
   const payload = operation.payload as {
     patch: Record<string, unknown>;
     contentId?: string;
+    categoryCode?: string;
   };
-  const patch = payload.patch;
-  const changedFields = Object.entries(patch)
+  const fields = operation.operation === 'cms.content.create' ? payload : payload.patch;
+  const changedFields = Object.entries(fields)
+    .filter(
+      ([field]) => field !== 'categoryCode' && field !== 'contentId' && field !== 'expectedVersion',
+    )
     .flatMap(([field, value]) =>
       field === 'extensionFields' && value && typeof value === 'object'
         ? Object.keys(value).map((extensionField) => `extensionFields.${extensionField}`)
@@ -152,7 +161,20 @@ function cmsAuditSummary(
     .join(',');
   return {
     action: operation.operation,
-    recordId: operation.operation === 'cms.content.update' ? payload.contentId : 'company',
+    ...(operation.operation === 'cms.content.create'
+      ? {
+          categoryCode: payload.categoryCode,
+          recordId:
+            typeof result === 'object' &&
+            result &&
+            'item' in result &&
+            typeof result.item === 'object' &&
+            result.item &&
+            'id' in result.item
+              ? result.item.id
+              : undefined,
+        }
+      : { recordId: operation.operation === 'cms.content.update' ? payload.contentId : 'company' }),
     changedFields,
   };
 }

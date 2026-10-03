@@ -40,10 +40,12 @@ export type CmsOperationInput = {
     | 'cms.categories.list'
     | 'cms.content.list'
     | 'cms.content.get'
+    | 'cms.content.create'
     | 'cms.content.update'
     | 'cms.company.get'
     | 'cms.company.update';
   payload: Record<string, unknown>;
+  idempotencyKey?: string;
 };
 
 export interface ProductionProvider {

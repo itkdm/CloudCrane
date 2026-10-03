@@ -487,6 +487,7 @@ export class DockerProductionProvider implements ProductionProvider {
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.content.create',
       'cms.content.update',
       'cms.company.get',
       'cms.company.update',
@@ -611,6 +612,8 @@ export class DockerProductionProvider implements ProductionProvider {
         'CMS_AUTHORIZATION_REQUIRED',
         'CMS_CONTENT_NOT_FOUND',
         'CMS_CONTENT_CHANGED',
+        'IDEMPOTENCY_KEY_REUSED',
+        'CMS_CREATE_RESULT_UNAVAILABLE',
         'CMS_INVALID_FIELD',
         'CMS_INVALID_VALUE',
         'CMS_SCHEMA_UNSUPPORTED',
@@ -633,7 +636,7 @@ export class DockerProductionProvider implements ProductionProvider {
       } catch {
         throw new ProductionOperationError(
           'UNKNOWN_RESULT',
-          'Production CMS update completed, but its public page cache could not be refreshed',
+          'Production CMS mutation completed, but its public page cache could not be refreshed',
         );
       }
     }
@@ -641,7 +644,11 @@ export class DockerProductionProvider implements ProductionProvider {
   }
 
   private isCmsMutation(operation: CmsOperationInput['operation']): boolean {
-    return operation === 'cms.content.update' || operation === 'cms.company.update';
+    return (
+      operation === 'cms.content.create' ||
+      operation === 'cms.content.update' ||
+      operation === 'cms.company.update'
+    );
   }
 
   async destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void> {

@@ -3016,3 +3016,11 @@ packages/session-backends/sqlite-node/
 ```
 
 后续实现前应再次锁定具体 Pi npm 版本和 commit，避免直接跟随 `main` 漂移。
+
+---
+
+# 当前 CMS 写入能力补充（2026-10-04）
+
+本文早期 V1 设计描述只读与更新已有文章，属于历史状态。当前 CMS semantic tools 另外提供 `cms_content_create`：只能在已存在的启用列表栏目创建内容，默认隐藏；创建栏目、单页内容和媒体上传仍不支持。
+
+Create 必须带幂等键。遇到 `UNKNOWN_RESULT` 时保留相同业务字段和相同幂等键重试；不可生成新 key 或直接再创建一条。持久记录位于 Production SQLite，并与文章写入同一事务；Agent 仍只通过语义 Tool 和 Gateway 操作 Production，不得到数据库或 shell 权限。

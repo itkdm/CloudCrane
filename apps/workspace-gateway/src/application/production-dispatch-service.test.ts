@@ -52,4 +52,56 @@ describe('ProductionDispatchService CMS audit', () => {
     expect(JSON.stringify(audit)).not.toContain('13800000000');
     expect(JSON.stringify(audit)).not.toContain('private@example.test');
   });
+
+  it('audits CMS content creation with category, field names, and created row ID only', async () => {
+    const store = {
+      createAuditEvent: vi.fn().mockResolvedValue('audit-create'),
+      finishAuditEvent: vi.fn().mockResolvedValue(undefined),
+      findWorkspace: vi.fn().mockResolvedValue({ runnerId: 'runner-1' }),
+      findAvailableRunner: vi.fn().mockResolvedValue({
+        runnerId: 'runner-1',
+        capabilities: ['cms.content.create'],
+      }),
+    };
+    const registry = {
+      get: vi.fn(),
+      online: vi.fn().mockReturnValue(true),
+      dispatch: vi.fn().mockResolvedValue({
+        type: 'runner.completed',
+        requestId: '00000000-0000-4000-8000-000000000031',
+        traceId: '00000000-0000-4000-8000-000000000032',
+        result: {
+          item: { id: '88', title: 'Private title' },
+          workspaceContentStale: true,
+          replayed: false,
+        },
+        durationMs: 5,
+      }),
+    };
+    const service = new ProductionDispatchService(store as never, registry as never);
+    const operation = {
+      operation: 'cms.content.create' as const,
+      payload: { categoryCode: 'news01', title: 'Private title', content: 'Private body' },
+      idempotencyKey: 'create-key-1',
+      requestId: '00000000-0000-4000-8000-000000000031',
+      traceId: '00000000-0000-4000-8000-000000000032',
+      websiteId: '00000000-0000-4000-8000-000000000033',
+      workspaceId: '00000000-0000-4000-8000-000000000034',
+      deadlineMs: 120_000,
+    };
+
+    await service.execute(operation);
+    const [, audit] = store.finishAuditEvent.mock.calls[0]!;
+    expect(audit).toMatchObject({
+      status: 'SUCCESS',
+      resultSummary: {
+        action: 'cms.content.create',
+        categoryCode: 'news01',
+        recordId: '88',
+        changedFields: 'title,content',
+      },
+    });
+    expect(JSON.stringify(audit)).not.toContain('Private title');
+    expect(JSON.stringify(audit)).not.toContain('Private body');
+  });
 });

@@ -5,6 +5,7 @@ const cmsOperationNames = [
   'cms.categories.list',
   'cms.content.list',
   'cms.content.get',
+  'cms.content.create',
   'cms.content.update',
   'cms.company.get',
   'cms.company.update',
@@ -56,7 +57,12 @@ export const productionClientOperationSchema = z.discriminatedUnion('operation',
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
   ...cmsOperationNames.map((operation) =>
-    productionClientOperationCommonSchema.extend({
+    (operation === 'cms.content.create'
+      ? productionClientOperationCommonSchema.extend({
+          idempotencyKey: z.string().min(1).max(255),
+        })
+      : productionClientOperationCommonSchema
+    ).extend({
       operation: z.literal(operation),
       payload: productionOperationPayloadSchemas[operation],
     }),
@@ -93,7 +99,12 @@ export const productionRunnerOperationSchema = z.discriminatedUnion('operation',
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
   ...cmsOperationNames.map((operation) =>
-    productionRunnerOperationCommonSchema.extend({
+    (operation === 'cms.content.create'
+      ? productionRunnerOperationCommonSchema.extend({
+          idempotencyKey: z.string().min(1).max(255),
+        })
+      : productionRunnerOperationCommonSchema
+    ).extend({
       operation: z.literal(operation),
       payload: productionOperationPayloadSchemas[operation],
     }),

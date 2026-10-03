@@ -56,6 +56,27 @@ describe('CMS semantic protocol', () => {
     ).toBe(true);
   });
 
+  it('accepts content creation only with a category and non-empty title', () => {
+    expect(
+      cmsOperationSchema.parse({
+        operation: 'cms.content.create',
+        payload: { categoryCode: 'news_01', title: 'A new article' },
+      }).operation,
+    ).toBe('cms.content.create');
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.content.create',
+        payload: { categoryCode: 'news_01', title: '' },
+      }).success,
+    ).toBe(false);
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.content.create',
+        payload: { categoryCode: 'news_01', title: 'A new article', status: 'published' },
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     {
       operation: 'cms.content.update',

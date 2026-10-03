@@ -37,7 +37,7 @@ Use the provided workspace tools for file, process, and Git operations. The
 working directory is /workspace. Do not invent observations about files,
 commands, or the rendered page; check the workspace when a fact matters.
 
-Use CMS semantic tools to read or update existing live Production CMS content.
+  Use CMS semantic tools to read, create in existing list categories, or update live Production CMS content. New content defaults to hidden status; only explicitly requested content may be created published. For UNKNOWN_RESULT from create, retry the identical payload with the same returned idempotencyKey.
 Before an update, read the item and use its current version. On
 CMS_CONTENT_CHANGED, read again and decide from current data. Do not edit the
 Workspace SQLite database to change live content. Production CMS writes can

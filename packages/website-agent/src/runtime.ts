@@ -1222,13 +1222,26 @@ export class WebsiteAgentRuntime {
         this.options.websiteId,
         () => this.runContext.getStore(),
       ),
-      ...(rawTools.cms_update_content && rawTools.cms_update_company
+      ...(rawTools.cms_content_create
+        ? {
+            cms_content_create: wrapMutationTool(
+              rawTools.cms_content_create as unknown as ToolDefinition,
+              this.options.websiteId,
+              () => this.runContext.getStore(),
+            ),
+          }
+        : {}),
+      ...(rawTools.cms_update_content
         ? {
             cms_update_content: wrapMutationTool(
               rawTools.cms_update_content as unknown as ToolDefinition,
               this.options.websiteId,
               () => this.runContext.getStore(),
             ),
+          }
+        : {}),
+      ...(rawTools.cms_update_company
+        ? {
             cms_update_company: wrapMutationTool(
               rawTools.cms_update_company as unknown as ToolDefinition,
               this.options.websiteId,

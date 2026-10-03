@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { createHash } from 'node:crypto';
 import {
   createLogger,
   createSpanId,
@@ -44,8 +45,14 @@ export class RunnerGatewayConnection {
   private stopped = false;
   private reconnectTimer?: NodeJS.Timeout;
   private attempt = 0;
-  private readonly completed = new Map<string, { result: unknown; at: number }>();
-  private readonly inFlight = new Map<string, Promise<unknown>>();
+  private readonly completed = new Map<
+    string,
+    { result: unknown; fingerprint: string; at: number }
+  >();
+  private readonly inFlight = new Map<
+    string,
+    { execution: Promise<unknown>; fingerprint: string }
+  >();
 
   constructor(
     private readonly config: RunnerConfig,
@@ -120,10 +127,18 @@ export class RunnerGatewayConnection {
 
   private async handleOperation(socket: WebSocket, operation: RunnerOperation) {
     const idempotencyKey = operation.idempotencyKey
-      ? `${operation.workspaceId}:${operation.operation}:${operation.idempotencyKey}`
+      ? `${operation.websiteId}:${operation.workspaceId}:${operation.operation}:${operation.idempotencyKey}`
       : undefined;
+    const fingerprint = requestFingerprint(operation);
     const cached = idempotencyKey ? this.completed.get(idempotencyKey) : undefined;
-    if (cached) return this.sendCompleted(socket, operation, cached.result, 0);
+    if (cached) {
+      if (cached.fingerprint !== fingerprint)
+        return this.sendIdempotencyConflict(socket, operation);
+      return this.sendCompleted(socket, operation, cached.result, 0);
+    }
+    const existing = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
+    if (existing && existing.fingerprint !== fingerprint)
+      return this.sendIdempotencyConflict(socket, operation);
     const started = Date.now();
     logger.info(
       {
@@ -147,9 +162,9 @@ export class RunnerGatewayConnection {
     );
     try {
       if (Date.now() - started > operation.deadlineMs) throw new Error('deadline exceeded');
-      let execution = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
-      if (!execution) {
-        execution = runWithLogContext(
+      let pending = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
+      if (!pending) {
+        const execution = runWithLogContext(
           {
             requestId: operation.requestId,
             runCorrelationId: operation.traceId,
@@ -176,12 +191,13 @@ export class RunnerGatewayConnection {
               ),
             ),
         );
-        if (idempotencyKey) this.inFlight.set(idempotencyKey, execution);
+        pending = { execution, fingerprint };
+        if (idempotencyKey) this.inFlight.set(idempotencyKey, pending);
       }
-      if (!execution) throw new Error('runner operation execution was not initialized');
-      const result = await execution;
+      if (!pending) throw new Error('runner operation execution was not initialized');
+      const result = await pending.execution;
       if (idempotencyKey) {
-        this.completed.set(idempotencyKey, { result, at: Date.now() });
+        this.completed.set(idempotencyKey, { result, fingerprint, at: Date.now() });
         for (const [key, value] of this.completed)
           if (Date.now() - value.at > 300_000) this.completed.delete(key);
         while (this.completed.size > 1_000)
@@ -240,7 +256,8 @@ export class RunnerGatewayConnection {
         }),
       );
     } finally {
-      if (idempotencyKey) this.inFlight.delete(idempotencyKey);
+      if (idempotencyKey && this.inFlight.get(idempotencyKey)?.fingerprint === fingerprint)
+        this.inFlight.delete(idempotencyKey);
     }
   }
   private sendCompleted(
@@ -259,10 +276,43 @@ export class RunnerGatewayConnection {
       }),
     );
   }
+  private sendIdempotencyConflict(socket: WebSocket, operation: RunnerOperation) {
+    socket.send(
+      JSON.stringify({
+        type: 'runner.error',
+        requestId: operation.requestId,
+        traceId: operation.traceId,
+        error: {
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'idempotency key was used with a different request',
+        },
+        durationMs: 0,
+        outcome: 'FAILED',
+      }),
+    );
+  }
   private scheduleReconnect() {
     const delay = Math.min(30_000, 500 * 2 ** this.attempt++) + Math.floor(Math.random() * 250);
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
+}
+
+function requestFingerprint(operation: RunnerOperation): string {
+  const canonicalize = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonicalize);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, entry]) => [key, canonicalize(entry)]),
+      );
+    return value;
+  };
+  return createHash('sha256')
+    .update(
+      JSON.stringify(canonicalize({ operation: operation.operation, payload: operation.payload })),
+    )
+    .digest('hex');
 }
 
 function toRemoteError(error: unknown): RemoteError {
