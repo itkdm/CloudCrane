@@ -28,10 +28,23 @@ export type ProductionDeployInput = {
   firstPublish: boolean;
 };
 
+export type ProductionContentSnapshot = {
+  directory: string;
+  databaseBytes: number;
+  uploadFiles: number;
+  uploadBytes: number;
+};
+
 export interface ProductionProvider {
   ensureRuntime(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
   deployRelease(input: ProductionDeployInput): Promise<ProductionRuntime>;
   getStatus(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
   authorize(websiteId: string, productionSlug: string, authorizationCode: string): Promise<void>;
   destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void>;
+  snapshotContent(
+    websiteId: string,
+    productionSlug: string,
+    refreshId: string,
+  ): Promise<ProductionContentSnapshot>;
+  removeContentSnapshot(snapshot: ProductionContentSnapshot, refreshId: string): Promise<void>;
 }

@@ -24,6 +24,17 @@ export type SnapshotStageResult = {
   manifest: Record<string, unknown>;
 };
 
+export type ProductionContentImport = {
+  refreshId: string;
+  snapshotDirectory: string;
+};
+
+export type ProductionContentImportResult = {
+  databaseBytes: number;
+  uploadFiles: number;
+  uploadBytes: number;
+};
+
 export interface WorkspaceProvider {
   create(workspaceId: string): Promise<WorkspaceRuntime>;
   start(workspaceId: string): Promise<WorkspaceRuntime>;
@@ -32,4 +43,8 @@ export interface WorkspaceProvider {
   getEndpoint(workspaceId: string): Promise<string>;
   destroyRuntime(workspaceId: string): Promise<void>;
   stageSnapshot(workspaceId: string, input: SnapshotStageInput): Promise<SnapshotStageResult>;
+  importProductionContent(
+    workspaceId: string,
+    input: ProductionContentImport,
+  ): Promise<ProductionContentImportResult>;
 }

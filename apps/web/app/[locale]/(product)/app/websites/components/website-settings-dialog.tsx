@@ -20,6 +20,7 @@ const SHARE_DURATIONS = [
   { value: '30d', label: 'thirtyDays' },
 ] as const;
 const publishOperationKeyPrefix = 'cloudcrane:website-publish:';
+const refreshOperationKeyPrefix = 'cloudcrane:production-refresh:';
 const publishResumeDelayMs = 10 * 60 * 1000;
 
 export function WebsiteSettingsDialog({
@@ -52,9 +53,13 @@ export function WebsiteSettingsDialog({
   const [productionResumeAvailable, setProductionResumeAvailable] = useState(false);
   const [productionError, setProductionError] = useState('');
   const [productionNotice, setProductionNotice] = useState('');
+  const [refreshingProduction, setRefreshingProduction] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState('');
+  const [refreshError, setRefreshError] = useState('');
   const [productionCopied, setProductionCopied] = useState(false);
   const productionAuthorizationKey = useRef<string | null>(null);
   const productionPublishKey = useRef<string | null>(null);
+  const productionRefreshKey = useRef<string | null>(null);
   const lastPublishResumeAttempt = useRef(0);
   const resumePublishOperation = useRef<(() => void) | null>(null);
   const [authorizing, setAuthorizing] = useState(false);
@@ -75,6 +80,10 @@ export function WebsiteSettingsDialog({
 
   useEffect(() => {
     productionPublishKey.current = null;
+    productionRefreshKey.current = null;
+    setRefreshingProduction(false);
+    setRefreshNotice('');
+    setRefreshError('');
     if (!website) return;
     const storageKey = `${publishOperationKeyPrefix}${website.id}`;
     if (['failed', 'authorization_required', 'active'].includes(website.production?.status ?? '')) {
@@ -313,6 +322,78 @@ export function WebsiteSettingsDialog({
     }
   }
   resumePublishOperation.current = () => void publishProduction();
+
+  async function refreshWorkspaceFromProduction() {
+    if (!currentWebsite.production?.url || currentWebsite.production.status !== 'active') return;
+    if (!window.confirm(t('productionRefreshConfirm'))) return;
+    setRefreshingProduction(true);
+    setRefreshError('');
+    setRefreshNotice(t('productionRefreshStarting'));
+    const storageKey = `${refreshOperationKeyPrefix}${currentWebsite.id}`;
+    try {
+      const idempotencyKey =
+        productionRefreshKey.current ??
+        window.localStorage.getItem(storageKey) ??
+        crypto.randomUUID();
+      productionRefreshKey.current = idempotencyKey;
+      window.localStorage.setItem(storageKey, idempotencyKey);
+      const response = await fetch(`/api/websites/${currentWebsite.id}/production/refresh`, {
+        method: 'POST',
+        headers: { 'idempotency-key': idempotencyKey },
+      });
+      const payload = (await response.json()) as {
+        status?: string;
+        operationId?: string;
+        result?: { databaseBytes?: number; uploadFiles?: number; uploadBytes?: number } | null;
+        error?: { message?: string };
+      };
+      if (!response.ok && response.status !== 202) {
+        productionRefreshKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        throw new Error(payload.error?.message || t('productionRefreshError'));
+      }
+
+      let status = payload.status;
+      let result = payload.result;
+      for (
+        let attempt = 0;
+        ['processing', 'pending', 'running'].includes(status ?? '') && attempt < 90;
+        attempt += 1
+      ) {
+        setRefreshNotice(t('productionRefreshProcessing'));
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const statusResponse = await fetch(
+          `/api/websites/${currentWebsite.id}/production/refresh`,
+          { cache: 'no-store' },
+        );
+        if (!statusResponse.ok) throw new Error(t('productionRefreshError'));
+        const statusPayload = (await statusResponse.json()) as typeof payload;
+        status = statusPayload.status;
+        result = statusPayload.result;
+      }
+      if (status === 'succeeded') {
+        productionRefreshKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        setRefreshNotice(
+          t('productionRefreshSucceeded', {
+            files: result?.uploadFiles ?? 0,
+            megabytes: Math.ceil((result?.uploadBytes ?? 0) / (1024 * 1024)),
+          }),
+        );
+        await onRefresh();
+      } else if (status === 'failed') {
+        productionRefreshKey.current = null;
+        window.localStorage.removeItem(storageKey);
+        throw new Error(t('productionRefreshError'));
+      } else {
+        setRefreshNotice(t('productionRefreshProcessing'));
+      }
+    } catch (reason) {
+      setRefreshError(reason instanceof Error ? reason.message : t('productionRefreshError'));
+    } finally {
+      setRefreshingProduction(false);
+    }
+  }
 
   async function authorizeProduction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -687,7 +768,7 @@ export function WebsiteSettingsDialog({
                   className="primary-button"
                   type="button"
                   onClick={() => void publishProduction()}
-                  disabled={publishing || currentWebsite.status !== 'ready'}
+                  disabled={publishing || refreshingProduction || currentWebsite.status !== 'ready'}
                 >
                   {publishing
                     ? t('productionPublishing')
@@ -764,6 +845,7 @@ export function WebsiteSettingsDialog({
                     }
                     disabled={
                       publishing ||
+                      refreshingProduction ||
                       (['provisioning', 'activating'].includes(
                         currentWebsite.production?.status ?? '',
                       ) &&
@@ -783,12 +865,28 @@ export function WebsiteSettingsDialog({
                         : t('productionRepublish')}
                   </button>
                 ) : null}
+                {currentWebsite.production.status === 'active' ? (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void refreshWorkspaceFromProduction()}
+                    disabled={refreshingProduction || publishing}
+                  >
+                    {refreshingProduction ? t('productionRefreshing') : t('productionRefresh')}
+                  </button>
+                ) : null}
               </div>
             )}
             {productionNotice ? <p role="status">{productionNotice}</p> : null}
             {productionError ? (
               <p className="website-modal-error" role="alert">
                 {productionError}
+              </p>
+            ) : null}
+            {refreshNotice ? <p role="status">{refreshNotice}</p> : null}
+            {refreshError ? (
+              <p className="website-modal-error" role="alert">
+                {refreshError}
               </p>
             ) : null}
           </section>

@@ -1,10 +1,12 @@
-import { constants } from 'node:fs';
+import { constants, createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { PassThrough, type Readable } from 'node:stream';
 import {
   chmod,
   copyFile,
+  cp,
   lstat,
   mkdir,
   readFile,
@@ -13,6 +15,7 @@ import {
   rename,
   rm,
   symlink,
+  stat,
 } from 'node:fs/promises';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -20,6 +23,7 @@ import { extractProductionReleaseArchive } from '@cloudcrane/pboot-snapshot';
 import { createLogger } from '@cloudcrane/shared';
 import type { RunnerConfig } from '../../config.js';
 import type {
+  ProductionContentSnapshot,
   ProductionDeployInput,
   ProductionProvider,
   ProductionRuntime,
@@ -522,6 +526,114 @@ export class DockerProductionProvider implements ProductionProvider {
     await this.removeWebsiteArtifacts(websiteId);
   }
 
+  async snapshotContent(
+    websiteId: string,
+    productionSlug: string,
+    refreshId: string,
+  ): Promise<ProductionContentSnapshot> {
+    this.assertId(websiteId);
+    this.assertSlug(productionSlug);
+    if (!/^[0-9a-f-]{36}$/i.test(refreshId)) throw new Error('invalid refresh id');
+    const runtime = await this.getStatus(websiteId, productionSlug);
+    if (runtime.status !== 'active' || !runtime.currentReleaseId || !runtime.authorized)
+      throw new ProductionOperationError(
+        'PRODUCTION_RUNTIME_UNAVAILABLE',
+        'Production must be active and authorized before content can be refreshed',
+      );
+
+    const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
+    const directory = path.join(artifactRoot, `.production-refresh-${refreshId}`);
+    if (!directory.startsWith(`${artifactRoot}${path.sep}`))
+      throw new Error('production refresh snapshot path is outside its root');
+    const temporaryDatabaseName = `.cloudcrane-refresh-${refreshId}.db`;
+    const productionRoot = this.root(websiteId);
+    const temporaryDatabase = path.join(productionRoot, 'shared', 'data', temporaryDatabaseName);
+    const uploads = path.join(productionRoot, 'shared', 'upload');
+
+    await rm(directory, { recursive: true, force: true });
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    try {
+      const uploadInfo = await lstat(uploads);
+      if (!uploadInfo.isDirectory() || uploadInfo.isSymbolicLink())
+        throw new Error('Production uploads directory is not a regular directory');
+      await this.assertNoSymlinks(uploads);
+      const uploadsBefore = await this.hashDirectory(uploads);
+      const container = this.docker.getContainer(this.containerName(websiteId));
+      const php = [
+        '$src = new SQLite3("/site/shared/data/cloudcrane.db", SQLITE3_OPEN_READONLY);',
+        `$dst = new SQLite3("/site/shared/data/${temporaryDatabaseName}");`,
+        '$dst->busyTimeout(30000);',
+        '$ok = $src->backup($dst);',
+        '$integrity = $ok ? $dst->querySingle("PRAGMA integrity_check") : false;',
+        '$dst->close(); $src->close();',
+        'if (!$ok || $integrity !== "ok") exit(42);',
+      ].join(' ');
+      const command = await container.exec({
+        Cmd: ['php', '-r', php],
+        User: '1000:1000',
+        WorkingDir: '/site/current',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const stream = await command.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        stream.once('end', resolve);
+        stream.once('close', resolve);
+        stream.once('error', reject);
+        stream.resume();
+      });
+      const result = await command.inspect();
+      if (result.ExitCode !== 0) throw new Error('Production SQLite online backup failed');
+
+      const databaseInfo = await lstat(temporaryDatabase);
+      if (!databaseInfo.isFile() || databaseInfo.isSymbolicLink())
+        throw new Error('Production SQLite online backup is not a regular file');
+      await copyFile(temporaryDatabase, path.join(directory, 'pbootcms.db'));
+      await rm(temporaryDatabase, { force: true });
+
+      await cp(uploads, path.join(directory, 'upload'), {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        preserveTimestamps: true,
+      });
+      const [uploadsAfter, snapshotUploads] = await Promise.all([
+        this.hashDirectory(uploads),
+        this.hashDirectory(path.join(directory, 'upload')),
+      ]);
+      if (uploadsBefore !== uploadsAfter || uploadsBefore !== snapshotUploads)
+        throw new ProductionOperationError(
+          'PRODUCTION_CONTENT_CHANGED_DURING_SNAPSHOT',
+          'Production uploads changed while the content snapshot was being created',
+        );
+
+      const metrics = await this.measureDirectory(path.join(directory, 'upload'));
+      return {
+        directory,
+        databaseBytes: (await stat(path.join(directory, 'pbootcms.db'))).size,
+        uploadFiles: metrics.files,
+        uploadBytes: metrics.bytes,
+      };
+    } catch (error) {
+      await rm(temporaryDatabase, { force: true }).catch(() => undefined);
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async removeContentSnapshot(
+    snapshot: ProductionContentSnapshot,
+    refreshId: string,
+  ): Promise<void> {
+    if (!/^[0-9a-f-]{36}$/i.test(refreshId)) throw new Error('invalid refresh id');
+    const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
+    const expected = path.join(artifactRoot, `.production-refresh-${refreshId}`);
+    if (path.resolve(snapshot.directory) !== expected)
+      throw new Error('production refresh snapshot path does not match its refresh id');
+    await rm(expected, { recursive: true, force: true });
+  }
+
   private async completeInitialPersistentState(root: string, releaseId: string): Promise<void> {
     const shared = path.join(root, 'shared');
     const initializationMarker = path.join(shared, '.initializing-release');
@@ -952,6 +1064,51 @@ export class DockerProductionProvider implements ProductionProvider {
       if (entry.isSymbolicLink()) throw new Error('initial upload contains a symlink');
       if (entry.isDirectory()) await this.assertNoSymlinks(path.join(directory, entry.name));
     }
+  }
+
+  private async measureDirectory(directory: string): Promise<{ files: number; bytes: number }> {
+    let files = 0;
+    let bytes = 0;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error('Production uploads contain a symbolic link');
+      if (entry.isDirectory()) {
+        const nested = await this.measureDirectory(filename);
+        files += nested.files;
+        bytes += nested.bytes;
+      } else if (entry.isFile()) {
+        files += 1;
+        bytes += (await stat(filename)).size;
+      } else {
+        throw new Error('Production uploads contain an unsupported filesystem entry');
+      }
+    }
+    return { files, bytes };
+  }
+
+  private async hashDirectory(directory: string, relative = ''): Promise<string> {
+    const hash = createHash('sha256');
+    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const filename = path.join(directory, entry.name);
+      const relativePath = path.posix.join(relative, entry.name);
+      hash.update(`${entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : 'x'}:${relativePath}\n`);
+      if (entry.isSymbolicLink()) throw new Error('Production uploads contain a symbolic link');
+      if (entry.isDirectory()) {
+        hash.update(await this.hashDirectory(filename, relativePath));
+      } else if (entry.isFile()) {
+        await new Promise<void>((resolve, reject) => {
+          const stream = createReadStream(filename);
+          stream.on('data', (chunk: string | Buffer) => hash.update(chunk));
+          stream.once('end', resolve);
+          stream.once('error', reject);
+        });
+      } else {
+        throw new Error('Production uploads contain an unsupported filesystem entry');
+      }
+    }
+    return hash.digest('hex');
   }
 
   private async makeReleaseReadOnly(root: string): Promise<void> {

@@ -4,12 +4,14 @@ import type {
 } from '@cloudcrane/workspace-protocol';
 import type { ProductionOperationExecutor } from '../ports/production-operation-executor.js';
 import type { ProductionRuntimeService } from './production-runtime-service.js';
+import type { ProductionContentRefreshService } from './production-content-refresh-service.js';
 import { ProductionReleaseStager } from './production-release-stager.js';
 
 export class ProductionReleaseOperationExecutor implements ProductionOperationExecutor {
   constructor(
     private readonly stager: ProductionReleaseStager,
     private readonly runtime: ProductionRuntimeService,
+    private readonly contentRefresh?: ProductionContentRefreshService,
   ) {}
 
   supportedOperations(): readonly ProductionOperationName[] {
@@ -20,6 +22,7 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       'production.status',
       'production.authorize',
       'production.destroy',
+      'production.refresh',
     ];
   }
 
@@ -79,6 +82,14 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       case 'production.destroy':
         await this.runtime.destroyRuntime(operation.websiteId, operation.payload.releaseIds);
         return null;
+      case 'production.refresh':
+        if (!this.contentRefresh) throw new Error('production content refresh is unavailable');
+        return this.contentRefresh.refresh({
+          websiteId: operation.websiteId,
+          workspaceId: operation.workspaceId,
+          productionSlug: operation.payload.productionSlug,
+          refreshId: operation.payload.refreshId,
+        });
       case 'production.authorize':
         await this.runtime.authorize(
           operation.websiteId,

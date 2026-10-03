@@ -5,6 +5,7 @@ import {
   entitlementDefinition,
   entitlementGrant,
   productionRuntime,
+  operation,
   website,
   websiteRelease,
   workspace,
@@ -380,7 +381,7 @@ async function preparePublish(input: {
       sql`select pg_advisory_xact_lock(hashtext(${`website-publish-account:${site.billingAccountId}`}))`,
     );
     await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`website-publish:${input.websiteId}`}))`,
+      sql`select pg_advisory_xact_lock(hashtext(${`website-lifecycle:${input.websiteId}`}))`,
     );
     const running = await tx
       .select({ id: agentRun.id })
@@ -388,12 +389,26 @@ async function preparePublish(input: {
       .where(
         and(
           eq(agentRun.websiteId as never, input.websiteId),
-          eq(agentRun.status as never, 'RUNNING'),
+          inArray(agentRun.status as never, ['PENDING', 'RUNNING']),
         ) as never,
       )
       .limit(1);
     if (running.length)
       throw new WebsitePublishError('WEBSITE_BUSY', 'Agent 正在修改网站，请等待本次任务完成');
+
+    const refreshing = await tx
+      .select({ id: operation.id })
+      .from(operation)
+      .where(
+        and(
+          eq(operation.websiteId as never, input.websiteId),
+          eq(operation.type as never, 'website.production.refresh'),
+          inArray(operation.status as never, ['pending', 'running', 'retryable']),
+        ),
+      )
+      .limit(1);
+    if (refreshing.length)
+      throw new WebsitePublishError('WEBSITE_BUSY', '正式网站内容正在刷新，请等待完成');
 
     const inFlight = await tx
       .select({ id: websiteRelease.id })

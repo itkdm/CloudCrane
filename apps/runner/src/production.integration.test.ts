@@ -1,5 +1,6 @@
 import {
   chmod,
+  copyFile,
   cp,
   lstat,
   mkdir,
@@ -31,6 +32,173 @@ const productionSlug = 'production-integration-site';
 const coreCommit = '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea';
 
 describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
+  it('refreshes only Workspace content from a validated Production snapshot', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-refresh-'));
+    const workspaceId = '00000000-0000-4000-8000-000000000083';
+    const refreshId = '00000000-0000-4000-8000-000000000084';
+    const config = loadRunnerConfig({
+      WORKSPACE_ROOT: path.join(base, 'workspaces'),
+      RELEASE_ARTIFACT_ROOT: path.join(base, 'artifacts'),
+      PRODUCTION_ROOT: path.join(base, 'production'),
+      WORKSPACE_IMAGE: 'website-workspace-pboot:v1',
+      PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',
+      WORKSPACE_CPU_LIMIT: '500000000',
+      WORKSPACE_MEMORY_LIMIT_BYTES: '268435456',
+      WORKSPACE_PIDS_LIMIT: '64',
+    });
+    const provider = new DockerWorkspaceProvider(config);
+    let created = false;
+    const workspaceRoot = path.join(config.workspaceRoot, workspaceId, 'workspace');
+    const snapshot = path.join(config.releaseArtifactRoot, '.production-refresh-test');
+
+    try {
+      await provider.create(workspaceId);
+      created = true;
+      const daemon = new WorkspaceDaemonClient(await provider.getEndpoint(workspaceId));
+      await daemon.mkdir({ path: '/workspace/data', recursive: true });
+      await daemon.mkdir({ path: '/workspace/static/upload', recursive: true });
+      await daemon.mkdir({
+        path: '/workspace/.cloudcrane/production-source/upload',
+        recursive: true,
+      });
+      await daemon.write({ path: '/workspace/apps-refresh-marker.txt', content: 'workspace-code' });
+      await daemon.write({
+        path: '/workspace/static/upload/preview.txt',
+        content: 'old-preview-upload',
+      });
+      await daemon.write({
+        path: '/workspace/.cloudcrane/production-source/upload/production.txt',
+        content: 'production-upload',
+      });
+      await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('preview-content');",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000085',
+      });
+      await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/.cloudcrane/production-source/pbootcms.db',
+          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('production-content');",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000086',
+      });
+      await mkdir(snapshot, { recursive: true });
+      await copyFile(
+        path.join(workspaceRoot, '.cloudcrane', 'production-source', 'pbootcms.db'),
+        path.join(snapshot, 'pbootcms.db'),
+      );
+      await cp(
+        path.join(workspaceRoot, '.cloudcrane', 'production-source', 'upload'),
+        path.join(snapshot, 'upload'),
+        { recursive: true },
+      );
+
+      await expect(
+        provider.importProductionContent(workspaceId, {
+          refreshId,
+          snapshotDirectory: snapshot,
+        }),
+      ).resolves.toMatchObject({ uploadFiles: 1 });
+      const refreshed = await daemon.exec({
+        command: 'sqlite3',
+        args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000087',
+      });
+      expect(refreshed.stdout.trim()).toBe('production-content');
+      expect(
+        await readFile(path.join(workspaceRoot, 'static', 'upload', 'production.txt'), 'utf8'),
+      ).toBe('production-upload');
+      await expect(
+        lstat(path.join(workspaceRoot, 'static', 'upload', 'preview.txt')),
+      ).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      expect(await readFile(path.join(workspaceRoot, 'apps-refresh-marker.txt'), 'utf8')).toBe(
+        'workspace-code',
+      );
+      expect(await readFile(path.join(snapshot, 'upload', 'production.txt'), 'utf8')).toBe(
+        'production-upload',
+      );
+
+      const invalidSnapshot = path.join(config.releaseArtifactRoot, '.production-refresh-invalid');
+      await mkdir(path.join(invalidSnapshot, 'upload'), { recursive: true });
+      await writeFile(path.join(invalidSnapshot, 'pbootcms.db'), 'not a sqlite database');
+      await expect(
+        provider.importProductionContent(workspaceId, {
+          refreshId: '00000000-0000-4000-8000-000000000088',
+          snapshotDirectory: invalidSnapshot,
+        }),
+      ).rejects.toThrow('Production snapshot database integrity check failed');
+      const afterRejectedImport = await daemon.exec({
+        command: 'sqlite3',
+        args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000089',
+      });
+      expect(afterRejectedImport.stdout.trim()).toBe('production-content');
+
+      const mismatchSource = '/workspace/.cloudcrane/schema-mismatch/pbootcms.db';
+      await daemon.mkdir({
+        path: '/workspace/.cloudcrane/schema-mismatch/upload',
+        recursive: true,
+      });
+      await daemon.exec({
+        command: 'sqlite3',
+        args: [mismatchSource, 'CREATE TABLE incompatible (value TEXT);'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000090',
+      });
+      const mismatchSnapshot = path.join(
+        config.releaseArtifactRoot,
+        '.production-refresh-mismatch',
+      );
+      await mkdir(mismatchSnapshot, { recursive: true });
+      await copyFile(mismatchSource, path.join(mismatchSnapshot, 'pbootcms.db'));
+      await mkdir(path.join(mismatchSnapshot, 'upload'), { recursive: true });
+      await expect(
+        provider.importProductionContent(workspaceId, {
+          refreshId: '00000000-0000-4000-8000-000000000091',
+          snapshotDirectory: mismatchSnapshot,
+        }),
+      ).rejects.toThrow('Production and Workspace use different database schemas');
+      const afterMismatch = await daemon.exec({
+        command: 'sqlite3',
+        args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000092',
+      });
+      expect(afterMismatch.stdout.trim()).toBe('production-content');
+    } finally {
+      if (created) await provider.destroyRuntime(workspaceId).catch(() => undefined);
+      await rm(base, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it('stages a first release from a verified SQLite online backup in Workspace', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-stage-'));
     const workspaceId = '00000000-0000-4000-8000-000000000074';

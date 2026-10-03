@@ -1,6 +1,7 @@
 import { createLogger, loadTracingConfig, startObservability } from '@cloudcrane/shared';
 import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
 import { ProductionReleaseOperationExecutor } from './application/production-release-operation-executor.js';
+import { ProductionContentRefreshService } from './application/production-content-refresh-service.js';
 import { ProductionReleaseStager } from './application/production-release-stager.js';
 import { ProductionRuntimeService } from './application/production-runtime-service.js';
 import { loadRunnerConfig } from './config.js';
@@ -26,6 +27,10 @@ export const workspaceRuntimeService = new WorkspaceRuntimeService(provider);
 const productionExecutor = new ProductionReleaseOperationExecutor(
   new ProductionReleaseStager(workspaceRuntimeService, config),
   new ProductionRuntimeService(productionProvider),
+  new ProductionContentRefreshService(
+    new ProductionRuntimeService(productionProvider),
+    workspaceRuntimeService,
+  ),
 );
 const connection = new RunnerGatewayConnection(
   config,

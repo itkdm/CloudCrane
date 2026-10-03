@@ -1,6 +1,8 @@
 import type {
   SnapshotStageInput,
   SnapshotStageResult,
+  ProductionContentImport,
+  ProductionContentImportResult,
   WorkspaceProvider,
   WorkspaceRuntime,
 } from '../ports/workspace-provider.js';
@@ -27,5 +29,12 @@ export class WorkspaceRuntimeService {
   }
   stageSnapshot(workspaceId: string, input: SnapshotStageInput): Promise<SnapshotStageResult> {
     return this.provider.stageSnapshot(workspaceId, input);
+  }
+
+  importProductionContent(
+    workspaceId: string,
+    input: ProductionContentImport,
+  ): Promise<ProductionContentImportResult> {
+    return this.provider.importProductionContent(workspaceId, input);
   }
 }

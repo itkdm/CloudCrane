@@ -1,4 +1,15 @@
-import { chmod, lstat, mkdir, rm } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -6,9 +17,12 @@ import { z } from 'zod';
 import { buildSnapshotArchive } from '@cloudcrane/pboot-snapshot';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import type { RunnerConfig } from '../../config.js';
+import { ProductionOperationError } from '../../ports/production-operation-error.js';
 import type {
   SnapshotStageInput,
   SnapshotStageResult,
+  ProductionContentImport,
+  ProductionContentImportResult,
   WorkspaceProvider,
   WorkspaceRuntime,
 } from '../../ports/workspace-provider.js';
@@ -88,6 +102,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async start(workspaceId: string): Promise<WorkspaceRuntime> {
+    await this.recoverPendingProductionRefresh(workspaceId);
     const container = await this.ensureRuntimeCompatible(workspaceId);
     const info = await container.inspect();
     if (!info.State?.Running) await container.start();
@@ -108,6 +123,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async getEndpoint(workspaceId: string): Promise<string> {
+    await this.recoverPendingProductionRefresh(workspaceId);
     const container = this.reconcilingWorkspaces.has(workspaceId)
       ? await this.container(workspaceId)
       : await this.ensureRuntimeCompatible(workspaceId);
@@ -191,9 +207,351 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     };
   }
 
+  async importProductionContent(
+    workspaceId: string,
+    input: ProductionContentImport,
+  ): Promise<ProductionContentImportResult> {
+    this.assertWorkspaceId(workspaceId);
+    this.assertRefreshId(input.refreshId);
+    const artifactRoot = path.resolve(this.config.releaseArtifactRoot);
+    const snapshotDirectory = path.resolve(input.snapshotDirectory);
+    if (!snapshotDirectory.startsWith(`${artifactRoot}${path.sep}`))
+      throw new Error('production refresh snapshot is outside the artifact root');
+    const snapshotDirectoryInfo = await lstat(snapshotDirectory);
+    if (!snapshotDirectoryInfo.isDirectory() || snapshotDirectoryInfo.isSymbolicLink())
+      throw new Error('Production refresh snapshot is not a regular directory');
+    const sourceDatabase = path.join(snapshotDirectory, 'pbootcms.db');
+    const sourceUploads = path.join(snapshotDirectory, 'upload');
+    const sourceDatabaseInfo = await lstat(sourceDatabase);
+    const sourceUploadsInfo = await lstat(sourceUploads);
+    if (!sourceDatabaseInfo.isFile() || sourceDatabaseInfo.isSymbolicLink())
+      throw new Error('Production snapshot database is not a regular file');
+    if (!sourceUploadsInfo.isDirectory() || sourceUploadsInfo.isSymbolicLink())
+      throw new Error('Production snapshot uploads are not a regular directory');
+    await this.assertTreeHasNoSymlinks(sourceUploads);
+
+    await this.recoverPendingProductionRefresh(workspaceId);
+    const workspaceRoot = this.persistentPath(workspaceId);
+    const pendingMarker = path.join(workspaceRoot, '.cloudcrane', 'production-refresh-pending');
+    const operationRoot = path.join(
+      workspaceRoot,
+      '.cloudcrane',
+      `production-refresh-${input.refreshId}`,
+    );
+    const incomingRoot = path.join(operationRoot, 'incoming');
+    const backupRoot = path.join(operationRoot, 'backup');
+    const databasePath = path.join(workspaceRoot, 'data', 'pbootcms.db');
+    const uploadsPath = path.join(workspaceRoot, 'static', 'upload');
+    const initialRuntime = await this.getStatus(workspaceId);
+    const wasRunning = initialRuntime.status === 'running';
+    await this.start(workspaceId);
+    const endpoint = await this.getEndpoint(workspaceId);
+    const daemon = new WorkspaceDaemonClient(endpoint, 60_000);
+
+    try {
+      await rm(operationRoot, { recursive: true, force: true });
+      await mkdir(incomingRoot, { recursive: true });
+      await mkdir(backupRoot, { recursive: true });
+      await copyFile(sourceDatabase, path.join(incomingRoot, 'pbootcms.db'));
+      await cp(sourceUploads, path.join(incomingRoot, 'upload'), { recursive: true });
+      const integrity = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
+          'PRAGMA integrity_check;',
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 60_000,
+        maxOutputBytes: 16_384,
+        executionId: randomUUID(),
+      });
+      if (integrity.exitCode !== 0 || integrity.stdout.trim() !== 'ok')
+        throw new Error('Production snapshot database integrity check failed');
+      const schema = await daemon.exec({
+        command: 'php',
+        args: [
+          '-r',
+          '$schemas=[]; foreach (array_slice($argv,1) as $file) { $db=new SQLite3($file, SQLITE3_OPEN_READONLY); $rows=$db->query("SELECT type,name,coalesce(sql,\'\') FROM sqlite_master WHERE name NOT LIKE \'sqlite_%\' ORDER BY type,name"); $parts=[]; while ($row=$rows->fetchArray(SQLITE3_NUM)) $parts[]=implode("\\0", $row); $schemas[]=hash("sha256", implode("\\n", $parts)); $db->close(); } echo implode(" ", $schemas);',
+          '/workspace/data/pbootcms.db',
+          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 30_000,
+        maxOutputBytes: 4096,
+        executionId: randomUUID(),
+      });
+      const schemaHashes = schema.stdout.trim().split(/\s+/);
+      if (
+        schema.exitCode !== 0 ||
+        schemaHashes.length !== 2 ||
+        !/^[0-9a-f]{64}$/.test(schemaHashes[0] ?? '') ||
+        !/^[0-9a-f]{64}$/.test(schemaHashes[1] ?? '')
+      )
+        throw new Error('Workspace database schema compatibility check failed');
+      if (schemaHashes[0] !== schemaHashes[1])
+        throw new ProductionOperationError(
+          'WORKSPACE_SCHEMA_MISMATCH',
+          'Production and Workspace use different database schemas; synchronize or migrate the code before refreshing content',
+        );
+    } catch (error) {
+      await rm(operationRoot, { recursive: true, force: true }).catch(() => undefined);
+      if (wasRunning) await this.start(workspaceId).catch(() => undefined);
+      else await this.stop(workspaceId).catch(() => undefined);
+      throw error;
+    }
+
+    await this.stop(workspaceId);
+    const backupState = {
+      refreshId: input.refreshId,
+      wasRunning,
+      hadDatabase: await this.exists(databasePath),
+      hadUploads: await this.exists(uploadsPath),
+      sidecars: [] as string[],
+    };
+    try {
+      await mkdir(path.dirname(databasePath), { recursive: true });
+      await mkdir(path.dirname(uploadsPath), { recursive: true });
+      if (backupState.hadDatabase) {
+        const info = await lstat(databasePath);
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error('Workspace database is not a regular file');
+        await copyFile(databasePath, path.join(backupRoot, 'pbootcms.db'));
+      }
+      if (backupState.hadUploads) {
+        const info = await lstat(uploadsPath);
+        if (!info.isDirectory() || info.isSymbolicLink())
+          throw new Error('Workspace uploads are not a regular directory');
+        await this.assertTreeHasNoSymlinks(uploadsPath);
+        await cp(uploadsPath, path.join(backupRoot, 'upload'), { recursive: true });
+      }
+      for (const suffix of ['-wal', '-shm', '-journal']) {
+        const sidecar = `${databasePath}${suffix}`;
+        if (await this.exists(sidecar)) {
+          const info = await lstat(sidecar);
+          if (!info.isFile() || info.isSymbolicLink())
+            throw new Error('Workspace SQLite sidecar is not a regular file');
+          backupState.sidecars.push(suffix);
+          await copyFile(sidecar, path.join(backupRoot, `pbootcms.db${suffix}`));
+        }
+      }
+      const markerTemporary = `${pendingMarker}.${randomUUID()}.tmp`;
+      await writeFile(markerTemporary, JSON.stringify(backupState), { mode: 0o600 });
+      await rename(markerTemporary, pendingMarker);
+      await this.setWorkspaceContentOwnership(workspaceId, incomingRoot);
+      await rm(databasePath, { force: true });
+      for (const suffix of ['-wal', '-shm', '-journal'])
+        await rm(`${databasePath}${suffix}`, { force: true });
+      await rm(uploadsPath, { recursive: true, force: true });
+      await rename(path.join(incomingRoot, 'pbootcms.db'), databasePath);
+      await rename(path.join(incomingRoot, 'upload'), uploadsPath);
+      await this.startWithoutRefreshRecovery(workspaceId);
+      const verificationDaemon = new WorkspaceDaemonClient(endpoint, 60_000);
+      const verified = await verificationDaemon.exec({
+        command: 'sqlite3',
+        args: ['/workspace/data/pbootcms.db', 'PRAGMA integrity_check;'],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 60_000,
+        maxOutputBytes: 16_384,
+        executionId: randomUUID(),
+      });
+      if (verified.exitCode !== 0 || verified.stdout.trim() !== 'ok')
+        throw new Error('Workspace database integrity check failed after Production refresh');
+      const imported = await this.measureContentImport(databasePath, uploadsPath);
+      await rm(pendingMarker, { force: true });
+      await rm(operationRoot, { recursive: true, force: true });
+      return imported;
+    } catch (error) {
+      if (await this.exists(pendingMarker)) {
+        await this.rollbackProductionRefresh(
+          workspaceRoot,
+          backupRoot,
+          databasePath,
+          uploadsPath,
+          backupState,
+        );
+        await rm(pendingMarker, { force: true }).catch(() => undefined);
+      }
+      await rm(operationRoot, { recursive: true, force: true }).catch(() => undefined);
+      if (wasRunning) await this.start(workspaceId).catch(() => undefined);
+      else await this.stop(workspaceId).catch(() => undefined);
+      throw error;
+    }
+  }
+
   private async container(workspaceId: string): Promise<Docker.Container> {
     this.assertWorkspaceId(workspaceId);
     return this.docker.getContainer(`cloudcrane-workspace-${workspaceId}`);
+  }
+
+  private async recoverPendingProductionRefresh(workspaceId: string): Promise<void> {
+    this.assertWorkspaceId(workspaceId);
+    const workspaceRoot = this.persistentPath(workspaceId);
+    const marker = path.join(workspaceRoot, '.cloudcrane', 'production-refresh-pending');
+    let state: {
+      refreshId: string;
+      wasRunning: boolean;
+      hadDatabase: boolean;
+      hadUploads: boolean;
+      sidecars: string[];
+    };
+    try {
+      state = JSON.parse(await readFile(marker, 'utf8')) as typeof state;
+    } catch (error) {
+      if (this.isNotFound(error)) return;
+      throw new Error('Production refresh recovery marker is invalid', { cause: error });
+    }
+    this.assertRefreshId(state.refreshId);
+    if (
+      typeof state.wasRunning !== 'boolean' ||
+      typeof state.hadDatabase !== 'boolean' ||
+      typeof state.hadUploads !== 'boolean' ||
+      !Array.isArray(state.sidecars) ||
+      state.sidecars.some((suffix) => !['-wal', '-shm', '-journal'].includes(suffix))
+    )
+      throw new Error('Production refresh recovery marker is invalid');
+
+    const backupRoot = path.join(
+      workspaceRoot,
+      '.cloudcrane',
+      `production-refresh-${state.refreshId}`,
+      'backup',
+    );
+    const databasePath = path.join(workspaceRoot, 'data', 'pbootcms.db');
+    const uploadsPath = path.join(workspaceRoot, 'static', 'upload');
+    const container = await this.container(workspaceId);
+    const info = await container.inspect();
+    if (info.State?.Running) await container.stop();
+    await this.rollbackProductionRefresh(
+      workspaceRoot,
+      backupRoot,
+      databasePath,
+      uploadsPath,
+      state,
+    );
+    await rm(marker, { force: true });
+    await rm(path.dirname(backupRoot), { recursive: true, force: true });
+    if (state.wasRunning) {
+      const restored = await this.container(workspaceId);
+      const restoredInfo = await restored.inspect();
+      if (!restoredInfo.State?.Running) await restored.start();
+      await this.waitForPreview(restored);
+    }
+  }
+
+  private async rollbackProductionRefresh(
+    workspaceRoot: string,
+    backupRoot: string,
+    databasePath: string,
+    uploadsPath: string,
+    state: {
+      hadDatabase: boolean;
+      hadUploads: boolean;
+      sidecars: string[];
+    },
+  ): Promise<void> {
+    await rm(databasePath, { force: true });
+    for (const suffix of ['-wal', '-shm', '-journal'])
+      await rm(`${databasePath}${suffix}`, { force: true });
+    await rm(uploadsPath, { recursive: true, force: true });
+    if (state.hadDatabase) await copyFile(path.join(backupRoot, 'pbootcms.db'), databasePath);
+    if (state.hadUploads)
+      await cp(path.join(backupRoot, 'upload'), uploadsPath, { recursive: true });
+    for (const suffix of state.sidecars)
+      await copyFile(path.join(backupRoot, `pbootcms.db${suffix}`), `${databasePath}${suffix}`);
+    const workspaceId = path.basename(path.dirname(workspaceRoot));
+    if (state.hadDatabase) await this.setWorkspaceContentOwnership(workspaceId, databasePath);
+    if (state.hadUploads) await this.setWorkspaceContentOwnership(workspaceId, uploadsPath);
+  }
+
+  private async setWorkspaceContentOwnership(
+    workspaceId: string,
+    sourceRoot: string,
+  ): Promise<void> {
+    this.assertWorkspaceId(workspaceId);
+    const workspaceRoot = this.persistentPath(workspaceId);
+    const relative = path.relative(workspaceRoot, path.resolve(sourceRoot)).replaceAll('\\', '/');
+    if (relative.startsWith('..') || path.isAbsolute(relative))
+      throw new Error('Workspace refresh ownership path is outside the workspace');
+    const container = await this.docker.createContainer({
+      Image: this.config.workspaceImage,
+      name: `cloudcrane-workspace-refresh-owner-${workspaceId}-${randomUUID()}`,
+      User: '0:0',
+      Entrypoint: ['/usr/bin/chown'],
+      Cmd: ['-R', '1000:1000', `/workspace/${relative}`],
+      HostConfig: {
+        Binds: [`${workspaceRoot}:/workspace`],
+        NetworkMode: 'none',
+        AutoRemove: false,
+        LogConfig: { Type: 'json-file', Config: { 'max-size': '2m', 'max-file': '2' } },
+      },
+    });
+    try {
+      await container.start();
+      const result = await container.wait();
+      if (result.StatusCode !== 0) throw new Error('Workspace content ownership update failed');
+    } finally {
+      await container.remove({ force: true }).catch(() => undefined);
+    }
+  }
+
+  private async startWithoutRefreshRecovery(workspaceId: string): Promise<void> {
+    const container = await this.ensureRuntimeCompatible(workspaceId);
+    const info = await container.inspect();
+    if (!info.State?.Running) await container.start();
+    await this.waitForPreview(container);
+  }
+
+  private async assertTreeHasNoSymlinks(directory: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new Error('Production snapshot contains a symbolic link');
+      if (entry.isDirectory()) await this.assertTreeHasNoSymlinks(path.join(directory, entry.name));
+      else if (!entry.isFile())
+        throw new Error('Production snapshot contains an unsupported entry');
+    }
+  }
+
+  private async measureContentImport(
+    databasePath: string,
+    uploadsPath: string,
+  ): Promise<ProductionContentImportResult> {
+    let uploadFiles = 0;
+    let uploadBytes = 0;
+    const measure = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const filename = path.join(directory, entry.name);
+        if (entry.isDirectory()) await measure(filename);
+        else if (entry.isFile()) {
+          uploadFiles += 1;
+          uploadBytes += (await lstat(filename)).size;
+        } else throw new Error('Workspace uploads contain an unsupported entry');
+      }
+    };
+    await measure(uploadsPath);
+    return {
+      databaseBytes: (await lstat(databasePath)).size,
+      uploadFiles,
+      uploadBytes,
+    };
+  }
+
+  private async exists(filename: string): Promise<boolean> {
+    try {
+      await lstat(filename);
+      return true;
+    } catch (error) {
+      if (this.isNotFound(error)) return false;
+      throw error;
+    }
+  }
+
+  private assertRefreshId(refreshId: string): void {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(refreshId)
+    )
+      throw new Error('Invalid production refresh id');
   }
 
   private async ensureRuntimeCompatible(workspaceId: string): Promise<Docker.Container> {

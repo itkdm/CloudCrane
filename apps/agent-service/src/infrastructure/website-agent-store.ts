@@ -4,6 +4,7 @@ import {
   auditEvent,
   finishAuditEvent,
   insertAuditEvent,
+  operation,
   type PlatformDb,
 } from '@cloudcrane/db';
 import { websiteSession } from '@cloudcrane/db';
@@ -152,21 +153,38 @@ export class DrizzleWebsiteAgentStore implements WebsiteAgentStore {
   }
 
   async createRun(input: CreateRunIndex): Promise<AgentRunIndex> {
-    const rows = await this.platform.db
-      .insert(agentRun)
-      .values({
-        ...(input.id ? { id: input.id } : {}),
-        websiteId: input.websiteId,
-        sessionId: input.sessionId,
-        traceId: input.traceId,
-        status: input.status,
-        model: input.model,
-        error: input.error,
-        startedAt: input.startedAt ? new Date(input.startedAt) : null,
-        endedAt: input.endedAt ? new Date(input.endedAt) : null,
-      })
-      .returning();
-    const row = rows[0];
+    const row = await this.platform.db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`website-lifecycle:${input.websiteId}`}))`,
+      );
+      const refreshing = await tx
+        .select({ id: operation.id })
+        .from(operation)
+        .where(
+          and(
+            eq(operation.websiteId, input.websiteId),
+            eq(operation.type, 'website.production.refresh'),
+            inArray(operation.status, ['pending', 'running', 'retryable']),
+          ),
+        )
+        .limit(1);
+      if (refreshing.length) throw new Error('WEBSITE_PRODUCTION_REFRESH_IN_PROGRESS');
+      const rows = await tx
+        .insert(agentRun)
+        .values({
+          ...(input.id ? { id: input.id } : {}),
+          websiteId: input.websiteId,
+          sessionId: input.sessionId,
+          traceId: input.traceId,
+          status: input.status,
+          model: input.model,
+          error: input.error,
+          startedAt: input.startedAt ? new Date(input.startedAt) : null,
+          endedAt: input.endedAt ? new Date(input.endedAt) : null,
+        })
+        .returning();
+      return rows[0];
+    });
     if (!row) throw new Error('agent run was not created');
     try {
       const observabilityContext = getLogContext();

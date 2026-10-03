@@ -81,6 +81,18 @@ describe('workspace envelope', () => {
     ).toMatchObject({ runnerId });
   });
 
+  it('treats Production content refresh as a typed mutation', () => {
+    const refresh = productionOperationSchema.parse({
+      operation: 'production.refresh',
+      payload: {
+        productionSlug: 'production-website',
+        refreshId: '00000000-0000-4000-8000-000000000001',
+      },
+    });
+    expect(refresh.operation).toBe('production.refresh');
+    expect(isProductionMutationOperation(refresh.operation)).toBe(true);
+  });
+
   it('validates operation envelopes and central mutation classification', () => {
     const operation = {
       type: 'workspace.operation' as const,

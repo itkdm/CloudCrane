@@ -34,6 +34,10 @@ export const productionOperationPayloadSchemas = {
   'production.destroy': z.object({
     releaseIds: z.array(z.string().uuid()).max(10_000).default([]),
   }),
+  'production.refresh': z.object({
+    productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+    refreshId: z.string().uuid(),
+  }),
 } as const;
 
 export const productionOperationVariants = [
@@ -60,6 +64,10 @@ export const productionOperationVariants = [
   z.object({
     operation: z.literal('production.destroy'),
     payload: productionOperationPayloadSchemas['production.destroy'],
+  }),
+  z.object({
+    operation: z.literal('production.refresh'),
+    payload: productionOperationPayloadSchemas['production.refresh'],
   }),
 ] as const;
 
@@ -122,6 +130,11 @@ export const productionOperationResultSchemas = {
   }),
   'production.authorize': z.object({ status: z.literal('active') }),
   'production.destroy': z.null(),
+  'production.refresh': z.object({
+    databaseBytes: z.number().int().positive(),
+    uploadFiles: z.number().int().nonnegative(),
+    uploadBytes: z.number().int().nonnegative(),
+  }),
 } as const;
 
 export type ProductionOperationResult<K extends ProductionOperationName> = z.infer<

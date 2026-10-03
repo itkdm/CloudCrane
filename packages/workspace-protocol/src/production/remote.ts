@@ -42,6 +42,10 @@ export const productionClientOperationSchema = z.discriminatedUnion('operation',
     operation: z.literal('production.destroy'),
     payload: productionOperationPayloadSchemas['production.destroy'],
   }),
+  productionClientOperationCommonSchema.extend({
+    operation: z.literal('production.refresh'),
+    payload: productionOperationPayloadSchemas['production.refresh'],
+  }),
 ] as const);
 
 export const productionRunnerOperationSchema = z.discriminatedUnion('operation', [
@@ -68,6 +72,10 @@ export const productionRunnerOperationSchema = z.discriminatedUnion('operation',
   productionRunnerOperationCommonSchema.extend({
     operation: z.literal('production.destroy'),
     payload: productionOperationPayloadSchemas['production.destroy'],
+  }),
+  productionRunnerOperationCommonSchema.extend({
+    operation: z.literal('production.refresh'),
+    payload: productionOperationPayloadSchemas['production.refresh'],
   }),
 ] as const);
 

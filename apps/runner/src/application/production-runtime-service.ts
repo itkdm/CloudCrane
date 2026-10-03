@@ -2,6 +2,7 @@ import type {
   ProductionDeployInput,
   ProductionProvider,
   ProductionRuntime,
+  ProductionContentSnapshot,
 } from '../ports/production-provider.js';
 
 export class ProductionRuntimeService {
@@ -25,5 +26,17 @@ export class ProductionRuntimeService {
 
   destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void> {
     return this.provider.destroyRuntime(websiteId, releaseIds);
+  }
+
+  snapshotContent(
+    websiteId: string,
+    productionSlug: string,
+    refreshId: string,
+  ): Promise<ProductionContentSnapshot> {
+    return this.provider.snapshotContent(websiteId, productionSlug, refreshId);
+  }
+
+  removeContentSnapshot(snapshot: ProductionContentSnapshot, refreshId: string): Promise<void> {
+    return this.provider.removeContentSnapshot(snapshot, refreshId);
   }
 }

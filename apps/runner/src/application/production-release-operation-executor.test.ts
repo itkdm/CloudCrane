@@ -39,6 +39,7 @@ describe('ProductionReleaseOperationExecutor', () => {
       'production.status',
       'production.authorize',
       'production.destroy',
+      'production.refresh',
     ]);
     await expect(executor.execute(operation)).resolves.toEqual({
       artifactStorageKey: 'release.zip',

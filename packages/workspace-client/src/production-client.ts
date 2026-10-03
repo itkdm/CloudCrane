@@ -95,6 +95,13 @@ export class ProductionClient {
     return this.call('production.destroy', { releaseIds }, options);
   }
 
+  refreshContent(
+    payload: { productionSlug: string; refreshId: string },
+    options?: ProductionRequestOptions,
+  ) {
+    return this.call('production.refresh', payload, options);
+  }
+
   private async call<K extends ProductionOperationName>(
     operation: K,
     payload: Record<string, unknown>,

@@ -866,6 +866,16 @@ Real-time Dev/Prod DB Sync
 - Production 正式域名使用 `<productionSlug>.site.itkdm.com`。2026-10-01 已核实并配置 wildcard DNS、TLS 和生产 Nginx → Production Gateway 入口；Gateway 健康检查和未知 slug 的拒绝行为已在线验证。指定测试站 `CloudCrane Production E2E`（Website `0d173aae-2ae4-422d-87de-930d63d3c775`）以与 Workspace 相同的受管 PbootCMS 3.2.24 基线创建 Runtime 并激活 Release #7；该首发阶段因缺官方授权，Runtime 曾为 `authorization_required`、首页返回 404。随后测试站获正式授权并发布至 Release #12，具体最新状态与重启验证见下方 2026-10-02 更新。CD 构建新 Production 镜像不会自动替换已存在的 Website 容器：测试时发现旧容器仍引用旧镜像 ID，虽然请求镜像 tag 相同；只重建了已停止且无网络端点的测试容器，并保留共享数据。现有运行容器镜像漂移的安全升级/回滚策略尚未实现，应在验证滚动替换前作为已知运维缺口。TLS 自动续期仍缺 Cloudflare DNS Edit 凭据和自动 hook。Artifact 使用 ECS 本地存储，没有 OSS。
 
 > 更新（2026-10-02）：后续 E2E 已完成正式域名授权；发布中刷新与丢失 Web 响应两种场景均恢复到正确 Release，Production SQLite 与上传文件数量保持不变。端口元数据复用和状态 API 端口同步提交 `399d8764` 已通过 CI #466、Deploy #65。部署后容器映射从 `32799` 变为 `32800`，控制库仍记旧端口导致公网暂时 502；只同步该 E2E Runtime 的端口后公网恢复 200、探针 204。干净内置浏览器标签中的目标 Settings 正常；此前长驻标签显示旧测试站 Settings，是旧页面状态，不能据此判断站点 ID 映射有缺陷。正常 Republish 激活 Release #13（`c3907824-fca3-4aa6-81ed-32571e7fa54e`），Runner 在 Production root 写入 `.production-port=32800`；公网首页仍显示 `Release 2 验收`，SQLite 哈希与上传数未变。随后将 E2E Runtime 数据库端口短暂设回 `32799` 并再次通过干净 UI Republish；界面回到 `Website is live`，公网首页 200、探针 204。Gateway 每次请求均重新查询数据库，目标容器只监听 `32800`，故公网恢复说明自动流程已把流量重新指向正确端口；SSH 连续超时使数据库行与最终 Release ID 未能独立读取。容器重建复用元数据、独立 Runner 重启故障注入仍未完成。容器镜像滚动升级/回滚和 TLS 自动续期仍未实现。
+
+## Implementation Status (2026-10-03): Production → Workspace Refresh
+
+- Website Settings 增加手动刷新入口和覆盖确认。该操作只回流 `Production SQLite + uploads`，不回流 Release 代码、授权或 Runtime 私有状态。
+- Web API 使用 website lifecycle advisory lock、持久化 operation、幂等键与审计；在刷新期间拒绝新的 Agent run 和 Publish，并拒绝已有 Agent run、发布或 Release 切换。
+- Runner 使用 Production 容器中的 PHP `SQLite3::backup()` 创建一致数据库副本。Production 持续服务；上传目录用复制前后及副本的哈希清单校验，检查到复制期间变化时安全失败。
+- Workspace 替换前比较 Production 快照和当前 Workspace SQLite schema 指纹；结构不一致会在替换前拒绝刷新，不自动迁移数据库或代码。
+- Workspace 替换前保留 DB、SQLite sidecar 和 uploads 备份；Preview 停止后替换内容、验证 SQLite，再启动 Preview。未完成操作通过 Workspace 持久恢复标记回滚。
+- Docker 集成测试覆盖成功刷新、内容方向、代码保留、生产快照保留和无效数据库拒绝。GitHub CI 和正式站 Settings E2E 尚待本次实现推送后执行；通过前不能标记线上功能验收完成。
+- Refresh 的完整操作步骤、覆盖范围和 schema 兼容限制见 [Production 内容刷新到 Workspace](../operations/cloudcrane-production-content-refresh.md)。
 - GitHub-hosted Docker integration 覆盖 Production image 构建、锁定的真实 PbootCMS 3.2.26 Workspace 初始化、Production 首发、后台资源/验证码、数据库路径、敏感路径阻断、伪静态入口和第二次 Release 的 Production DB 保留；另有纯 PHP fixture 检查 Runner 的容器边界与失败恢复。CI 的 Docker integration 是该链路的真实容器验收；本机 Docker 不是开发依赖。
 
 ---
@@ -903,27 +913,4 @@ Real-time Dev/Prod DB Sync
 
 # 32. 下一步
 
-下一份技术架构文档进入：
-
-> **Website Agent Architecture**
-
-需要继续调研和确定：
-
-```text
-Agent Session
-Agent Loop
-Context Builder
-System Prompt
-Tool Calling
-Task State
-Browser Observe
-Browser Verify
-Replan
-Failure Recovery
-Git Commit
-Conversation Persistence
-Long-term Workspace Context
-Multi-Agent Boundary
-```
-
-下一阶段开始进入整个产品真正的 AI 核心。
+Production → Workspace Refresh 完成并通过线上 E2E 后，下一阶段按产品优先级进入 Release History / 用户主动 Rollback、Production Backup / Restore、自定义域名和支付接入。Agent 架构的原始编写顺序已被当前已落地实现取代；不再将 Tech-04 中的历史“下一步”段落视为当前排期。
