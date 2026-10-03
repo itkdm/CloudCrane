@@ -262,20 +262,6 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         ].join('\n'),
         snapshotDirectory,
       );
-      const stripProductionOperationLedger = await daemon.exec({
-        command: 'sqlite3',
-        args: [
-          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
-          'DROP TABLE IF EXISTS cloudcrane_cms_content_create_ops;',
-        ],
-        cwd: '/workspace',
-        env: {},
-        timeoutMs: 30_000,
-        maxOutputBytes: 4096,
-        executionId: randomUUID(),
-      });
-      if (stripProductionOperationLedger.exitCode !== 0)
-        throw new Error('Production-only operation metadata cleanup failed');
       const integrity = await daemon.exec({
         command: 'sqlite3',
         args: [
@@ -290,6 +276,34 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       });
       if (integrity.exitCode !== 0 || integrity.stdout.trim() !== 'ok')
         throw new Error('Production snapshot database integrity check failed');
+      const stripProductionOperationLedger = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
+          'DROP TABLE IF EXISTS cloudcrane_cms_content_create_ops;',
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 30_000,
+        maxOutputBytes: 4096,
+        executionId: randomUUID(),
+      });
+      if (stripProductionOperationLedger.exitCode !== 0)
+        throw new Error('Production-only operation metadata cleanup failed');
+      const cleanedIntegrity = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
+          'PRAGMA integrity_check;',
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 60_000,
+        maxOutputBytes: 16_384,
+        executionId: randomUUID(),
+      });
+      if (cleanedIntegrity.exitCode !== 0 || cleanedIntegrity.stdout.trim() !== 'ok')
+        throw new Error('Production snapshot database integrity check failed after cleanup');
       const schema = await daemon.exec({
         command: 'php',
         args: [
