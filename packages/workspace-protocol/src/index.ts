@@ -7,6 +7,7 @@ export * from './runner/messages.js';
 export * from './workspace/operations.js';
 export * from './production/operations.js';
 export * from './production/remote.js';
+export * from '@cloudcrane/cms-protocol';
 
 export const envelopeSchema = z.object({
   type: z.string().min(1),

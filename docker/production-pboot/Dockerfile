@@ -15,7 +15,8 @@ COPY docker/production-pboot/nginx.conf /etc/nginx/nginx.conf
 COPY docker/production-pboot/www.conf /usr/local/etc/php-fpm.d/zz-cloudcrane.conf
 COPY docker/production-pboot/health.php /usr/local/lib/cloudcrane-health.php
 COPY docker/workspace-pboot/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-license
-RUN chmod 0755 /usr/local/bin/cloudcrane-pboot-license
+COPY docker/production-pboot/cloudcrane-pboot-cms /usr/local/bin/cloudcrane-pboot-cms
+RUN chmod 0755 /usr/local/bin/cloudcrane-pboot-license /usr/local/bin/cloudcrane-pboot-cms
 
 USER 1000:1000
 EXPOSE 8080

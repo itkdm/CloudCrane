@@ -49,6 +49,7 @@ export class ProductionDispatchService {
       const auditFinalized = await this.finishAudit(auditId, {
         status: 'SUCCESS',
         durationMs: Date.now() - startedAt,
+        resultSummary: cmsAuditSummary(operation),
       });
       if (!auditFinalized && isProductionMutationOperation(operation.operation))
         throw remoteError(
@@ -71,6 +72,7 @@ export class ProductionDispatchService {
               : 'FAILED',
           durationMs: Date.now() - startedAt,
           errorCode: error instanceof GatewayRemoteError ? error.remote.code : undefined,
+          resultSummary: cmsAuditSummary(operation),
         });
       }
       if (error instanceof GatewayRemoteError) throw error;
@@ -110,6 +112,7 @@ export class ProductionDispatchService {
       status: 'SUCCESS' | 'FAILED' | 'TIMEOUT' | 'UNKNOWN';
       durationMs: number;
       errorCode?: string;
+      resultSummary?: Record<string, unknown>;
     },
   ): Promise<boolean> {
     if (!auditId || !this.store.finishAuditEvent) return true;
@@ -128,4 +131,28 @@ export class ProductionDispatchService {
       return false;
     }
   }
+}
+
+function cmsAuditSummary(
+  operation: ProductionClientOperation,
+): Record<string, unknown> | undefined {
+  if (operation.operation !== 'cms.content.update' && operation.operation !== 'cms.company.update')
+    return undefined;
+  const payload = operation.payload as {
+    patch: Record<string, unknown>;
+    contentId?: string;
+  };
+  const patch = payload.patch;
+  const changedFields = Object.entries(patch)
+    .flatMap(([field, value]) =>
+      field === 'extensionFields' && value && typeof value === 'object'
+        ? Object.keys(value).map((extensionField) => `extensionFields.${extensionField}`)
+        : [field],
+    )
+    .join(',');
+  return {
+    action: operation.operation,
+    recordId: operation.operation === 'cms.content.update' ? payload.contentId : 'company',
+    changedFields,
+  };
 }

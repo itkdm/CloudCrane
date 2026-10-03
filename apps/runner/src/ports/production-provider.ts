@@ -35,6 +35,17 @@ export type ProductionContentSnapshot = {
   uploadBytes: number;
 };
 
+export type CmsOperationInput = {
+  operation:
+    | 'cms.categories.list'
+    | 'cms.content.list'
+    | 'cms.content.get'
+    | 'cms.content.update'
+    | 'cms.company.get'
+    | 'cms.company.update';
+  payload: Record<string, unknown>;
+};
+
 export interface ProductionProvider {
   ensureRuntime(websiteId: string, productionSlug: string): Promise<ProductionRuntime>;
   deployRelease(input: ProductionDeployInput): Promise<ProductionRuntime>;
@@ -47,4 +58,5 @@ export interface ProductionProvider {
     refreshId: string,
   ): Promise<ProductionContentSnapshot>;
   removeContentSnapshot(snapshot: ProductionContentSnapshot, refreshId: string): Promise<void>;
+  cmsOperation?(websiteId: string, input: CmsOperationInput): Promise<unknown>;
 }

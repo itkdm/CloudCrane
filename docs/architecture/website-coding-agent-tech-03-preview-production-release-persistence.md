@@ -878,6 +878,15 @@ Real-time Dev/Prod DB Sync
 - Refresh 的完整操作步骤、覆盖范围和 schema 兼容限制见 [Production 内容刷新到 Workspace](../operations/cloudcrane-production-content-refresh.md)。
 - GitHub-hosted Docker integration 覆盖 Production image 构建、锁定的真实 PbootCMS 3.2.26 Workspace 初始化、Production 首发、后台资源/验证码、数据库路径、敏感路径阻断、伪静态入口和第二次 Release 的 Production DB 保留；另有纯 PHP fixture 检查 Runner 的容器边界与失败恢复。CI 的 Docker integration 是该链路的真实容器验收；本机 Docker 不是开发依赖。
 
+## Implementation Status (2026-10-03): Production CMS Semantic Capability V1
+
+- Agent 新增 `cms_list_categories`、`cms_list_content`、`cms_get_content`、`cms_update_content`、`cms_get_company`、`cms_update_company`。通用协议位于 `@cloudcrane/cms-protocol`；Pboot 表名、数据库和规范化规则只存在于镜像内受信任 adapter。
+- CMS 读取和写入通过 Workspace Gateway → Runner 的 allowlisted production operation。Production adapter 只启动固定 `cloudcrane-pboot-cms` 可执行文件并经 JSON stdin/stdout 交换数据；Agent 不获得 Production SQL、shell、任意文件或 Docker 能力。
+- 更新要求当前 version；Production SQLite 在 `BEGIN IMMEDIATE` 内重读、比较 SHA-256 canonical version、写入 allowlisted patch 并读回。检测到目标 patch 已应用时安全 replay；否则以 `CMS_CONTENT_CHANGED` 拒绝旧版本覆盖。超时或响应不确定时返回 `UNKNOWN_RESULT`，Agent 重试同一 patch/version 可安全恢复。
+- 支持代码根据锁定的 PbootCMS 3.2.26 源码 `8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea` 编写，并复用 Production 镜像中该版本的编码/规范化函数。CMS 更新只审计操作、记录 ID 与字段名，返回 `workspaceContentStale: true`；不会把正文同步到 Workspace，也不会改变 Release 代码。
+- Refresh Issue #1 修复为持久 key 按精确 idempotency key 查询，页面恢复仅继续未完成操作；成功、失败或找不到时清理旧 key，后续新点击创建新操作。Issue #2 修复为业务刷新成功后审计收尾异常只记日志，不把已成功 operation 改写为失败。
+- Unit/regression tests 已覆盖协议、工具、版本冲突/安全重试路径、审计脱敏和 Refresh key 恢复。真实 PbootCMS Docker integration 已扩展到读写、扩展字段、外部修改冲突、Refresh 单向同步、代码/Production DB 保留；本机没有 Docker/ PHP，故这些容器用例需等 GitHub CI 运行后才能报告为通过。真实线上 Agent 到 Production CMS E2E 也尚未完成；指定线上站的 Workspace 是 PbootCMS 3.2.24，而本轮 adapter 明确基于 3.2.26。
+
 ---
 
 # 31. 当前最终架构

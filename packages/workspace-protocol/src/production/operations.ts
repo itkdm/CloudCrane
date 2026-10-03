@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cmsActionSchemas, cmsOperationResultSchemas } from '@cloudcrane/cms-protocol';
 
 export const productionOperationPayloadSchemas = {
   'release.stage': z.object({
@@ -38,6 +39,12 @@ export const productionOperationPayloadSchemas = {
     productionSlug: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
     refreshId: z.string().uuid(),
   }),
+  'cms.categories.list': cmsActionSchemas['cms.categories.list'],
+  'cms.content.list': cmsActionSchemas['cms.content.list'],
+  'cms.content.get': cmsActionSchemas['cms.content.get'],
+  'cms.content.update': cmsActionSchemas['cms.content.update'],
+  'cms.company.get': cmsActionSchemas['cms.company.get'],
+  'cms.company.update': cmsActionSchemas['cms.company.update'],
 } as const;
 
 export const productionOperationVariants = [
@@ -69,6 +76,21 @@ export const productionOperationVariants = [
     operation: z.literal('production.refresh'),
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
+  ...(
+    [
+      'cms.categories.list',
+      'cms.content.list',
+      'cms.content.get',
+      'cms.content.update',
+      'cms.company.get',
+      'cms.company.update',
+    ] as const
+  ).map((operation) =>
+    z.object({
+      operation: z.literal(operation),
+      payload: productionOperationPayloadSchemas[operation],
+    }),
+  ),
 ] as const;
 
 export const productionOperationSchema = z.discriminatedUnion(
@@ -135,6 +157,12 @@ export const productionOperationResultSchemas = {
     uploadFiles: z.number().int().nonnegative(),
     uploadBytes: z.number().int().nonnegative(),
   }),
+  'cms.categories.list': cmsOperationResultSchemas['cms.categories.list'],
+  'cms.content.list': cmsOperationResultSchemas['cms.content.list'],
+  'cms.content.get': cmsOperationResultSchemas['cms.content.get'],
+  'cms.content.update': cmsOperationResultSchemas['cms.content.update'],
+  'cms.company.get': cmsOperationResultSchemas['cms.company.get'],
+  'cms.company.update': cmsOperationResultSchemas['cms.company.update'],
 } as const;
 
 export type ProductionOperationResult<K extends ProductionOperationName> = z.infer<
@@ -142,5 +170,11 @@ export type ProductionOperationResult<K extends ProductionOperationName> = z.inf
 >;
 
 export function isProductionMutationOperation(operation: ProductionOperationName): boolean {
-  return operation !== 'production.status';
+  return (
+    operation !== 'production.status' &&
+    operation !== 'cms.categories.list' &&
+    operation !== 'cms.content.list' &&
+    operation !== 'cms.content.get' &&
+    operation !== 'cms.company.get'
+  );
 }

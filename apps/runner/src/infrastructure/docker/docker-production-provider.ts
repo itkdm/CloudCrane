@@ -23,6 +23,7 @@ import { extractProductionReleaseArchive } from '@cloudcrane/pboot-snapshot';
 import { createLogger } from '@cloudcrane/shared';
 import type { RunnerConfig } from '../../config.js';
 import type {
+  CmsOperationInput,
   ProductionContentSnapshot,
   ProductionDeployInput,
   ProductionProvider,
@@ -479,6 +480,148 @@ export class DockerProductionProvider implements ProductionProvider {
       ).catch(() => undefined);
       throw new Error('PRODUCTION_AUTHORIZATION_VERIFY_FAILED');
     }
+  }
+
+  async cmsOperation(websiteId: string, input: CmsOperationInput): Promise<unknown> {
+    const allowed = new Set([
+      'cms.categories.list',
+      'cms.content.list',
+      'cms.content.get',
+      'cms.content.update',
+      'cms.company.get',
+      'cms.company.update',
+    ]);
+    if (!allowed.has(input.operation))
+      throw new ProductionOperationError('CMS_INVALID_FIELD', 'Unsupported CMS operation');
+    const productionSlug = (
+      await readFile(path.join(this.root(websiteId), '.production-slug'), 'utf8').catch(() => '')
+    ).trim();
+    if (!productionSlug)
+      throw new ProductionOperationError(
+        'CMS_NOT_AVAILABLE',
+        'Production CMS runtime is unavailable',
+      );
+    const runtime = await this.getStatus(websiteId, productionSlug);
+    if (!runtime.authorized)
+      throw new ProductionOperationError(
+        'CMS_AUTHORIZATION_REQUIRED',
+        'PbootCMS authorization is required',
+      );
+    if (runtime.status !== 'active')
+      throw new ProductionOperationError(
+        'CMS_PRODUCTION_NOT_ACTIVE',
+        'Production runtime is not active',
+      );
+    const container = this.docker.getContainer(this.containerName(websiteId));
+    let info: Docker.ContainerInspectInfo;
+    try {
+      info = await container.inspect();
+    } catch {
+      throw new ProductionOperationError(
+        'CMS_NOT_AVAILABLE',
+        'Production CMS runtime is unavailable',
+      );
+    }
+    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    if (!info.State?.Running)
+      throw new ProductionOperationError(
+        'CMS_NOT_AVAILABLE',
+        'Production CMS runtime is unavailable',
+      );
+
+    let output: string;
+    let executionAttempted = false;
+    try {
+      executionAttempted = true;
+      const exec = await container.exec({
+        Cmd: ['cloudcrane-pboot-cms'],
+        WorkingDir: '/site/current',
+        User: '1000:1000',
+        AttachStdin: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const stream = await exec.start({ hijack: true, stdin: true });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const outputPromise = readStream(stdout);
+      const stderrPromise = readStream(stderr);
+      const closeOutputs = () => {
+        stdout.end();
+        stderr.end();
+      };
+      stream.once('end', closeOutputs);
+      stream.once('close', closeOutputs);
+      stream.once('error', (error) => {
+        stdout.destroy(error);
+        stderr.destroy(error);
+      });
+      this.docker.modem.demuxStream(stream, stdout, stderr);
+      stream.end(JSON.stringify(input));
+      [output] = await Promise.all([outputPromise, stderrPromise]);
+      if ((await exec.inspect()).ExitCode !== 0)
+        throw new ProductionOperationError(
+          this.isCmsMutation(input.operation) ? 'UNKNOWN_RESULT' : 'CMS_OPERATION_FAILED',
+          'Production CMS operation result is unknown',
+        );
+    } catch (error) {
+      if (error instanceof ProductionOperationError) {
+        if (error.code === 'CMS_OPERATION_FAILED' && this.isCmsMutation(input.operation))
+          throw new ProductionOperationError(
+            'UNKNOWN_RESULT',
+            'Production CMS mutation outcome is unknown',
+          );
+        throw error;
+      }
+      if (executionAttempted && this.isCmsMutation(input.operation))
+        throw new ProductionOperationError(
+          'UNKNOWN_RESULT',
+          'Production CMS mutation outcome is unknown',
+        );
+      throw new ProductionOperationError(
+        'CMS_NOT_AVAILABLE',
+        'Production CMS operation could not reach the runtime',
+      );
+    }
+    let envelope: { result?: unknown; error?: { code?: string; message?: string } };
+    try {
+      envelope = JSON.parse(output) as typeof envelope;
+    } catch {
+      throw new ProductionOperationError(
+        this.isCmsMutation(input.operation) ? 'UNKNOWN_RESULT' : 'CMS_OPERATION_FAILED',
+        'Production CMS response is invalid',
+      );
+    }
+    if (envelope.error) {
+      const code = envelope.error.code;
+      const allowedCodes = new Set([
+        'CMS_NOT_AVAILABLE',
+        'CMS_PRODUCTION_NOT_ACTIVE',
+        'CMS_AUTHORIZATION_REQUIRED',
+        'CMS_CONTENT_NOT_FOUND',
+        'CMS_CONTENT_CHANGED',
+        'CMS_INVALID_FIELD',
+        'CMS_INVALID_VALUE',
+        'CMS_SCHEMA_UNSUPPORTED',
+        'CMS_OPERATION_FAILED',
+        'UNKNOWN_RESULT',
+      ]);
+      if (!code || !allowedCodes.has(code))
+        throw new ProductionOperationError(
+          'CMS_OPERATION_FAILED',
+          'Production CMS operation failed',
+        );
+      throw new ProductionOperationError(
+        code as import('../../ports/production-operation-error.js').ProductionOperationErrorCode,
+        envelope.error.message ?? 'Production CMS operation failed',
+      );
+    }
+    return envelope.result;
+  }
+
+  private isCmsMutation(operation: CmsOperationInput['operation']): boolean {
+    return operation === 'cms.content.update' || operation === 'cms.company.update';
   }
 
   async destroyRuntime(websiteId: string, releaseIds: string[]): Promise<void> {

@@ -73,6 +73,9 @@ export const AUDIT_SUMMARY_ALLOWED_KEYS = new Set([
   'turnIndex',
   'turnId',
   'denied',
+  'action',
+  'recordId',
+  'changedFields',
 ]);
 
 /**

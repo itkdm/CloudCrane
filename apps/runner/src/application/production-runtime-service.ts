@@ -1,4 +1,5 @@
 import type {
+  CmsOperationInput,
   ProductionDeployInput,
   ProductionProvider,
   ProductionRuntime,
@@ -38,5 +39,10 @@ export class ProductionRuntimeService {
 
   removeContentSnapshot(snapshot: ProductionContentSnapshot, refreshId: string): Promise<void> {
     return this.provider.removeContentSnapshot(snapshot, refreshId);
+  }
+
+  cmsOperation(websiteId: string, input: CmsOperationInput): Promise<unknown> {
+    if (!this.provider.cmsOperation) throw new Error('Production CMS adapter is unavailable');
+    return this.provider.cmsOperation(websiteId, input);
   }
 }

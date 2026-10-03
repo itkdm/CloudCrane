@@ -2,6 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { finishAuditEvent, insertAuditEvent, sanitizeAuditSummary } from './audit.js';
 
 describe('audit summary safety', () => {
+  it('keeps semantic CMS audit fields while excluding CMS values', () => {
+    const result = sanitizeAuditSummary({
+      action: 'cms.company.update',
+      recordId: 'company',
+      changedFields: 'phone,email',
+      content: 'must not be stored',
+    });
+
+    expect(result).toEqual({
+      action: 'cms.company.update',
+      recordId: 'company',
+      changedFields: 'phone,email',
+    });
+    expect(JSON.stringify(result)).not.toContain('must not be stored');
+  });
+
   it('keeps only short scalar, non-sensitive metadata', () => {
     const result = sanitizeAuditSummary({
       operation: 'runtime.create',

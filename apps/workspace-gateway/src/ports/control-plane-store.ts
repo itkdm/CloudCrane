@@ -31,7 +31,12 @@ export interface ControlPlaneStore {
   }): Promise<string>;
   finishAuditEvent?(
     id: string,
-    input: { status: AuditTerminalStatus; durationMs?: number; errorCode?: string },
+    input: {
+      status: AuditTerminalStatus;
+      durationMs?: number;
+      errorCode?: string;
+      resultSummary?: Record<string, unknown>;
+    },
   ): Promise<void>;
   findWorkspace(workspaceId: string, websiteId: string): Promise<WorkspaceBinding | null>;
   registerRunner(register: RunnerRegister): Promise<void>;

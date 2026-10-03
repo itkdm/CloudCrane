@@ -8,6 +8,7 @@ import type { ProductionContentRefreshService } from './production-content-refre
 import { ProductionReleaseStager } from './production-release-stager.js';
 
 export class ProductionReleaseOperationExecutor implements ProductionOperationExecutor {
+  private readonly websiteLocks = new Map<string, Promise<void>>();
   constructor(
     private readonly stager: ProductionReleaseStager,
     private readonly runtime: ProductionRuntimeService,
@@ -23,10 +24,33 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       'production.authorize',
       'production.destroy',
       'production.refresh',
+      'cms.categories.list',
+      'cms.content.list',
+      'cms.content.get',
+      'cms.content.update',
+      'cms.company.get',
+      'cms.company.update',
     ];
   }
 
   async execute(operation: ProductionRunnerOperation): Promise<unknown> {
+    const previous = this.websiteLocks.get(operation.websiteId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.websiteLocks.set(operation.websiteId, current);
+    await previous;
+    try {
+      return await this.executeLocked(operation);
+    } finally {
+      release();
+      if (this.websiteLocks.get(operation.websiteId) === current)
+        this.websiteLocks.delete(operation.websiteId);
+    }
+  }
+
+  private async executeLocked(operation: ProductionRunnerOperation): Promise<unknown> {
     switch (operation.operation) {
       case 'release.stage':
         return this.stager.stage(operation.websiteId, operation.workspaceId, operation.payload);
@@ -90,6 +114,17 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
           productionSlug: operation.payload.productionSlug,
           refreshId: operation.payload.refreshId,
         });
+      case 'cms.categories.list':
+      case 'cms.content.list':
+      case 'cms.content.get':
+      case 'cms.content.update':
+      case 'cms.company.get':
+      case 'cms.company.update': {
+        return this.runtime.cmsOperation(operation.websiteId, {
+          operation: operation.operation,
+          payload: operation.payload,
+        });
+      }
       case 'production.authorize':
         await this.runtime.authorize(
           operation.websiteId,

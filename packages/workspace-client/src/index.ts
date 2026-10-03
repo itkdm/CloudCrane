@@ -10,6 +10,7 @@ import {
 } from '@cloudcrane/workspace-protocol';
 
 export * from './production-client.js';
+export * from './cms-client.js';
 
 export type WorkspaceClientContext = {
   websiteId: string;

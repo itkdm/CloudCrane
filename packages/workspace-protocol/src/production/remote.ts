@@ -1,6 +1,15 @@
 import { z } from 'zod';
 import { productionOperationPayloadSchemas } from './operations.js';
 
+const cmsOperationNames = [
+  'cms.categories.list',
+  'cms.content.list',
+  'cms.content.get',
+  'cms.content.update',
+  'cms.company.get',
+  'cms.company.update',
+] as const;
+
 const productionClientOperationCommonSchema = z.object({
   requestId: z.string().uuid(),
   traceId: z.string().uuid(),
@@ -46,6 +55,12 @@ export const productionClientOperationSchema = z.discriminatedUnion('operation',
     operation: z.literal('production.refresh'),
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
+  ...cmsOperationNames.map((operation) =>
+    productionClientOperationCommonSchema.extend({
+      operation: z.literal(operation),
+      payload: productionOperationPayloadSchemas[operation],
+    }),
+  ),
 ] as const);
 
 export const productionRunnerOperationSchema = z.discriminatedUnion('operation', [
@@ -77,6 +92,12 @@ export const productionRunnerOperationSchema = z.discriminatedUnion('operation',
     operation: z.literal('production.refresh'),
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
+  ...cmsOperationNames.map((operation) =>
+    productionRunnerOperationCommonSchema.extend({
+      operation: z.literal(operation),
+      payload: productionOperationPayloadSchemas[operation],
+    }),
+  ),
 ] as const);
 
 export type ProductionClientOperation = z.infer<typeof productionClientOperationSchema>;

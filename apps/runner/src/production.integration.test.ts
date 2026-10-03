@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { loadRunnerConfig } from './config.js';
 import { WorkspaceRuntimeService } from './application/workspace-runtime-service.js';
 import { ProductionReleaseStager } from './application/production-release-stager.js';
+import { ProductionContentRefreshService } from './application/production-content-refresh-service.js';
 import { WorkspaceDaemonClient } from './infrastructure/daemon/workspace-daemon-client.js';
 import {
   DockerProductionProvider,
@@ -360,6 +361,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const runtime = await provider.ensureRuntime(realWebsiteId, 'real-pboot-integration');
       productionCreated = true;
       productionContainerRef = runtime.containerRef;
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.categories.list',
+          payload: { limit: 5 },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_PRODUCTION_NOT_ACTIVE' });
       const published = await provider.deployRelease({
         websiteId: realWebsiteId,
         releaseId,
@@ -371,6 +378,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect(published.currentReleaseId).toBe(releaseId);
       expect(published.status).toBe('authorization_required');
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.categories.list',
+          payload: { limit: 5 },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_AUTHORIZATION_REQUIRED' });
 
       const container = docker.getContainer(productionContainerRef!);
       const probe = await container.exec({
@@ -452,6 +465,194 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect((await markerSql.inspect()).ExitCode).toBe(0);
 
+      const authorizationMarker = path.join(
+        config.productionRoot,
+        realWebsiteId,
+        'shared',
+        'runtime',
+        '.cloudcrane-authorization-v1',
+      );
+      await writeFile(authorizationMarker, 'v1\n');
+      const lockedStatus = await provider.getStatus(realWebsiteId, 'real-pboot-integration');
+      expect(lockedStatus).toMatchObject({ status: 'active', authorized: true });
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.categories.list',
+          payload: { limit: 5 },
+        }),
+      ).resolves.toMatchObject({ items: expect.any(Array) });
+      const company = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.company.get',
+        payload: {},
+      })) as { phone: string; version: string };
+      const companyUpdated = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.company.update',
+        payload: { expectedVersion: company.version, patch: { phone: '13800000000' } },
+      })) as { item: { phone: string; version: string }; workspaceContentStale: boolean };
+      expect(companyUpdated).toMatchObject({
+        item: { phone: '13800000000' },
+        workspaceContentStale: true,
+      });
+      await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.company.update',
+        payload: { expectedVersion: companyUpdated.item.version, patch: { phone: company.phone } },
+      });
+
+      const contentList = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.list',
+        payload: { limit: 5 },
+      })) as { items: Array<{ id: string; title: string }> };
+      expect(contentList.items.length).toBeGreaterThan(0);
+      const content = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.get',
+        payload: { contentId: contentList.items[0]!.id },
+      })) as {
+        id: string;
+        title: string;
+        content: string;
+        source: string;
+        outlink: string;
+        version: string;
+        extensionFields: Record<string, string>;
+      };
+      expect(Object.keys(content.extensionFields).length).toBeGreaterThan(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.get',
+          payload: { contentId: '99999999999' },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_CONTENT_NOT_FOUND' });
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.update',
+          payload: {
+            contentId: content.id,
+            expectedVersion: content.version,
+            patch: { extensionFields: { ext_cloudcrane_missing: 'invalid' } },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_INVALID_FIELD' });
+      const changedTitle = `CC ${content.title}`.slice(0, 100);
+      const changedBody = `${content.content}<p>CloudCrane CMS integration</p>`;
+      const changedSource = 'CloudCrane integration';
+      const changedOutlink = 'https://example.com/cloudcrane-integration';
+      const extensionName = Object.keys(content.extensionFields)[0]!;
+      const extensionValue = 'cloudcrane-integration';
+      const contentUpdated = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.update',
+        payload: {
+          contentId: content.id,
+          expectedVersion: content.version,
+          patch: {
+            title: changedTitle,
+            content: changedBody,
+            source: changedSource,
+            outlink: changedOutlink,
+            extensionFields: { [extensionName]: extensionValue },
+          },
+        },
+      })) as {
+        item: {
+          title: string;
+          content: string;
+          source: string;
+          outlink: string;
+          version: string;
+          extensionFields: Record<string, string>;
+        };
+        replayed: boolean;
+      };
+      expect(contentUpdated.item).toMatchObject({ title: changedTitle });
+      expect(contentUpdated.item.content).toContain('CloudCrane CMS integration');
+      expect(contentUpdated.item).toMatchObject({ source: changedSource, outlink: changedOutlink });
+      expect(contentUpdated.item.extensionFields[extensionName]).toBe(extensionValue);
+      const replay = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.update',
+        payload: {
+          contentId: content.id,
+          expectedVersion: content.version,
+          patch: {
+            title: changedTitle,
+            content: changedBody,
+            source: changedSource,
+            outlink: changedOutlink,
+            extensionFields: { [extensionName]: extensionValue },
+          },
+        },
+      })) as { replayed: boolean };
+      expect(replay.replayed).toBe(true);
+
+      const externalTitle = 'Manual Pboot Admin edit';
+      const externalUpdate = await container.exec({
+        Cmd: [
+          'php',
+          '-r',
+          `$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12);`,
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const externalUpdateStream = await externalUpdate.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        externalUpdateStream.once('end', resolve);
+        externalUpdateStream.once('close', resolve);
+        externalUpdateStream.once('error', reject);
+        externalUpdateStream.resume();
+      });
+      expect((await externalUpdate.inspect()).ExitCode).toBe(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.update',
+          payload: {
+            contentId: content.id,
+            expectedVersion: contentUpdated.item.version,
+            patch: { title: 'stale agent overwrite' },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_CONTENT_CHANGED' });
+
+      const beforeRefresh = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          `SELECT title FROM ay_content WHERE id=${content.id};`,
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000094',
+      });
+      expect(beforeRefresh.stdout.trim()).not.toBe(changedTitle);
+      await new ProductionContentRefreshService(
+        new (await import('./application/production-runtime-service.js')).ProductionRuntimeService(
+          provider,
+        ),
+        workspaceRuntime,
+      ).refresh({
+        websiteId: realWebsiteId,
+        workspaceId,
+        productionSlug: 'real-pboot-integration',
+        refreshId: '00000000-0000-4000-8000-000000000095',
+      });
+      const afterRefresh = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          `SELECT title FROM ay_content WHERE id=${content.id};`,
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000096',
+      });
+      expect(afterRefresh.stdout.trim()).toBe(externalTitle);
+      expect(
+        await readFile(path.join(workspaceRoot, 'cloudcrane-release-check.php'), 'utf8'),
+      ).toContain('release-one');
       await daemon.write({
         path: '/workspace/template/default/cloudcrane-release-note.txt',
         content: 'second release',
@@ -478,25 +679,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         firstPublish: false,
       });
       expect(secondPublished.currentReleaseId).toBe(secondReleaseId);
-      const productionContent = await container.exec({
-        Cmd: [
-          'php',
-          '-r',
-          '$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); if ($d->querySingle("SELECT value FROM cloudcrane_e2e_marker LIMIT 1") !== "preserve-production-content") exit(13);',
-        ],
-        User: '1000:1000',
-        AttachStdout: true,
-        AttachStderr: true,
-        Tty: false,
-      });
-      const contentStream = await productionContent.start({ hijack: true, stdin: false });
-      await new Promise<void>((resolve, reject) => {
-        contentStream.once('end', resolve);
-        contentStream.once('close', resolve);
-        contentStream.once('error', reject);
-        contentStream.resume();
-      });
-      expect((await productionContent.inspect()).ExitCode).toBe(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.get',
+          payload: { contentId: content.id },
+        }),
+      ).resolves.toMatchObject({ title: externalTitle });
       const secondReleaseCheck = await fetch(`${origin}/cloudcrane-release-check.php`);
       expect(secondReleaseCheck.status).toBe(200);
       expect(await secondReleaseCheck.text()).toBe('release-two');

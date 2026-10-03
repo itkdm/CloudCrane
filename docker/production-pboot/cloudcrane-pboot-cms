@@ -1,0 +1,263 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+const DB_PATH = '/site/current/data/cloudcrane.db';
+const LIST_CONTENT_FIELDS = ['title', 'subtitle', 'content', 'tags', 'keywords', 'description', 'status', 'author', 'source', 'date', 'outlink', 'filename'];
+const COMPANY_FIELDS = ['name', 'address', 'postcode', 'contact', 'mobile', 'phone', 'fax', 'email', 'qq', 'weixin', 'blicense', 'other'];
+
+function failCms(string $code, string $message): never {
+    echo json_encode(['error' => ['code' => $code, 'message' => $message]], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit(0);
+}
+function okCms(mixed $result): never {
+    $json = json_encode(['result' => $result], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if (!is_string($json) || strlen($json) > 2_000_000) failCms('CMS_OPERATION_FAILED', 'Production CMS response is too large');
+    echo $json;
+    exit(0);
+}
+function db(): PDO {
+    if (!is_file(DB_PATH) || !is_readable(DB_PATH)) failCms('CMS_NOT_AVAILABLE', 'Production CMS database is unavailable');
+    try { $pdo = new PDO('sqlite:' . DB_PATH, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]); }
+    catch (Throwable) { failCms('CMS_NOT_AVAILABLE', 'Production CMS database is unavailable'); }
+    return $pdo;
+}
+function pbootFunctions(): void {
+    $handle = '/site/current/core/function/handle.php';
+    $file = '/site/current/core/function/file.php';
+    if (!is_file($handle) || !is_file($file)) failCms('CMS_SCHEMA_UNSUPPORTED', 'Pinned PbootCMS normalization functions are unavailable');
+    require_once $handle;
+    require_once $file;
+    foreach (['decode_string', 'normalize_richtext_for_storage', 'clear_html_blank', 'normalize_upload_saved_path'] as $name)
+        if (!function_exists($name)) failCms('CMS_SCHEMA_UNSUPPORTED', 'Pinned PbootCMS normalization contract is incomplete');
+}
+function tableColumns(PDO $pdo, string $table): array {
+    if (!preg_match('/^ay_[a-z_]+$/', $table)) failCms('CMS_SCHEMA_UNSUPPORTED', 'Unsupported PbootCMS table');
+    $columns = [];
+    foreach ($pdo->query('PRAGMA table_info("' . $table . '")')->fetchAll() as $column) $columns[$column['name']] = true;
+    return $columns;
+}
+function requireColumns(PDO $pdo, string $table, array $required): void {
+    $columns = tableColumns($pdo, $table);
+    foreach ($required as $column) if (!isset($columns[$column])) failCms('CMS_SCHEMA_UNSUPPORTED', 'Production CMS schema does not match the supported PbootCMS contract');
+}
+function defaultAcode(PDO $pdo): string {
+    requireColumns($pdo, 'ay_area', ['acode', 'is_default']);
+    requireColumns($pdo, 'ay_site', ['acode']);
+    $rows = $pdo->query('SELECT acode FROM ay_area WHERE is_default = 1 ORDER BY acode LIMIT 2')->fetchAll();
+    if (count($rows) !== 1 || !preg_match('/^[a-zA-Z0-9_-]{1,20}$/', (string)$rows[0]['acode'])) failCms('CMS_SCHEMA_UNSUPPORTED', 'PbootCMS default language is ambiguous');
+    return (string)$rows[0]['acode'];
+}
+function canonicalVersion(array $item): string {
+    $canonicalize = static function (array $value) use (&$canonicalize): array {
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $entry) if (is_array($entry)) $value[$key] = $canonicalize($entry);
+        return $value;
+    };
+    return hash('sha256', json_encode($canonicalize($item), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+}
+function logicalContent(PDO $pdo, string $id): array {
+    pbootFunctions();
+    requireColumns($pdo, 'ay_content', ['id', 'acode', 'scode', ...LIST_CONTENT_FIELDS]);
+    requireColumns($pdo, 'ay_content_sort', ['scode', 'acode', 'name']);
+    $q = $pdo->prepare('SELECT c.id,c.scode,s.name AS category_name,c.title,c.subtitle,c.content,c.tags,c.keywords,c.description,c.status,c.author,c.source,c.date,c.outlink,c.filename FROM ay_content c JOIN ay_content_sort s ON s.scode=c.scode AND s.acode=c.acode WHERE c.id=:id AND c.acode=:acode');
+    $q->execute([':id' => $id, ':acode' => defaultAcode($pdo)]);
+    $row = $q->fetch();
+    if (!$row) failCms('CMS_CONTENT_NOT_FOUND', 'Production CMS content was not found');
+    $extension = [];
+    requireColumns($pdo, 'ay_content_ext', ['contentid']);
+    $extColumns = array_filter(array_keys(tableColumns($pdo, 'ay_content_ext')), static fn($key) => preg_match('/^ext_[\w-]+$/', $key));
+    if ($extColumns) {
+        $select = implode(',', array_map(static fn($key) => '"' . $key . '"', $extColumns));
+        $ext = $pdo->prepare('SELECT ' . $select . ' FROM ay_content_ext WHERE contentid=:id LIMIT 1');
+        $ext->execute([':id' => $id]);
+        $extensionRow = $ext->fetch() ?: [];
+        foreach ($extColumns as $key) $extension[$key] = (string)($extensionRow[$key] ?? '');
+    }
+    foreach (['title', 'subtitle', 'content', 'tags', 'keywords', 'description', 'author', 'source', 'date', 'outlink', 'filename'] as $key) $row[$key] = decode_string((string)$row[$key]);
+    foreach ($extension as $key => $value) $extension[$key] = decode_string($value);
+    $item = [
+        'id' => (string)$row['id'],
+        'category' => ['code' => (string)$row['scode'], 'name' => decode_string((string)$row['category_name'])],
+        'title' => (string)$row['title'], 'subtitle' => (string)$row['subtitle'], 'content' => (string)$row['content'],
+        'tags' => (string)$row['tags'], 'keywords' => (string)$row['keywords'], 'description' => (string)$row['description'],
+        'status' => (string)$row['status'], 'author' => (string)$row['author'], 'source' => (string)$row['source'],
+        'date' => (string)$row['date'], 'outlink' => (string)$row['outlink'],
+        'filename' => (string)$row['filename'], 'extensionFields' => $extension,
+    ];
+    $item['version'] = canonicalVersion($item);
+    return $item;
+}
+function logicalCompany(PDO $pdo): array {
+    pbootFunctions();
+    requireColumns($pdo, 'ay_company', ['acode', ...COMPANY_FIELDS]);
+    $q = $pdo->prepare('SELECT ' . implode(',', COMPANY_FIELDS) . ' FROM ay_company WHERE acode=:acode LIMIT 1');
+    $q->execute([':acode' => defaultAcode($pdo)]);
+    $row = $q->fetch();
+    if (!$row) failCms('CMS_CONTENT_NOT_FOUND', 'Production CMS company settings were not found');
+    $item = [];
+    foreach (COMPANY_FIELDS as $field) $item[$field] = decode_string((string)$row[$field]);
+    $item['version'] = canonicalVersion($item);
+    return $item;
+}
+function encodePboot(string $value): string {
+    return stripslashes(escape_string($value));
+}
+function assertPatch(array $patch, array $allowed): void {
+    if (!$patch) failCms('CMS_INVALID_VALUE', 'CMS update patch must not be empty');
+    foreach ($patch as $key => $_) if (!in_array($key, $allowed, true)) failCms('CMS_INVALID_FIELD', 'CMS update contains a field outside the allowlist');
+}
+function applyContentPatch(PDO $pdo, string $id, array $patch): array {
+    assertPatch($patch, [...LIST_CONTENT_FIELDS, 'extensionFields']);
+    $set = [];
+    $values = [];
+    foreach ($patch as $field => $value) {
+        if ($field === 'extensionFields') continue;
+        if ($field === 'filename') {
+            $model = $pdo->prepare('SELECT m.type FROM ay_content c JOIN ay_content_sort s ON s.scode=c.scode AND s.acode=c.acode JOIN ay_model m ON m.mcode=s.mcode WHERE c.id=:id LIMIT 1');
+            $model->execute([':id' => $id]);
+            if ((string)$model->fetchColumn() === '1') failCms('CMS_INVALID_FIELD', 'PbootCMS single-page content does not accept a filename update');
+            $value = trim((string)$value, '/');
+            if ($value !== '' && !preg_match('/^[a-zA-Z0-9\-_\/]+$/', $value)) failCms('CMS_INVALID_VALUE', 'PbootCMS filename contains unsupported characters');
+            $check = $pdo->prepare('SELECT id FROM ay_content WHERE filename=:filename AND acode=:acode AND id<>:id LIMIT 1');
+            $check->execute([':filename' => $value, ':acode' => defaultAcode($pdo), ':id' => $id]);
+            if ($check->fetch()) failCms('CMS_INVALID_VALUE', 'PbootCMS filename is already in use');
+        }
+        if ($field === 'title' && trim((string)$value) === '') failCms('CMS_INVALID_VALUE', 'PbootCMS content title cannot be empty');
+        if ($field === 'content') $value = stripslashes(normalize_richtext_for_storage((string)$value));
+        elseif ($field === 'description') {
+            $description = (string)$value;
+            if ($description === '' && isset($patch['content']))
+                $description = mb_substr(strip_tags((string)$patch['content']), 0, 150, 'UTF-8');
+            $value = clear_html_blank(encodePboot($description));
+        }
+        elseif ($field === 'tags') $value = encodePboot(str_replace('，', ',', (string)$value));
+        else $value = encodePboot((string)$value);
+        if ($field === 'date' && !preg_match('/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/', (string)$value)) failCms('CMS_INVALID_VALUE', 'PbootCMS date is invalid');
+        if ($field === 'status' && !in_array((string)$value, ['0', '1'], true)) failCms('CMS_INVALID_VALUE', 'PbootCMS status must be 0 or 1');
+        $set[] = '"' . $field . '"=:' . $field;
+        $values[':' . $field] = $value;
+    }
+    if ($set) {
+        $set[] = 'update_user=:update_user';
+        $set[] = 'update_time=:update_time';
+        $values[':update_user'] = 'cloudcrane-agent';
+        $values[':update_time'] = date('Y-m-d H:i:s');
+        $values[':id'] = $id;
+        $values[':acode'] = defaultAcode($pdo);
+        $q = $pdo->prepare('UPDATE ay_content SET ' . implode(',', $set) . ' WHERE id=:id AND acode=:acode');
+        $q->execute($values);
+    }
+    if (isset($patch['extensionFields'])) {
+        $extPatch = $patch['extensionFields'];
+        $available = array_filter(array_keys(tableColumns($pdo, 'ay_content_ext')), static fn($key) => preg_match('/^ext_[\w-]+$/', $key));
+        foreach ($extPatch as $field => $value) {
+            if (!in_array($field, $available, true)) failCms('CMS_INVALID_FIELD', 'CMS extension field does not exist in the Production CMS schema');
+            $extPatch[$field] = is_array($value)
+                ? implode(',', array_map(static fn($part) => encodePboot((string)$part), $value))
+                : stripslashes(normalize_richtext_for_storage((string)$value));
+        }
+        $exists = $pdo->prepare('SELECT 1 FROM ay_content_ext WHERE contentid=:id LIMIT 1');
+        $exists->execute([':id' => $id]);
+        if ($exists->fetch()) {
+            $assignments = implode(',', array_map(static fn($key) => '"' . $key . '"=:' . $key, array_keys($extPatch)));
+            $q = $pdo->prepare('UPDATE ay_content_ext SET ' . $assignments . ' WHERE contentid=:id');
+            $q->execute([...array_combine(array_map(static fn($key) => ':' . $key, array_keys($extPatch)), array_values($extPatch)), ':id' => $id]);
+        } else {
+            $names = ['contentid', ...array_map(static fn($key) => '"' . $key . '"', array_keys($extPatch))];
+            $params = [':id', ...array_map(static fn($key) => ':' . $key, array_keys($extPatch))];
+            $q = $pdo->prepare('INSERT INTO ay_content_ext (' . implode(',', $names) . ') VALUES (' . implode(',', $params) . ')');
+            $q->execute([':id' => $id, ...array_combine(array_map(static fn($key) => ':' . $key, array_keys($extPatch)), array_values($extPatch))]);
+        }
+    }
+    return logicalContent($pdo, $id);
+}
+function normalizedContentValue(string $field, mixed $value): string {
+    pbootFunctions();
+    $value = (string)$value;
+    if ($field === 'filename') return trim($value, '/');
+    if ($field === 'content') return decode_string(stripslashes(normalize_richtext_for_storage($value)));
+    if ($field === 'description') return decode_string(clear_html_blank(encodePboot($value)));
+    if ($field === 'tags') $value = str_replace('，', ',', $value);
+    return decode_string(encodePboot($value));
+}
+function matchesPatch(array $current, array $patch, bool $content): bool {
+    foreach ($patch as $field => $value) {
+        if ($field === 'extensionFields') {
+            foreach ($value as $key => $expected) {
+                $expectedValue = is_array($expected)
+                    ? decode_string(implode(',', array_map(static fn($part) => encodePboot((string)$part), $expected)))
+                    : decode_string(stripslashes(normalize_richtext_for_storage((string)$expected)));
+                if (($current['extensionFields'][$key] ?? null) !== $expectedValue) return false;
+            }
+        } else {
+            $expectedValue = $content ? normalizedContentValue($field, $value) : decode_string(encodePboot((string)$value));
+            if (($current[$field] ?? null) !== $expectedValue) return false;
+        }
+    }
+    return true;
+}
+function handleCms(PDO $pdo, string $operation, array $input): mixed {
+    if ($operation === 'cms.categories.list') {
+        requireColumns($pdo, 'ay_content_sort', ['id', 'acode', 'mcode', 'pcode', 'scode', 'name', 'status', 'filename']);
+        requireColumns($pdo, 'ay_model', ['mcode', 'type']);
+        $limit = min(100, max(1, (int)($input['limit'] ?? 50)));
+        $sql = 'SELECT s.id,s.scode,s.name,s.pcode,s.mcode,m.type,s.status,s.filename FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.acode=:acode';
+        $params = [':acode' => defaultAcode($pdo)];
+        if (isset($input['cursor'])) { $sql .= ' AND s.scode>:cursor'; $params[':cursor'] = $input['cursor']; }
+        $sql .= ' ORDER BY s.scode LIMIT ' . ($limit + 1);
+        $q = $pdo->prepare($sql); $q->execute($params); $rows = $q->fetchAll();
+        $hasMore = count($rows) > $limit; $rows = array_slice($rows, 0, $limit);
+        $items = array_map(static fn($r) => ['scode'=>(string)$r['scode'],'name'=>decode_string((string)$r['name']),'parentCode'=>(string)$r['pcode'],'modelCode'=>(string)$r['mcode'],'modelType'=>(string)$r['type']==='1'?'single':'list','status'=>(string)$r['status'],'filename'=>(string)$r['filename']], $rows);
+        return ['items'=>$items,'nextCursor'=>$hasMore ? (string)end($rows)['scode'] : null];
+    }
+    if ($operation === 'cms.content.list') {
+        requireColumns($pdo, 'ay_content', ['id','acode','scode',...LIST_CONTENT_FIELDS]); requireColumns($pdo, 'ay_content_sort', ['scode','acode','name']);
+        $limit = min(100, max(1, (int)($input['limit'] ?? 20)));
+        $sql = 'SELECT c.id,c.scode,s.name AS category_name,c.title,c.status,c.date,c.filename FROM ay_content c JOIN ay_content_sort s ON s.scode=c.scode AND s.acode=c.acode WHERE c.acode=:acode';
+        $params = [':acode'=>defaultAcode($pdo)];
+        if (isset($input['categoryCode'])) { $sql .= ' AND c.scode=:category'; $params[':category']=$input['categoryCode']; }
+        if (isset($input['status'])) { $sql .= ' AND c.status=:status'; $params[':status']=$input['status']; }
+        if (isset($input['query'])) { $sql .= ' AND c.title LIKE :query'; $params[':query']='%'.$input['query'].'%'; }
+        if (isset($input['cursor'])) { $sql .= ' AND c.id<:cursor'; $params[':cursor']=(int)$input['cursor']; }
+        $sql .= ' ORDER BY c.id DESC LIMIT '.($limit+1);
+        $q=$pdo->prepare($sql); $q->execute($params); $rows=$q->fetchAll(); $hasMore=count($rows)>$limit; $rows=array_slice($rows,0,$limit);
+        $items=array_map(static fn($r)=>['id'=>(string)$r['id'],'categoryCode'=>(string)$r['scode'],'categoryName'=>decode_string((string)$r['category_name']),'title'=>decode_string((string)$r['title']),'status'=>(string)$r['status'],'date'=>(string)$r['date'],'filename'=>(string)$r['filename']],$rows);
+        return ['items'=>$items,'nextCursor'=>$hasMore?(string)end($rows)['id']:null];
+    }
+    if ($operation === 'cms.content.get') return logicalContent($pdo, (string)$input['contentId']);
+    if ($operation === 'cms.company.get') return logicalCompany($pdo);
+    if ($operation === 'cms.content.update') {
+        $pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $current=logicalContent($pdo,(string)$input['contentId']); $patch=$input['patch'];
+            if ($current['version'] !== $input['expectedVersion']) {
+                if (matchesPatch($current,$patch,true)) { $pdo->commit(); return ['item'=>$current,'workspaceContentStale'=>true,'replayed'=>true]; }
+                failCms('CMS_CONTENT_CHANGED','Production CMS content changed since it was read');
+            }
+            $updated=applyContentPatch($pdo,(string)$input['contentId'],$patch); $pdo->commit();
+            return ['item'=>$updated,'workspaceContentStale'=>true,'replayed'=>false];
+        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+    }
+    if ($operation === 'cms.company.update') {
+        $pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $current=logicalCompany($pdo); $patch=$input['patch']; assertPatch($patch,COMPANY_FIELDS);
+            if ($current['version'] !== $input['expectedVersion']) {
+                if (matchesPatch($current,$patch,false)) { $pdo->commit(); return ['item'=>$current,'workspaceContentStale'=>true,'replayed'=>true]; }
+                failCms('CMS_CONTENT_CHANGED','Production CMS company settings changed since they were read');
+            }
+            $set=[];$values=[]; foreach($patch as $field=>$value){$set[]='"'.$field.'"=:'.$field;$values[':'.$field]=encodePboot((string)$value);}
+            $values[':acode']=defaultAcode($pdo); $q=$pdo->prepare('UPDATE ay_company SET '.implode(',',$set).' WHERE acode=:acode'); $q->execute($values);
+            $updated=logicalCompany($pdo); $pdo->commit();
+            return ['item'=>$updated,'workspaceContentStale'=>true,'replayed'=>false];
+        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+    }
+    failCms('CMS_INVALID_FIELD','Unsupported CMS operation');
+}
+$raw = file_get_contents('php://stdin', false, null, 0, 1_100_000);
+if (!is_string($raw) || strlen($raw) >= 1_100_000) failCms('CMS_INVALID_VALUE','CMS operation request is too large');
+$request = json_decode($raw, true);
+if (!is_array($request) || !isset($request['operation']) || !is_array($request['payload'] ?? null)) failCms('CMS_INVALID_VALUE','CMS operation request is invalid');
+try { okCms(handleCms(db(), (string)$request['operation'], $request['payload'])); }
+catch (Throwable) { failCms('CMS_OPERATION_FAILED','Production CMS operation failed'); }

@@ -40,6 +40,12 @@ describe('ProductionReleaseOperationExecutor', () => {
       'production.authorize',
       'production.destroy',
       'production.refresh',
+      'cms.categories.list',
+      'cms.content.list',
+      'cms.content.get',
+      'cms.content.update',
+      'cms.company.get',
+      'cms.company.update',
     ]);
     await expect(executor.execute(operation)).resolves.toEqual({
       artifactStorageKey: 'release.zip',
@@ -49,6 +55,32 @@ describe('ProductionReleaseOperationExecutor', () => {
       '00000000-0000-4000-8000-000000000004',
       operation.payload,
     );
+  });
+
+  it('routes semantic CMS operations to the trusted production adapter', async () => {
+    const runtime = {
+      cmsOperation: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    const executor = new ProductionReleaseOperationExecutor(
+      { stage: vi.fn() } as never,
+      runtime as never,
+    );
+    const operation = productionRunnerOperationSchema.parse({
+      type: 'production.operation',
+      operation: 'cms.categories.list',
+      requestId: '00000000-0000-4000-8000-000000000011',
+      traceId: '00000000-0000-4000-8000-000000000012',
+      websiteId: '00000000-0000-4000-8000-000000000013',
+      workspaceId: '00000000-0000-4000-8000-000000000014',
+      deadlineMs: 120_000,
+      payload: { limit: 5 },
+    });
+
+    await expect(executor.execute(operation)).resolves.toEqual({ items: [] });
+    expect(runtime.cmsOperation).toHaveBeenCalledWith(operation.websiteId, {
+      operation: 'cms.categories.list',
+      payload: { limit: 5 },
+    });
   });
 
   it('dispatches runtime ensure, deploy, status, and destroy through the production provider', async () => {

@@ -14,7 +14,8 @@ import {
   type ReadOperations,
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
-import { WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
+import { CmsClient, WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
+import { createCmsTools } from './cms-tools.js';
 
 const REMOTE_ROOT = '/workspace';
 const DEFAULT_PROCESS_OUTPUT_BYTES = 10_485_760;
@@ -251,13 +252,15 @@ export type CloudCraneCodingTools = {
   bash: ReturnType<typeof createBashToolDefinition>;
   ls: ReturnType<typeof createLsToolDefinition>;
   find: ReturnType<typeof createFindToolDefinition>;
-};
+} & Partial<ReturnType<typeof createCmsTools>>;
 
 export function createCloudCraneCodingTools({
   workspaceClient,
+  cmsClient,
   cwd = REMOTE_ROOT,
 }: {
   workspaceClient: WorkspaceClient;
+  cmsClient?: CmsClient;
   cwd?: string;
 }): CloudCraneCodingTools {
   const operations = new RemoteToolOperations(workspaceClient);
@@ -271,5 +274,6 @@ export function createCloudCraneCodingTools({
     }),
     ls: createLsToolDefinition(cwd, { operations: operations.ls }),
     find: createFindToolDefinition(cwd, { operations: operations.find }),
+    ...(cmsClient ? createCmsTools(cmsClient) : {}),
   };
 }

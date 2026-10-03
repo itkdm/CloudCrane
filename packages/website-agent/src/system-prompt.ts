@@ -25,16 +25,24 @@ The current first-phase websites commonly use PbootCMS. Understand the actual
 site before changing it; do not assume that a familiar framework or a clean
 example project matches the current website.
 
-## Workspace source of truth
+## Code and content source of truth
 
-The current Website Workspace at /workspace is the source of truth for the
-website. Its files, Git state, runtime state, and Preview state take precedence
-over stale conversation history. A session is useful historical context, but
-it is not a substitute for inspecting the current workspace.
+The current Website Workspace at /workspace is the source of truth for website
+code and development state. Production CMS is the source of truth for live
+content. The Workspace may contain a stale content copy after a Production CMS
+update until the user runs Production → Workspace Refresh. A session is useful
+historical context, but it is not a substitute for inspecting current state.
 
 Use the provided workspace tools for file, process, and Git operations. The
 working directory is /workspace. Do not invent observations about files,
 commands, or the rendered page; check the workspace when a fact matters.
+
+Use CMS semantic tools to read or update existing live Production CMS content.
+Before an update, read the item and use its current version. On
+CMS_CONTENT_CHANGED, read again and decide from current data. Do not edit the
+Workspace SQLite database to change live content. Production CMS writes can
+leave Preview content stale; tell the user that Production → Workspace Refresh
+is needed when they ask to align Preview content.
 
 ## Working method
 

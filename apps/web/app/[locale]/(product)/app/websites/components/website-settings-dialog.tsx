@@ -3,6 +3,11 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { copyTextWithFallback, PBOOT_AUTHORIZATION_URL } from '@/lib/website-authorization';
+import {
+  getProductionRefreshOperation,
+  isProductionRefreshInFlight,
+  type ProductionRefreshOperationStatus,
+} from '@/lib/production-refresh-operation';
 import { isWebsiteStatus } from '@/lib/presentation/website-status';
 import type { CreatedWebsite } from './website-create-dialog';
 
@@ -54,6 +59,7 @@ export function WebsiteSettingsDialog({
   const [productionError, setProductionError] = useState('');
   const [productionNotice, setProductionNotice] = useState('');
   const [refreshingProduction, setRefreshingProduction] = useState(false);
+  const [checkingProductionRefresh, setCheckingProductionRefresh] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState('');
   const [refreshError, setRefreshError] = useState('');
   const [productionCopied, setProductionCopied] = useState(false);
@@ -77,6 +83,59 @@ export function WebsiteSettingsDialog({
   const [shareError, setShareError] = useState('');
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
   const [, setShareClock] = useState(0);
+
+  function clearProductionRefreshKey(websiteId: string, idempotencyKey: string) {
+    const storageKey = `${refreshOperationKeyPrefix}${websiteId}`;
+    try {
+      if (window.localStorage.getItem(storageKey) === idempotencyKey)
+        window.localStorage.removeItem(storageKey);
+    } catch {
+      // The server operation is terminal even if browser storage is unavailable.
+    }
+    if (productionRefreshKey.current === idempotencyKey) productionRefreshKey.current = null;
+  }
+
+  async function pollProductionRefreshOperation(
+    websiteId: string,
+    idempotencyKey: string,
+    initialStatus?: ProductionRefreshOperationStatus,
+    isCancelled: () => boolean = () => false,
+  ) {
+    let current = initialStatus;
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      if (isCancelled()) return;
+      if (!current || isProductionRefreshInFlight(current.status)) {
+        if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        current = await getProductionRefreshOperation(websiteId, idempotencyKey);
+      }
+      if (current.status === 'succeeded') {
+        clearProductionRefreshKey(websiteId, idempotencyKey);
+        setRefreshNotice(
+          current.previewSynchronized === false
+            ? t('productionRefreshPreviewUnavailable')
+            : t('productionRefreshSucceeded', {
+                files: current.result?.uploadFiles ?? 0,
+                megabytes: Math.ceil((current.result?.uploadBytes ?? 0) / (1024 * 1024)),
+              }),
+        );
+        setRefreshError('');
+        await onRefresh();
+        return;
+      }
+      if (current.status === 'failed') {
+        clearProductionRefreshKey(websiteId, idempotencyKey);
+        setRefreshError(t('productionRefreshError'));
+        return;
+      }
+      if (current.status === 'not_found' || current.status === 'idle') {
+        clearProductionRefreshKey(websiteId, idempotencyKey);
+        return;
+      }
+      setRefreshNotice(t('productionRefreshProcessing'));
+      current = undefined;
+    }
+    if (!isCancelled()) setRefreshNotice(t('productionRefreshProcessing'));
+  }
 
   useEffect(() => {
     productionPublishKey.current = null;
@@ -120,6 +179,48 @@ export function WebsiteSettingsDialog({
       setProductionNotice('');
     }
   }, [website?.id, t]);
+
+  useEffect(() => {
+    if (!website) return;
+    const websiteId = website.id;
+    const storageKey = `${refreshOperationKeyPrefix}${websiteId}`;
+    let idempotencyKey: string | null = null;
+    try {
+      idempotencyKey = window.localStorage.getItem(storageKey);
+    } catch {
+      return;
+    }
+    if (!idempotencyKey) return;
+
+    let cancelled = false;
+    productionRefreshKey.current = idempotencyKey;
+    setCheckingProductionRefresh(true);
+    setRefreshError('');
+    void getProductionRefreshOperation(websiteId, idempotencyKey)
+      .then(async (status) => {
+        if (cancelled) return;
+        if (!isProductionRefreshInFlight(status.status)) {
+          clearProductionRefreshKey(websiteId, idempotencyKey);
+          setRefreshNotice('');
+          return;
+        }
+        setRefreshingProduction(true);
+        setRefreshNotice(t('productionRefreshProcessing'));
+        await pollProductionRefreshOperation(websiteId, idempotencyKey, status, () => cancelled);
+      })
+      .catch(() => {
+        if (!cancelled) setRefreshError(t('productionRefreshError'));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCheckingProductionRefresh(false);
+          setRefreshingProduction(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [website?.id, t, onRefresh]);
 
   useEffect(() => {
     if (!confirmingDelete) return;
@@ -331,68 +432,33 @@ export function WebsiteSettingsDialog({
     setRefreshNotice(t('productionRefreshStarting'));
     const storageKey = `${refreshOperationKeyPrefix}${currentWebsite.id}`;
     try {
-      const idempotencyKey =
-        productionRefreshKey.current ??
-        window.localStorage.getItem(storageKey) ??
-        crypto.randomUUID();
+      let idempotencyKey = productionRefreshKey.current ?? window.localStorage.getItem(storageKey);
+      if (idempotencyKey) {
+        const previous = await getProductionRefreshOperation(currentWebsite.id, idempotencyKey);
+        if (isProductionRefreshInFlight(previous.status)) {
+          productionRefreshKey.current = idempotencyKey;
+          await pollProductionRefreshOperation(currentWebsite.id, idempotencyKey, previous);
+          return;
+        }
+        clearProductionRefreshKey(currentWebsite.id, idempotencyKey);
+      }
+
+      idempotencyKey = crypto.randomUUID();
       productionRefreshKey.current = idempotencyKey;
       window.localStorage.setItem(storageKey, idempotencyKey);
       const response = await fetch(`/api/websites/${currentWebsite.id}/production/refresh`, {
         method: 'POST',
         headers: { 'idempotency-key': idempotencyKey },
       });
-      const payload = (await response.json()) as {
+      const payload = (await response.json()) as ProductionRefreshOperationStatus & {
         status?: string;
-        operationId?: string;
-        result?: { databaseBytes?: number; uploadFiles?: number; uploadBytes?: number } | null;
-        previewSynchronized?: boolean | null;
         error?: { message?: string };
       };
       if (!response.ok && response.status !== 202) {
-        productionRefreshKey.current = null;
-        window.localStorage.removeItem(storageKey);
+        clearProductionRefreshKey(currentWebsite.id, idempotencyKey);
         throw new Error(payload.error?.message || t('productionRefreshError'));
       }
-
-      let status = payload.status;
-      let result = payload.result;
-      let previewSynchronized = payload.previewSynchronized;
-      for (
-        let attempt = 0;
-        ['processing', 'pending', 'running'].includes(status ?? '') && attempt < 90;
-        attempt += 1
-      ) {
-        setRefreshNotice(t('productionRefreshProcessing'));
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
-        const statusResponse = await fetch(
-          `/api/websites/${currentWebsite.id}/production/refresh`,
-          { cache: 'no-store' },
-        );
-        if (!statusResponse.ok) throw new Error(t('productionRefreshError'));
-        const statusPayload = (await statusResponse.json()) as typeof payload;
-        status = statusPayload.status;
-        result = statusPayload.result;
-        previewSynchronized = statusPayload.previewSynchronized;
-      }
-      if (status === 'succeeded') {
-        productionRefreshKey.current = null;
-        window.localStorage.removeItem(storageKey);
-        setRefreshNotice(
-          previewSynchronized === false
-            ? t('productionRefreshPreviewUnavailable')
-            : t('productionRefreshSucceeded', {
-                files: result?.uploadFiles ?? 0,
-                megabytes: Math.ceil((result?.uploadBytes ?? 0) / (1024 * 1024)),
-              }),
-        );
-        await onRefresh();
-      } else if (status === 'failed') {
-        productionRefreshKey.current = null;
-        window.localStorage.removeItem(storageKey);
-        throw new Error(t('productionRefreshError'));
-      } else {
-        setRefreshNotice(t('productionRefreshProcessing'));
-      }
+      await pollProductionRefreshOperation(currentWebsite.id, idempotencyKey, payload);
     } catch (reason) {
       setRefreshError(reason instanceof Error ? reason.message : t('productionRefreshError'));
     } finally {
@@ -875,9 +941,11 @@ export function WebsiteSettingsDialog({
                     className="secondary-button"
                     type="button"
                     onClick={() => void refreshWorkspaceFromProduction()}
-                    disabled={refreshingProduction || publishing}
+                    disabled={refreshingProduction || checkingProductionRefresh || publishing}
                   >
-                    {refreshingProduction ? t('productionRefreshing') : t('productionRefresh')}
+                    {refreshingProduction || checkingProductionRefresh
+                      ? t('productionRefreshing')
+                      : t('productionRefresh')}
                   </button>
                 ) : null}
               </div>

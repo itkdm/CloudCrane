@@ -102,6 +102,48 @@ export class ProductionClient {
     return this.call('production.refresh', payload, options);
   }
 
+  cmsListCategories(
+    payload: { limit?: number; cursor?: string },
+    options?: ProductionRequestOptions,
+  ) {
+    return this.call('cms.categories.list', payload, options);
+  }
+
+  cmsListContent(
+    payload: {
+      categoryCode?: string;
+      query?: string;
+      status?: '0' | '1';
+      limit?: number;
+      cursor?: string;
+    },
+    options?: ProductionRequestOptions,
+  ) {
+    return this.call('cms.content.list', payload, options);
+  }
+
+  cmsGetContent(payload: { contentId: string }, options?: ProductionRequestOptions) {
+    return this.call('cms.content.get', payload, options);
+  }
+
+  cmsUpdateContent(
+    payload: { contentId: string; expectedVersion: string; patch: Record<string, unknown> },
+    options?: ProductionRequestOptions,
+  ) {
+    return this.call('cms.content.update', payload, options);
+  }
+
+  cmsGetCompany(options?: ProductionRequestOptions) {
+    return this.call('cms.company.get', {}, options);
+  }
+
+  cmsUpdateCompany(
+    payload: { expectedVersion: string; patch: Record<string, unknown> },
+    options?: ProductionRequestOptions,
+  ) {
+    return this.call('cms.company.update', payload, options);
+  }
+
   private async call<K extends ProductionOperationName>(
     operation: K,
     payload: Record<string, unknown>,

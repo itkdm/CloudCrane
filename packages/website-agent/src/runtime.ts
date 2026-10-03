@@ -28,6 +28,8 @@ import {
   SESSION_TITLE_MAX_LENGTH,
 } from '@cloudcrane/shared/session-title';
 import {
+  CmsClient,
+  ProductionClient,
   WorkspaceClient,
   WorkspaceClientError,
   type WorkspaceClientContext,
@@ -1186,6 +1188,15 @@ export class WebsiteAgentRuntime {
     const modelRuntime = await this.modelRuntimePromise;
     const rawTools = createCloudCraneCodingTools({
       workspaceClient: this.workspaceClient,
+      cmsClient: new CmsClient(
+        new ProductionClient(
+          this.options.workspaceGatewayEndpoint,
+          this.options.workspaceClientToken,
+          this.baseContext,
+          undefined,
+          () => this.currentContext(),
+        ),
+      ),
       cwd: LOGICAL_CWD,
     });
     const previewTools = this.options.previewObservationProvider
@@ -1211,6 +1222,20 @@ export class WebsiteAgentRuntime {
         this.options.websiteId,
         () => this.runContext.getStore(),
       ),
+      ...(rawTools.cms_update_content && rawTools.cms_update_company
+        ? {
+            cms_update_content: wrapMutationTool(
+              rawTools.cms_update_content as unknown as ToolDefinition,
+              this.options.websiteId,
+              () => this.runContext.getStore(),
+            ),
+            cms_update_company: wrapMutationTool(
+              rawTools.cms_update_company as unknown as ToolDefinition,
+              this.options.websiteId,
+              () => this.runContext.getStore(),
+            ),
+          }
+        : {}),
       question: createQuestionTool(
         this.interactionBroker,
         () => {

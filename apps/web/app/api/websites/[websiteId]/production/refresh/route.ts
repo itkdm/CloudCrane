@@ -20,6 +20,7 @@ import {
 import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { auth, authDb } from '../../../../../../lib/server/auth.js';
 import { withWebRequestContext } from '../../../../../../lib/server/observability.js';
+import { finalizeProductionRefreshAuditSafely } from '../../../../../../lib/server/production-refresh-audit.js';
 
 export const runtime = 'nodejs';
 
@@ -378,11 +379,28 @@ export async function POST(
             updatedAt: new Date(),
           })
           .where(eq(operation.id as never, operationId) as never);
-        await finishAuditEvent(authDb, auditId, {
-          status: 'SUCCESS',
-          durationMs: Date.now() - startedAt,
-          resultSummary: result,
-        });
+        await finalizeProductionRefreshAuditSafely(
+          () =>
+            auditId
+              ? finishAuditEvent(authDb, auditId, {
+                  status: 'SUCCESS',
+                  durationMs: Date.now() - startedAt,
+                  resultSummary: result,
+                })
+              : Promise.resolve(),
+          (error) =>
+            logger.error(
+              {
+                event: 'website.production-refresh.audit-finalization.failed',
+                websiteId,
+                workspaceId,
+                operationId,
+                auditId,
+                errorType: error instanceof Error ? error.constructor.name : typeof error,
+              },
+              'Production refresh succeeded but audit finalization failed',
+            ),
+        );
         return NextResponse.json({ status: 'succeeded', result, previewSynchronized });
       } catch (error) {
         const unknownResult =
@@ -454,23 +472,6 @@ export async function GET(
       const { websiteId } = await params;
       try {
         const access = await requireWebsiteAccess(authDb, auth, request.headers, websiteId);
-        const [row] = await authDb
-          .select({
-            id: operation.id,
-            status: operation.status,
-            metadata: operation.metadata,
-            errorCode: operation.errorCode,
-          })
-          .from(operation)
-          .where(
-            and(
-              eq(operation.websiteId as never, websiteId),
-              eq(operation.type as never, operationType),
-            ) as never,
-          )
-          .orderBy(sql`${operation.createdAt} desc` as never)
-          .limit(1);
-        if (!row) return NextResponse.json({ status: 'idle' });
         if (!access.isAdmin) {
           const [owned] = await authDb
             .select({ id: website.id })
@@ -488,6 +489,31 @@ export async function GET(
               { status: 404 },
             );
         }
+        const url = new URL(request.url);
+        const requestedKey = url.searchParams.get('idempotencyKey');
+        const idempotencyKey = requestedKey?.trim();
+        if (requestedKey !== null && (!idempotencyKey || idempotencyKey.length > 255))
+          return NextResponse.json(
+            { error: { code: 'IDEMPOTENCY_KEY_INVALID', message: '幂等键无效' } },
+            { status: 400 },
+          );
+        const filters = [
+          eq(operation.websiteId as never, websiteId),
+          eq(operation.type as never, operationType),
+          ...(idempotencyKey ? [eq(operation.idempotencyKey as never, idempotencyKey)] : []),
+        ];
+        const [row] = await authDb
+          .select({
+            id: operation.id,
+            status: operation.status,
+            metadata: operation.metadata,
+            errorCode: operation.errorCode,
+          })
+          .from(operation)
+          .where(and(...filters) as never)
+          .orderBy(sql`${operation.createdAt} desc` as never)
+          .limit(1);
+        if (!row) return NextResponse.json({ status: idempotencyKey ? 'not_found' : 'idle' });
         return NextResponse.json({
           operationId: row.id,
           status: row.status,

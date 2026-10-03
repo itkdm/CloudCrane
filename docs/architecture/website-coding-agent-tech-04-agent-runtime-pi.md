@@ -1582,17 +1582,24 @@ Platform-important Git
 
 # 38. CMS Tools
 
-后续 CMS Capability：
+Production CMS Semantic Capability V1 已实现以下 Agent Tools：
 
 ```text
+cms_list_categories
 cms_list_content
 cms_get_content
-cms_create_content
 cms_update_content
-cms_delete_content
+cms_get_company
+cms_update_company
 ```
 
-这些不是通用 Coding Tool。
+这些不是通用 Coding Tool。它们通过 `@cloudcrane/cms-protocol` 定义通用操作与结果，再由 `CmsClient`、Production operation protocol、Workspace Gateway 和 Runner 传递到受信任的 PbootCMS adapter。Agent Core 不依赖 Pboot 表名或 SQL。
+
+V1 只允许读取和更新已有文章/公司信息。更新要求从 Production 读取到的 SHA-256 version，并在事务内比较版本；若上次请求可能已成功且目标 patch 已完全匹配，返回安全 replay。CMS 写入与同站点的 Production 发布、刷新、销毁操作由 Runner 串行执行。Agent 只能调用固定语义操作，不能取得 Production shell、SQL、任意文件或 Docker 权限。
+
+PbootCMS adapter 固定执行 Production 镜像内的 `cloudcrane-pboot-cms`，以 JSON stdin/stdout 通信，只接受六个 allowlisted action，并复用镜像当前 Pboot 版本的编码/规范化函数。扩展字段只接受 Production schema 中真实存在的 `ext_*` 列。CMS 写入只记录 action、record ID 和字段名；不会把字段值写入审计摘要。成功更新返回 `workspaceContentStale: true`，需要同步 Preview 内容时再显式使用 Production → Workspace Refresh。
+
+V1 不包含 create/delete/bulk/media/raw SQL/raw shell。Operation 和字段契约见 `packages/cms-protocol`；Pboot 实现版本与 Docker integration 覆盖情况见 Tech-03 的 Production CMS Semantic Capability 状态记录。
 
 链路：
 
