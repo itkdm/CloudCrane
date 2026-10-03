@@ -163,3 +163,11 @@ Deploy production #69 会按现有发布流程重启平台 tmux 服务栈（包�
 CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 集成实际运行了 PbootCMS Production 发布、Production → Workspace 内容刷新、Workspace 内容更新后再次发布、数据保留及 Release 检查。第一次 CI #496 暴露测试在 Refresh 重启 Workspace 后继续复用旧 Daemon 客户端；测试现在会重新获取 endpoint 后验证 Refresh 结果。
 
 同一提交的 Deploy production #96 在 ECS 执行 Web 构建时以退出码 137 失败，发生在数据库备份、迁移和服务重启之前，故该次部署没有切换线上应用。只读检查当时主机约 3.8 GiB RAM、无 Swap，构建期间服务器负载偏高。部署脚本已改为 `pnpm exec turbo run build --concurrency=1`，串行执行 Turbo build 任务以降低并发峰值内存；后续需由 Deploy workflow 确认服务器构建及健康检查通过，再记为已上线。不要将服务器退出码 137 与应用构建代码错误混为一谈，也不要手动清理或覆盖 `/opt/cloudcrane-releases/<SHA>` 未完成 worktree；重试应让部署脚本复用同一目标 SHA 并按日志检查构建结果。
+
+### 2026-10-03 PbootCMS 3.2.24 Production 兼容性确认
+
+目标 `CloudCrane Production E2E` 的 Workspace 使用官方 PbootCMS 3.2.24，精确来源为受信任提交 `29ff72ee5afc9c6553b949f04d3fc99443879f40`。受管 Production 基线默认镜像使用 3.2.26，并不意味着现有 3.2.24 Workspace 必须重建或升级。CI #504（`42d60be`）增加了官方固定来源的 3.2.24 Workspace 镜像，并在临时 Docker 环境对 3.2.24 完整运行 Publish、Production CMS 读写、内容编辑冲突检测、Production → Workspace Refresh、Preview 授权字段保留和第二次 Publish；原有 3.2.26 Production 集成也通过。CI #504 的 quality 与 docker-integration 均通过，Deploy production #103 已将该提交部署到 ECS。
+
+首次发布后、未写入测试授权状态时，3.2.24 的 Pboot 首页对不匹配的临时测试域名返回 404；3.2.26 对应返回 403。这是两个版本的页面响应差异，不能单独用来判断 PHP/Production Runtime 不可用；容器服务健康应看固定 `/_cloudcrane/health` 探针。随后 CI 仅在临时容器写入 CloudCrane 测试授权标记以继续验证 CMS adapter 和 Refresh；这不验证 Pboot 官方授权码本身。该集成测试不连接或修改线上 Website、数据库、授权码或内容。
+
+结论：继续使用现有 3.2.24 站点，不因 3.2.26 受管基线而重建，也不自动升级 PbootCMS。未来需升级时，应作为单独迁移评估处理，保护既有 Production DB、Uploads 和官方授权状态。
