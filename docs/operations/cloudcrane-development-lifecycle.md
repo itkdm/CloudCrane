@@ -1,6 +1,6 @@
 # CloudCrane 日常开发、CI 与发布生命周期
 
-> 状态核对日期：2026-09-30。本文区分当前仓库已配置的流程、已确认的协作决定和仍待部署信息的事项；线上健康状态会变化，发布前仍需重新检查。
+> 历史记录始于 2026-09-30；当前状态更新至 2026-10-04。本文保留按日期记录的运维过程；后续日期的状态修订优先于较早记录，线上健康状态会变化，发布前仍需重新检查。
 
 ## 适用范围
 
@@ -171,3 +171,17 @@ CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 
 首次发布后、未写入测试授权状态时，3.2.24 的 Pboot 首页对不匹配的临时测试域名返回 404；3.2.26 对应返回 403。这是两个版本的页面响应差异，不能单独用来判断 PHP/Production Runtime 不可用；容器服务健康应看固定 `/_cloudcrane/health` 探针。随后 CI 仅在临时容器写入 CloudCrane 测试授权标记以继续验证 CMS adapter 和 Refresh；这不验证 Pboot 官方授权码本身。该集成测试不连接或修改线上 Website、数据库、授权码或内容。
 
 结论：继续使用现有 3.2.24 站点，不因 3.2.26 受管基线而重建，也不自动升级 PbootCMS。未来需升级时，应作为单独迁移评估处理，保护既有 Production DB、Uploads 和官方授权状态。
+
+### 2026-10-04 CMS Content Create 线上 E2E 复验
+
+当前仓库基线为 `0a45493b`。GitHub [CI #513](https://github.com/itkdm/CloudCrane/actions/runs/37149400191) 的 quality 和 docker-integration 均通过；[Deploy production #112](https://github.com/itkdm/CloudCrane/actions/runs/37149972133) 成功。CI Docker 集成覆盖 PbootCMS 3.2.24/3.2.26；这只能证明临时容器集成，不替代目标线上站的 Agent E2E。
+
+对目标 `CloudCrane Production E2E` 的 UI 操作到 CMS 只读工具后，类别、内容和公司信息查询均返回 `CMS_OPERATION_FAILED`。Runner 与 Production Gateway 健康检查正常；脱敏结构化日志确认 Runner 执行 CMS helper 失败。Agent 没有调用 Create，没有写入或更改线上 CMS 内容。
+
+只读服务器检查确认目标容器仍基于旧镜像 ID `f4004062…`，而服务器当前镜像 tag 已指向 `8afbf096…`；旧容器内缺少 `cloudcrane-pboot-cms`，当前镜像包含该 helper。根因是 CI/CD 更新服务器镜像 tag 不会自动替换既有 Website Production 容器。该问题与 PbootCMS 3.2.24 版本无关；不需要重建 Website、升级 PbootCMS 或替换数据库。
+
+线上 E2E 的下一步是只替换该测试站的 Production 运行容器，完整保留 `shared/data`、`shared/upload`、`shared/config`、`shared/runtime`、授权状态和当前 Release；新容器通过健康检查后再查询 CMS，失败则恢复旧容器。替换会造成短暂访问中断，尚待项目负责人授权。镜像漂移的通用安全升级/回滚机制仍未实现。
+
+### 2026-10-04 Workspace Host 隔离状态复核
+
+早期“尚无 Metadata deny”记录反映 2026-10-01 当时状态，已被后续部署修复取代。按 [生产部署手册](cloudcrane-production-deploy.md) 的后续记录，`9117c351` 已在 ECS 安装 Metadata host-level deny，并将 Workspace 持久目录迁至带 ext4 project quota 的独立文件系统；真实容器验证了 Metadata GET/Token PUT 被拒绝、普通 HTTPS 可访问及每个 Workspace 的硬配额限制。这些当前状态不要再从本节前面的 2026-10-01 历史记录推断。

@@ -885,7 +885,7 @@ Real-time Dev/Prod DB Sync
 - 更新要求当前 version；Production SQLite 在 `BEGIN IMMEDIATE` 内重读、比较 SHA-256 canonical version、写入 allowlisted patch 并读回。检测到目标 patch 已应用时安全 replay；否则以 `CMS_CONTENT_CHANGED` 拒绝旧版本覆盖。超时或响应不确定时返回 `UNKNOWN_RESULT`，Agent 重试同一 patch/version 可安全恢复。
 - 支持代码根据锁定的 PbootCMS 3.2.26 源码 `8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea` 编写，并复用 Production 镜像中该版本的编码/规范化函数。CMS 更新只审计操作、记录 ID 与字段名，返回 `workspaceContentStale: true`；不会把正文同步到 Workspace，也不会改变 Release 代码。
 - Refresh Issue #1 修复为持久 key 按精确 idempotency key 查询，页面恢复仅继续未完成操作；成功、失败或找不到时清理旧 key，后续新点击创建新操作。Issue #2 修复为业务刷新成功后审计收尾异常只记日志，不把已成功 operation 改写为失败。
-- Unit/regression tests 已覆盖协议、工具、版本冲突/安全重试路径、审计脱敏和 Refresh key 恢复。真实 PbootCMS Docker integration 已扩展到读写、扩展字段、外部修改冲突、Refresh 单向同步、代码/Production DB 保留；本机没有 Docker/ PHP，故这些容器用例需等 GitHub CI 运行后才能报告为通过。真实线上 Agent 到 Production CMS E2E 也尚未完成；指定线上站的 Workspace 是 PbootCMS 3.2.24，而本轮 adapter 明确基于 3.2.26。
+- Unit/regression tests 已覆盖协议、工具、版本冲突/安全重试路径、审计脱敏和 Refresh key 恢复。真实 PbootCMS Docker integration 已扩展到读写、扩展字段、外部修改冲突、Refresh 单向同步、代码/Production DB 保留；本机没有 Docker/PHP，容器用例以 GitHub CI 结果为准。指定线上站的 Workspace 是 PbootCMS 3.2.24；后续 CI 已把 3.2.24 纳入完整 Production CMS/Refresh 集成，当前兼容结论与线上 E2E 阻塞见本文 2026-10-04 更新。
 - CMS semantic hardening follow-up：CMS 写事务提交后，Runner 复用发布切换的缓存清理与 PHP-FPM graceful reload；失效失败返回 `UNKNOWN_RESULT`，相同 version/patch 重试走 adapter replay 并再次清缓存。Protocol 区分 numeric content row ID 与 1–20 位 Pboot logical code（字母、数字、`_`、`-`）；Pboot filename 更新同时拒绝与其他内容 ID 冲突。Docker integration 的 Pboot 3.2.24/3.2.26 用例已由 CI 在 `9117c351` 通过。
 - ECS Workspace host boundary follow-up：Runner 通过 ext4 project quota 为每个持久 Workspace 设置 1 GiB 默认硬块限制和 inode 限制；ECS Docker bridge 对 `100.100.100.200/32` 安装 host-level deny，保留普通 HTTPS egress。生产 ECS 已迁移到 30 GiB ext4 quota filesystem；两档独立 project quota 写入、真实 Workspace 容器的 Metadata GET/Token PUT 拒绝与公网 HTTPS 连通性验收已通过，Runner 和两个 Gateway 健康检查通过。部署 SHA 为 `9117c351`。systemd Docker drop-in 已安装且规则存在，但本轮未主动重启 Docker/主机做故障注入；ECS 控制面的 Metadata token-required 模式状态也未核实。完整验收记录和脚本见 `docs/operations/cloudcrane-production-deploy.md`。
 
@@ -897,7 +897,14 @@ Real-time Dev/Prod DB Sync
 - Create 的请求幂等键必填，并与规范化业务请求哈希绑定。Runner 内存缓存拒绝同 key 不同请求；受信 Pboot adapter 在同一个 SQLite `BEGIN IMMEDIATE` 事务里提交内容行、扩展字段和幂等结果指针，因此 Runner/容器重启或响应丢失后仍能安全重试。
 - SQLite 只保存幂等 key 的 SHA-256、请求哈希、创建出的内容 ID 和时间，不保存原 key 或文章正文。相同 key/相同请求返回既有内容；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；内容后来被删除时返回 `CMS_CREATE_RESULT_UNAVAILABLE`，避免误建第二条。
 - `cloudcrane_cms_content_create_ops` 是 Production 专用操作账本，不属于 PbootCMS 内容 Schema。Refresh 只在待导入的快照副本中删除该表，再执行 Schema 比对；Production 原库不变，幂等记录也不会进入 Workspace。
-- adapter 基线与指定线上站的 3.2.24 不同。版本号本身不要求重建网站；发布前仍要由 CI Docker integration 同时验证 3.2.24 与 3.2.26 的 schema/规范化兼容，再完成目标站真实 E2E。本轮代码的容器验证尚未完成，不能视为上线验收通过。
+- PbootCMS 3.2.24 与 3.2.26 均已由 GitHub Docker integration 覆盖；CI #504 验证了 3.2.24 的完整 Publish、CMS 读写、Refresh 和第二次 Publish，CI #513 及 Deploy #112 也在当前 `0a45493` 基线上通过。版本差异不要求重建网站。目标线上站的 CMS 工具 E2E 仍未通过：2026-10-04 排查确认其现存 Production 容器仍使用旧镜像，缺少 `cloudcrane-pboot-cms`；详见下方更新。CI/CD 更新 ECS 上的镜像 tag 不会自动替换已运行的网站容器。
+
+## Implementation Status (2026-10-04): CMS Content Create 与线上 E2E
+
+- 当前基线 `0a45493` 的 CI #513 质量与 Docker 集成通过；Deploy production #112 成功。CI 覆盖 PbootCMS 3.2.24/3.2.26 的容器集成，但这不等价于目标线上站的 Agent E2E。
+- 对线上 `CloudCrane Production E2E`（Website `0d173aae-2ae4-422d-87de-930d63d3c775`）通过 UI 发起的只读 CMS 类别/内容查询均返回 `CMS_OPERATION_FAILED`。Runner 和 Production Gateway 健康检查正常；Runner 结构化日志确认 CMS operation 失败。没有执行 CMS Create，也没有修改线上 CMS 内容。
+- 只读检查确认目标容器仍运行 Production 镜像旧 image ID `f4004062…`，而服务器当前 `cloudcrane-production-pboot:v1` 指向 `8afbf096…`。旧容器内找不到 `cloudcrane-pboot-cms`；当前镜像包含 `/usr/local/bin/cloudcrane-pboot-cms`。因此本次线上失败由已知镜像漂移导致，不是 PbootCMS 3.2.24 不兼容，也不需要重建 Website 或数据库。
+- 仍未实现已运行 Production 容器的安全镜像替换/回滚。完成该站验收需要在保留 `shared/data`、`shared/upload`、`shared/config`、`shared/runtime` 和当前 Release 的前提下替换该站运行容器，执行健康检查并保留旧容器作为失败回滚；替换会造成短暂访问中断。执行前需取得本轮明确授权。替换成功后再验证只读 CMS 查询、创建隐藏草稿、结果持久化及 Refresh 保留账本的端到端流程。
 
 # 31. 当前最终架构
 
