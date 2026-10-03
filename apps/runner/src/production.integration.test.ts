@@ -640,6 +640,24 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         executionId: '00000000-0000-4000-8000-000000000094',
       });
       expect(beforeRefresh.stdout.trim()).not.toBe(changedTitle);
+      const allowRunnerSnapshotRead = await container.exec({
+        Cmd: ['/bin/sh', '-ec', 'chmod a+rx /site/shared && chmod -R a+rX /site/shared/upload'],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const allowRunnerSnapshotReadStream = await allowRunnerSnapshotRead.start({
+        hijack: true,
+        stdin: false,
+      });
+      await new Promise<void>((resolve, reject) => {
+        allowRunnerSnapshotReadStream.once('end', resolve);
+        allowRunnerSnapshotReadStream.once('close', resolve);
+        allowRunnerSnapshotReadStream.once('error', reject);
+        allowRunnerSnapshotReadStream.resume();
+      });
+      expect((await allowRunnerSnapshotRead.inspect()).ExitCode).toBe(0);
       await new ProductionContentRefreshService(
         new (await import('./application/production-runtime-service.js')).ProductionRuntimeService(
           provider,
