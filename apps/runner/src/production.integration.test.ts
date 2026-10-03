@@ -594,7 +594,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         Cmd: [
           'php',
           '-r',
-          `$d=new SQLite3("/site/shared/data/cloudcrane.db"); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); if (!$d->exec("INSERT OR REPLACE INTO ay_config(name, value, type, sorting, description) VALUES ('sn', 'production.example', '2', 255, ''), ('sn_user', 'production-user', '2', 255, ''), ('licensecode', 'production-license', '2', 255, '')")) exit(13);`,
+          `$d=new SQLite3("/site/shared/data/cloudcrane.db"); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); if (!$d->exec("UPDATE ay_config SET value = CASE name WHEN 'sn' THEN 'production.example' WHEN 'sn_user' THEN 'production-user' WHEN 'licensecode' THEN 'production-license' END WHERE name IN ('sn', 'sn_user', 'licensecode')")) exit(13);`,
         ],
         User: '1000:1000',
         AttachStdout: true,
