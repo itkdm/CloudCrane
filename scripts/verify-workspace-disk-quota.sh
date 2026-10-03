@@ -13,7 +13,8 @@ if [[ "$(id -u)" != 0 ]]; then
   exit 1
 fi
 findmnt -T "${workspace_root}" -no FSTYPE,OPTIONS | grep -q '^ext4 .*prjquota'
-quotaon -P -p "${workspace_root}" | grep -q 'project quota on .* is on'
+quota_status="$(quotaon -P -p "${workspace_root}" 2>&1 || true)"
+grep -q 'project quota on .* is on' <<<"${quota_status}"
 curl --fail --silent --show-error http://127.0.0.1:4102/health >/dev/null
 curl --fail --silent --show-error http://127.0.0.1:4104/health >/dev/null
 

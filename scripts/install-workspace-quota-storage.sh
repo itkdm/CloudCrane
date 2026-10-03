@@ -90,7 +90,8 @@ if [[ "${source_root}" != "${quota_root}" ]]; then
   mv "${temporary_env}" "${local_env}"
 fi
 
-quotaon -P -p "${quota_root}" | grep -q 'project quota on .* is on' || {
+quota_status="$(quotaon -P -p "${quota_root}" 2>&1 || true)"
+grep -q 'project quota on .* is on' <<<"${quota_status}" || {
   echo "project quota accounting is not active on the Workspace filesystem" >&2
   exit 1
 }
