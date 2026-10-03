@@ -641,8 +641,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect(beforeRefresh.stdout.trim()).not.toBe(changedTitle);
       const allowRunnerSnapshotRead = await container.exec({
-        Cmd: ['/bin/sh', '-ec', 'chmod -R a+rX /site/shared/upload'],
-        User: '1000:1000',
+        Cmd: ['/bin/sh', '-ec', 'chmod -R a+rX /site/shared/data /site/shared/upload'],
         AttachStdout: true,
         AttachStderr: true,
         Tty: false,
