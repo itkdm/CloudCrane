@@ -158,6 +158,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(afterRejectedImport.stdout.trim()).toBe('production-content');
 
       const mismatchSource = '/workspace/.cloudcrane/schema-mismatch/pbootcms.db';
+      const mismatchSourcePath = path.join(
+        workspaceRoot,
+        '.cloudcrane',
+        'schema-mismatch',
+        'pbootcms.db',
+      );
       await refreshedDaemon.mkdir({
         path: '/workspace/.cloudcrane/schema-mismatch/upload',
         recursive: true,
@@ -176,7 +182,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         '.production-refresh-mismatch',
       );
       await mkdir(mismatchSnapshot, { recursive: true });
-      await copyFile(mismatchSource, path.join(mismatchSnapshot, 'pbootcms.db'));
+      await copyFile(mismatchSourcePath, path.join(mismatchSnapshot, 'pbootcms.db'));
       await mkdir(path.join(mismatchSnapshot, 'upload'), { recursive: true });
       await expect(
         provider.importProductionContent(workspaceId, {
