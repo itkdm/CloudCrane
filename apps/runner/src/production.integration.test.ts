@@ -654,7 +654,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         source: 'CloudCrane integration',
       };
       expect(
-        await runProductionContainerCommand(container, 'chmod 0500 /site/shared/runtime/cache'),
+        await runProductionContainerCommand(
+          container,
+          'mkdir -p /site/shared/runtime/cache && chmod 0500 /site/shared/runtime/cache',
+        ),
       ).toBe(0);
       await expect(
         provider.cmsOperation(realWebsiteId, {
