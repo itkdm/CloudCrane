@@ -465,14 +465,28 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect((await markerSql.inspect()).ExitCode).toBe(0);
 
-      const authorizationMarker = path.join(
-        config.productionRoot,
-        realWebsiteId,
-        'shared',
-        'runtime',
-        '.cloudcrane-authorization-v1',
-      );
-      await writeFile(authorizationMarker, 'v1\n');
+      const writeAuthorizationMarker = await container.exec({
+        Cmd: [
+          '/bin/sh',
+          '-ec',
+          "printf 'v1\\n' > /site/shared/runtime/.cloudcrane-authorization-v1",
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const authorizationMarkerStream = await writeAuthorizationMarker.start({
+        hijack: true,
+        stdin: false,
+      });
+      await new Promise<void>((resolve, reject) => {
+        authorizationMarkerStream.once('end', resolve);
+        authorizationMarkerStream.once('close', resolve);
+        authorizationMarkerStream.once('error', reject);
+        authorizationMarkerStream.resume();
+      });
+      expect((await writeAuthorizationMarker.inspect()).ExitCode).toBe(0);
       const lockedStatus = await provider.getStatus(realWebsiteId, 'real-pboot-integration');
       expect(lockedStatus).toMatchObject({ status: 'active', authorized: true });
       await expect(
