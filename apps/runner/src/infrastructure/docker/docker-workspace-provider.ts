@@ -362,9 +362,10 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         `refresh_root="/workspace/.cloudcrane/production-refresh-${input.refreshId}"`,
         'backup_db="$refresh_root/backup/pbootcms.db"',
         "auth_names=\"'sn', 'sn_user', 'licensecode'\"",
-        'backup_auth_count=$(sqlite3 "$backup_db" "SELECT COUNT(*) FROM ay_config WHERE name IN ($auth_names);")',
-        'workspace_auth_count=$(sqlite3 /workspace/data/pbootcms.db "SELECT COUNT(*) FROM ay_config WHERE name IN ($auth_names);")',
-        'test "$backup_auth_count" = 3 && test "$workspace_auth_count" = 3 || { echo "Workspace Preview authorization data is incomplete" >&2; exit 1; }',
+        'preview_auth_count=$(sqlite3 "$backup_db" "SELECT COUNT(*) FROM ay_config WHERE name IN ($auth_names);")',
+        'production_auth_count=$(sqlite3 /workspace/data/pbootcms.db "SELECT COUNT(*) FROM ay_config WHERE name IN ($auth_names);")',
+        'test "$preview_auth_count" = 3 || { echo "Workspace Preview authorization data is incomplete (count=$preview_auth_count)" >&2; exit 1; }',
+        'test "$production_auth_count" = 3 || { echo "Production authorization data is incomplete (count=$production_auth_count)" >&2; exit 1; }',
         'sqlite3 /workspace/data/pbootcms.db "ATTACH DATABASE \'$backup_db\' AS workspace_before_refresh; BEGIN IMMEDIATE; UPDATE ay_config AS target SET value = (SELECT source.value FROM workspace_before_refresh.ay_config AS source WHERE source.name = target.name) WHERE target.name IN ($auth_names); COMMIT;"',
         'mkdir -p /workspace/runtime/config && find /workspace/runtime/config -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +',
       ].join('\n');
