@@ -28,6 +28,19 @@ describe('runner production configuration', () => {
       path.join('/srv/cloudcrane', 'pbootcms-bases'),
     );
     expect(config.productionKeepReleases).toBe(5);
+    expect(config.workspaceDiskLimitBytes).toBe(1_073_741_824);
+  });
+
+  it('requires a non-zero Workspace disk quota in production', () => {
+    expect(() =>
+      loadRunnerConfig({
+        NODE_ENV: 'production',
+        WORKSPACE_REFERENCE_ROOT: '/srv/cloudcrane/references',
+        TEMPLATE_ARTIFACT_ROOT: '/srv/cloudcrane/templates',
+        WORKSPACE_MANAGED_PBOOT_BASE_ROOT: '/srv/cloudcrane/pbootcms-base',
+        WORKSPACE_DISK_LIMIT_BYTES: '0',
+      }),
+    ).toThrow('WORKSPACE_DISK_LIMIT_BYTES must be at least 64 MiB in production');
   });
 
   it('accepts production runtime storage and image configuration', () => {

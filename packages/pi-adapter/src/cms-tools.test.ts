@@ -36,4 +36,16 @@ describe('CMS Agent tools', () => {
       { idempotencyKey: expect.stringMatching(/^cms-company-/) },
     );
   });
+
+  it('accepts Pboot logical category codes in list tools', () => {
+    const tools = createCmsTools({} as never);
+    const cursor = tools.cms_list_categories.parameters.properties.cursor as unknown as {
+      pattern?: string;
+    };
+    const categoryCode = tools.cms_list_content.parameters.properties.categoryCode as unknown as {
+      pattern?: string;
+    };
+    expect(cursor.pattern).toBe('^[a-zA-Z0-9_-]{1,20}$');
+    expect(categoryCode.pattern).toBe('^[a-zA-Z0-9_-]{1,20}$');
+  });
 });

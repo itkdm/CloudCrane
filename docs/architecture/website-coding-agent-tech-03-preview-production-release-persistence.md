@@ -886,6 +886,8 @@ Real-time Dev/Prod DB Sync
 - 支持代码根据锁定的 PbootCMS 3.2.26 源码 `8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea` 编写，并复用 Production 镜像中该版本的编码/规范化函数。CMS 更新只审计操作、记录 ID 与字段名，返回 `workspaceContentStale: true`；不会把正文同步到 Workspace，也不会改变 Release 代码。
 - Refresh Issue #1 修复为持久 key 按精确 idempotency key 查询，页面恢复仅继续未完成操作；成功、失败或找不到时清理旧 key，后续新点击创建新操作。Issue #2 修复为业务刷新成功后审计收尾异常只记日志，不把已成功 operation 改写为失败。
 - Unit/regression tests 已覆盖协议、工具、版本冲突/安全重试路径、审计脱敏和 Refresh key 恢复。真实 PbootCMS Docker integration 已扩展到读写、扩展字段、外部修改冲突、Refresh 单向同步、代码/Production DB 保留；本机没有 Docker/ PHP，故这些容器用例需等 GitHub CI 运行后才能报告为通过。真实线上 Agent 到 Production CMS E2E 也尚未完成；指定线上站的 Workspace 是 PbootCMS 3.2.24，而本轮 adapter 明确基于 3.2.26。
+- CMS semantic hardening follow-up：CMS 写事务提交后，Runner 复用发布切换的缓存清理与 PHP-FPM graceful reload；失效失败返回 `UNKNOWN_RESULT`，相同 version/patch 重试走 adapter replay 并再次清缓存。Protocol 区分 numeric content row ID 与 1–20 位 Pboot logical code（字母、数字、`_`、`-`）；Pboot filename 更新同时拒绝与其他内容 ID 冲突。Docker integration 覆盖缓存清理失败后的 replay 与 filename-ID 冲突；变更合入前以对应 3.2.24/3.2.26 CI 为准。
+- ECS Workspace host boundary follow-up：Runner 通过 ext4 project quota 为每个持久 Workspace 设置 1 GiB 默认硬块限制和 inode 限制；ECS Docker bridge 对 `100.100.100.200/32` 安装 host-level deny，保留普通 HTTPS egress。部署脚本会创建并迁移到 30 GiB ext4 quota filesystem，并安装重启持久策略。真实服务器安装、容器写满验收、Docker daemon 重启后的规则复验完成前，不把线上隔离状态标成通过。
 
 ---
 

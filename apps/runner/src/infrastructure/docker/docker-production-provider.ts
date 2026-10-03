@@ -328,7 +328,7 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       const authorized = await this.isAuthorizationComplete(input.websiteId);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
-      await this.refreshPbootReleaseState(input.websiteId, root);
+      await this.refreshPbootRuntimeState(input.websiteId, root);
       if (!(await this.waitForHealth(runtime.productionPort, input.productionSlug)))
         throw new ProductionOperationError(
           'PRODUCTION_HEALTHCHECK_FAILED',
@@ -626,6 +626,16 @@ export class DockerProductionProvider implements ProductionProvider {
         code as import('../../ports/production-operation-error.js').ProductionOperationErrorCode,
         envelope.error.message ?? 'Production CMS operation failed',
       );
+    }
+    if (this.isCmsMutation(input.operation)) {
+      try {
+        await this.refreshPbootRuntimeState(websiteId, this.root(websiteId));
+      } catch {
+        throw new ProductionOperationError(
+          'UNKNOWN_RESULT',
+          'Production CMS update completed, but its public page cache could not be refreshed',
+        );
+      }
     }
     return envelope.result;
   }
@@ -1404,7 +1414,7 @@ export class DockerProductionProvider implements ProductionProvider {
     }
   }
 
-  private async refreshPbootReleaseState(websiteId: string, productionRoot: string): Promise<void> {
+  private async refreshPbootRuntimeState(websiteId: string, productionRoot: string): Promise<void> {
     const helper = await this.docker.createContainer({
       Image: this.config.productionImage,
       name: `cloudcrane-production-cache-${websiteId}-${Date.now()}`,

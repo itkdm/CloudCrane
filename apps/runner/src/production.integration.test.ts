@@ -510,14 +510,43 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.company.get',
         payload: {},
       })) as { phone: string; version: string };
+      const pageCacheProbe = '/site/shared/runtime/cache/cloudcrane-cms-invalidation-probe';
+      expect(
+        await runProductionContainerCommand(
+          container,
+          `mkdir -p /site/shared/runtime/cache && printf 'stale-public-page' > '${pageCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
+        ),
+      ).toBe(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.company.update',
+          payload: { expectedVersion: company.version, patch: { phone: '13800000000' } },
+        }),
+      ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
+      const committedCompany = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.company.get',
+        payload: {},
+      })) as { phone: string; version: string };
+      expect(committedCompany.phone).toBe('13800000000');
+      expect(
+        await runProductionContainerCommand(container, 'chmod 0700 /site/shared/runtime/cache'),
+      ).toBe(0);
       const companyUpdated = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.update',
         payload: { expectedVersion: company.version, patch: { phone: '13800000000' } },
-      })) as { item: { phone: string; version: string }; workspaceContentStale: boolean };
+      })) as {
+        item: { phone: string; version: string };
+        workspaceContentStale: boolean;
+        replayed: boolean;
+      };
       expect(companyUpdated).toMatchObject({
         item: { phone: '13800000000' },
         workspaceContentStale: true,
+        replayed: true,
       });
+      expect(await runProductionContainerCommand(container, `test ! -e '${pageCacheProbe}'`)).toBe(
+        0,
+      );
       await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.update',
         payload: { expectedVersion: companyUpdated.item.version, patch: { phone: company.phone } },
@@ -527,7 +556,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.content.list',
         payload: { limit: 5 },
       })) as { items: Array<{ id: string; title: string }> };
-      expect(contentList.items.length).toBeGreaterThan(0);
+      expect(contentList.items.length).toBeGreaterThan(1);
       const content = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.get',
         payload: { contentId: contentList.items[0]!.id },
@@ -541,6 +570,16 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         extensionFields: Record<string, string>;
       };
       expect(Object.keys(content.extensionFields).length).toBeGreaterThan(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.content.update',
+          payload: {
+            contentId: content.id,
+            expectedVersion: content.version,
+            patch: { filename: contentList.items[1]!.id },
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'CMS_INVALID_VALUE' });
       await expect(
         provider.cmsOperation(realWebsiteId, {
           operation: 'cms.content.get',
@@ -1164,6 +1203,27 @@ async function waitForProductionHealth(origin: string): Promise<void> {
   throw new Error('Production health did not recover after container restart', {
     cause: lastError,
   });
+}
+
+async function runProductionContainerCommand(
+  container: Docker.Container,
+  command: string,
+): Promise<number> {
+  const exec = await container.exec({
+    Cmd: ['/bin/sh', '-ec', command],
+    User: '1000:1000',
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: false,
+  });
+  const stream = await exec.start({ hijack: true, stdin: false });
+  await new Promise<void>((resolve, reject) => {
+    stream.once('end', resolve);
+    stream.once('close', resolve);
+    stream.once('error', reject);
+    stream.resume();
+  });
+  return (await exec.inspect()).ExitCode ?? 1;
 }
 
 async function replaceWorkspaceDatabaseFixture(

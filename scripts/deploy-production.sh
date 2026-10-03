@@ -23,8 +23,21 @@ fi
 
 PREVIOUS_SHA="$(cat "${STATE_DIR}/current-sha" 2>/dev/null || git rev-parse HEAD)"
 RELEASE_DIR="${RELEASES_DIR}/${TARGET_SHA}"
+PREVIOUS_DIR="${RELEASES_DIR}/${PREVIOUS_SHA}"
+SERVICES_STOPPED=0
 mkdir -p "${RELEASES_DIR}" "${STATE_DIR}" "${BACKUP_DIR}"
 chmod 700 "${STATE_DIR}" "${BACKUP_DIR}"
+
+restore_previous_services() {
+  local status=$?
+  if (( status != 0 && SERVICES_STOPPED == 1 )); then
+    if [[ ! -d "${PREVIOUS_DIR}" ]]; then PREVIOUS_DIR="${CONTROL_DIR}"; fi
+    echo "deployment failed during service transition; restoring previous CloudCrane processes" >&2
+    CLOUDCRANE_TMUX_SESSION="${SESSION_NAME}" bash "${PREVIOUS_DIR}/scripts/server-acceptance-start.sh" || true
+  fi
+  return "${status}"
+}
+trap restore_previous_services EXIT
 
 if [[ ! -d "${RELEASE_DIR}" ]]; then
   git worktree add --detach "${RELEASE_DIR}" "${TARGET_SHA}"
@@ -43,6 +56,8 @@ if [[ -f ./.env.private.local ]]; then
   . ./.env.private.local
 fi
 set +a
+# Install and verify the host-level deny before starting any Agent Workspace runtime.
+bash ./scripts/install-cloudcrane-metadata-policy.sh
 # The ECS has 4 GiB RAM; serialize Turbo tasks so concurrent package builds do not OOM.
 pnpm exec turbo run build --concurrency=1
 nginx -t
@@ -78,6 +93,8 @@ pnpm --filter @cloudcrane/db db:migrate
 pnpm --filter @cloudcrane/db db:backfill-preview-slugs
 
 tmux kill-session -t "${SESSION_NAME}" 2>/dev/null || true
+SERVICES_STOPPED=1
+bash ./scripts/install-workspace-quota-storage.sh
 CLOUDCRANE_TMUX_SESSION="${SESSION_NAME}" bash ./scripts/server-acceptance-start.sh
 
 healthy() {
@@ -100,9 +117,7 @@ done
 if [[ "${healthy_after}" != "1" ]]; then
   echo "new release failed health checks; restoring previous application release" >&2
   tmux kill-session -t "${SESSION_NAME}" 2>/dev/null || true
-  if [[ -d "${RELEASES_DIR}/${PREVIOUS_SHA}" ]]; then
-    PREVIOUS_DIR="${RELEASES_DIR}/${PREVIOUS_SHA}"
-  else
+  if [[ ! -d "${PREVIOUS_DIR}" ]]; then
     PREVIOUS_DIR="${CONTROL_DIR}"
   fi
   if [[ ! -f "${PREVIOUS_DIR}/.env.server.local" && -f "${CONTROL_DIR}/.env.server.local" ]]; then
@@ -112,9 +127,11 @@ if [[ "${healthy_after}" != "1" ]]; then
     ln -s "${CONTROL_DIR}/.env.private.local" "${PREVIOUS_DIR}/.env.private.local"
   fi
   CLOUDCRANE_TMUX_SESSION="${SESSION_NAME}" bash "${PREVIOUS_DIR}/scripts/server-acceptance-start.sh"
+  SERVICES_STOPPED=0
   exit 68
 fi
 
 printf '%s\n' "${TARGET_SHA}" > "${STATE_DIR}/current-sha.tmp"
 mv "${STATE_DIR}/current-sha.tmp" "${STATE_DIR}/current-sha"
+SERVICES_STOPPED=0
 echo "production deployment healthy: ${TARGET_SHA}"

@@ -120,6 +120,33 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 服务器的 `docker/compose/docker-compose.server.yml` 是含内嵌数据库凭据的主机私有文件，自动脚本用它定位 PostgreSQL 容器；应留在服务器并忽略，禁止提交。仓库的 `docker-compose.server.example.yml` 与 `postgres.env.example` 是可提交模板。建议后续把当前内嵌凭据协调迁移到权限为 600 的实际 `postgres.env`；更新已有数据库凭据还需协调 PostgreSQL 角色和应用连接配置，不能只更改 Compose 环境文件。数据库备份恢复流程尚未实测，后续再安排恢复演练。
 
+## Workspace 宿主机隔离
+
+每次正式部署先安装并核验 ECS Metadata deny，再在停止 CloudCrane 服务后确保 Workspace 持久目录使用单独的 ext4 project-quota 文件系统。首次切换会短暂停止平台进程与 Workspace 容器；Workspace 内容先复制，旧目录保留作恢复副本。部署失败时脚本会尝试启动上一版服务。
+
+- Metadata 地址 `100.100.100.200/32` 由 `/usr/local/sbin/cloudcrane-metadata-deny` 在 Docker `DOCKER-USER` 链前段拒绝，匹配 Docker bridge 接口。`cloudcrane-metadata-deny.service` 在 Docker 启动后应用规则，Docker systemd drop-in 也会在每次 Docker 启动后重放规则；策略不限制其它公网 HTTPS egress。
+- 规则安装和存在性检查由 `scripts/install-cloudcrane-metadata-policy.sh` 执行。用真实 Workspace 容器验证 GET、Token PUT 均被该规则计数并拒绝，同时检查 `https://example.com` 仍可访问：
+
+  ```bash
+  sudo bash ./scripts/verify-cloudcrane-metadata-policy.sh cloudcrane-workspace-<workspace-id>
+  ```
+
+- Workspace 数据根目录为 `/var/lib/cloudcrane/workspaces-quota`，由 `/var/lib/cloudcrane/workspaces-quota.ext4` 挂载，ext4 开启 project ID 和 project quota。宿主机保留 30 GiB 总上限，默认每个 Workspace 1 GiB 硬块配额及 inode 硬上限；Agent 写入、Refresh 暂存和 Workspace 内 build cache 均计入。Runner 在创建和恢复容器前为 Workspace tree 设置 project ID 与目录继承标记，并用 `setquota` 设置硬限制；quota 命令失败会阻止 Workspace 创建或恢复。
+- `.workspace-project-id` 位于 bind mount 外的 Workspace 元目录，避免 Agent 改写配额编号。销毁 Workspace 后先删除数据，再释放项目配额。
+- Reference 上传保存在独立只读挂载下，不计入 Workspace 写配额。Release/template staging 和 Production 存储由 Runner 管理，Agent Bash 不能直接写入；它们不属于本配额，分别依靠制品大小验证与现有保留/垃圾回收策略管理。
+- 检查实际挂载和配额：
+
+  ```bash
+  findmnt -T /var/lib/cloudcrane/workspaces-quota -no FSTYPE,OPTIONS
+  sudo quotaon -P -p /var/lib/cloudcrane/workspaces-quota
+  sudo quota -P <project-id> -f /var/lib/cloudcrane/workspaces-quota
+  sudo bash ./scripts/verify-workspace-disk-quota.sh
+  ```
+
+不要用 `du`、API 写入检查或容器 overlay 大小冒充硬配额。Metadata token-required/hardened 模式是 ECS 控制面设置的第二层；即使无法确认其状态，也不能省略宿主机网络 deny。
+
+如果 Workspace 配额挂载不可用，不要启动 Runner 接受 Workspace 工作负载。先确认旧目录和新挂载数据，再恢复 `.env.server.local` 中的 `WORKSPACE_ROOT` 到备份路径，重启服务并检查 Workspace runtime；确认恢复后再处理 quota image，禁止直接删除 `.ext4` 文件。
+
 ## 发布与检查
 
 ### 线上发布原则

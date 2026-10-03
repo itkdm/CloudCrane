@@ -18,6 +18,7 @@ export type RunnerConfig = {
   cpuLimit: number;
   memoryLimitBytes: number;
   pidsLimit: number;
+  workspaceDiskLimitBytes?: number;
   gatewayUrl?: string;
   runnerAuthToken?: string;
 };
@@ -38,6 +39,14 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
   )
     throw new Error('PRODUCTION_HOST_SUFFIX must be a DNS hostname suffix');
   const managedPbootBaseRoot = env.WORKSPACE_MANAGED_PBOOT_BASE_ROOT;
+  const workspaceDiskLimitBytes = z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(30 * 1024 * 1024 * 1024)
+    .parse(env.WORKSPACE_DISK_LIMIT_BYTES ?? (env.NODE_ENV === 'production' ? '1073741824' : '0'));
+  if (env.NODE_ENV === 'production' && workspaceDiskLimitBytes < 64 * 1024 * 1024)
+    throw new Error('WORKSPACE_DISK_LIMIT_BYTES must be at least 64 MiB in production');
   return {
     runnerId,
     workspaceRoot: env.WORKSPACE_ROOT ?? '/var/lib/cloudcrane/workspaces',
@@ -68,6 +77,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     cpuLimit: Number(env.WORKSPACE_CPU_LIMIT ?? 1_000_000_000),
     memoryLimitBytes: Number(env.WORKSPACE_MEMORY_LIMIT_BYTES ?? 536_870_912),
     pidsLimit: Number(env.WORKSPACE_PIDS_LIMIT ?? 256),
+    workspaceDiskLimitBytes,
     gatewayUrl: env.WORKSPACE_GATEWAY_RUNNER_URL,
     runnerAuthToken: env.RUNNER_AUTH_TOKEN,
   };

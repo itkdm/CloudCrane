@@ -1,0 +1,13 @@
+[Unit]
+Description=Block CloudCrane Docker containers from ECS instance metadata
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cloudcrane-metadata-deny
+
+[Install]
+WantedBy=multi-user.target

@@ -2,7 +2,7 @@ import { Type, type Static } from 'typebox';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { CmsClient } from '@cloudcrane/workspace-client';
 
-const categoryCode = Type.String({ pattern: '^\\d{1,12}$' });
+const categoryCode = Type.String({ pattern: '^[a-zA-Z0-9_-]{1,20}$' });
 const contentId = Type.String({ pattern: '^\\d{1,12}$' });
 const version = Type.String({ pattern: '^[a-f0-9]{64}$' });
 const listCategoriesParameters = Type.Object({

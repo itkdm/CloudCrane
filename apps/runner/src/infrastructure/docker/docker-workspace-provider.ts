@@ -6,6 +6,7 @@ import Docker from 'dockerode';
 import { z } from 'zod';
 import { buildSnapshotArchive } from '@cloudcrane/pboot-snapshot';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
+import { WorkspaceQuotaManager } from './workspace-quota-manager.js';
 import type { RunnerConfig } from '../../config.js';
 import { ProductionOperationError } from '../../ports/production-operation-error.js';
 import type {
@@ -20,17 +21,25 @@ import type {
 export class DockerWorkspaceProvider implements WorkspaceProvider {
   private readonly reconciliationLocks = new Map<string, Promise<Docker.Container>>();
   private readonly reconcilingWorkspaces = new Set<string>();
+  private readonly quotaManager?: WorkspaceQuotaManager;
 
   constructor(
     private readonly config: RunnerConfig,
     private readonly docker = new Docker(),
-  ) {}
+  ) {
+    const workspaceDiskLimitBytes = config.workspaceDiskLimitBytes ?? 0;
+    this.quotaManager =
+      workspaceDiskLimitBytes > 0
+        ? new WorkspaceQuotaManager(config.workspaceRoot, workspaceDiskLimitBytes)
+        : undefined;
+  }
 
   async create(workspaceId: string): Promise<WorkspaceRuntime> {
     this.assertWorkspaceId(workspaceId);
     const persistentPath = this.persistentPath(workspaceId);
     await mkdir(persistentPath, { recursive: true });
     await mkdir(`${persistentPath}/.cloudcrane`, { recursive: true });
+    await this.quotaManager?.ensure(workspaceId, persistentPath);
     await this.provisionWorkspaceOwnership(persistentPath, workspaceId);
     const referencePath = await this.referencePath(workspaceId);
     const network = await this.docker.createNetwork({
@@ -124,6 +133,13 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   async destroyRuntime(workspaceId: string): Promise<void> {
+    const persistentPath = this.persistentPath(workspaceId);
+    const projectIdMarker = path.join(path.dirname(persistentPath), '.workspace-project-id');
+    const projectIdRaw = await readFile(projectIdMarker, 'utf8').catch(() => undefined);
+    const projectId =
+      projectIdRaw && /^[1-9]\d{0,9}$/.test(projectIdRaw.trim())
+        ? Number(projectIdRaw.trim())
+        : undefined;
     let container: Docker.Container | undefined;
     try {
       container = await this.container(workspaceId);
@@ -144,6 +160,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       if (!this.isNotFound(error)) throw error;
     } finally {
       await this.removeWorkspaceFiles(workspaceId);
+      if (projectId !== undefined) await this.quotaManager?.release(projectId);
       await this.docker
         .getNetwork(`cloudcrane-workspace-${workspaceId}`)
         .remove()
@@ -628,6 +645,9 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
   }
 
   private async reconcileRuntime(workspaceId: string): Promise<Docker.Container> {
+    const persistentPath = this.persistentPath(workspaceId);
+    await mkdir(persistentPath, { recursive: true });
+    await this.quotaManager?.ensure(workspaceId, persistentPath);
     const container = await this.container(workspaceId);
     const info = await container.inspect();
     const referencePath = await this.referencePath(workspaceId);

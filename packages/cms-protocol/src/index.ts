@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const codeSchema = z.string().regex(/^\d{1,12}$/);
+const contentIdSchema = z.string().regex(/^\d{1,12}$/);
+const pbootCodeSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,20}$/);
 const versionSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const fields = {
   title: z.string().max(100).optional(),
@@ -21,18 +22,18 @@ const extensionFieldName = /^ext_[\w-]+$/;
 export const cmsActionSchemas = {
   'cms.categories.list': z.object({
     limit: z.number().int().min(1).max(100).default(50),
-    cursor: codeSchema.optional(),
+    cursor: pbootCodeSchema.optional(),
   }),
   'cms.content.list': z.object({
-    categoryCode: codeSchema.optional(),
+    categoryCode: pbootCodeSchema.optional(),
     query: z.string().max(200).optional(),
     status: z.enum(['0', '1']).optional(),
     limit: z.number().int().min(1).max(100).default(20),
-    cursor: codeSchema.optional(),
+    cursor: contentIdSchema.optional(),
   }),
-  'cms.content.get': z.object({ contentId: codeSchema }),
+  'cms.content.get': z.object({ contentId: contentIdSchema }),
   'cms.content.update': z.object({
-    contentId: codeSchema,
+    contentId: contentIdSchema,
     expectedVersion: versionSchema,
     patch: z
       .object({
@@ -105,18 +106,18 @@ export type CmsPayload<K extends CmsOperationName> = Extract<
 >['payload'];
 
 export const cmsCategorySchema = z.object({
-  scode: codeSchema,
+  scode: pbootCodeSchema,
   name: z.string(),
-  parentCode: codeSchema,
-  modelCode: codeSchema,
+  parentCode: pbootCodeSchema,
+  modelCode: pbootCodeSchema,
   modelType: z.enum(['list', 'single']),
   status: z.enum(['0', '1']),
   filename: z.string(),
 });
 
 export const cmsContentSummarySchema = z.object({
-  id: codeSchema,
-  categoryCode: codeSchema,
+  id: contentIdSchema,
+  categoryCode: pbootCodeSchema,
   categoryName: z.string(),
   title: z.string(),
   status: z.enum(['0', '1']),
@@ -125,8 +126,8 @@ export const cmsContentSummarySchema = z.object({
 });
 
 export const cmsContentSchema = z.object({
-  id: codeSchema,
-  category: z.object({ code: codeSchema, name: z.string() }),
+  id: contentIdSchema,
+  category: z.object({ code: pbootCodeSchema, name: z.string() }),
   title: z.string(),
   subtitle: z.string(),
   content: z.string(),
@@ -162,11 +163,11 @@ export const cmsCompanySchema = z.object({
 export const cmsOperationResultSchemas = {
   'cms.categories.list': z.object({
     items: z.array(cmsCategorySchema),
-    nextCursor: codeSchema.nullable(),
+    nextCursor: pbootCodeSchema.nullable(),
   }),
   'cms.content.list': z.object({
     items: z.array(cmsContentSummarySchema),
-    nextCursor: codeSchema.nullable(),
+    nextCursor: contentIdSchema.nullable(),
   }),
   'cms.content.get': cmsContentSchema,
   'cms.content.update': z.object({

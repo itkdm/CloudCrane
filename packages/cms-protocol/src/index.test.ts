@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cmsOperationSchema } from './index.js';
+import { cmsCategorySchema, cmsOperationSchema } from './index.js';
 
 const version = 'a'.repeat(64);
 
@@ -19,6 +19,41 @@ describe('CMS semantic protocol', () => {
         },
       }).operation,
     ).toBe('cms.content.update');
+  });
+
+  it('accepts bounded alphanumeric Pboot codes while keeping row IDs numeric', () => {
+    expect(
+      cmsOperationSchema.parse({
+        operation: 'cms.content.list',
+        payload: { categoryCode: 'news_01', cursor: '123' },
+      }).operation,
+    ).toBe('cms.content.list');
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.content.get',
+        payload: { contentId: 'news01' },
+      }).success,
+    ).toBe(false);
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.content.list',
+        payload: { categoryCode: 'invalid.code' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates Pboot logical-code values in operation results', () => {
+    expect(
+      cmsCategorySchema.safeParse({
+        scode: 'news01',
+        name: 'News',
+        parentCode: '0',
+        modelCode: 'M01',
+        modelType: 'list',
+        status: '1',
+        filename: 'news',
+      }).success,
+    ).toBe(true);
   });
 
   it.each([

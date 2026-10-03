@@ -122,6 +122,11 @@ function applyContentPatch(PDO $pdo, string $id, array $patch): array {
             $check = $pdo->prepare('SELECT id FROM ay_content WHERE filename=:filename AND acode=:acode AND id<>:id LIMIT 1');
             $check->execute([':filename' => $value, ':acode' => defaultAcode($pdo), ':id' => $id]);
             if ($check->fetch()) failCms('CMS_INVALID_VALUE', 'PbootCMS filename is already in use');
+            if ($value !== '' && ctype_digit($value)) {
+                $idConflict = $pdo->prepare('SELECT id FROM ay_content WHERE id=:filename AND id<>:id LIMIT 1');
+                $idConflict->execute([':filename' => $value, ':id' => $id]);
+                if ($idConflict->fetch()) failCms('CMS_INVALID_VALUE', 'PbootCMS filename conflicts with another content ID');
+            }
         }
         if ($field === 'title' && trim((string)$value) === '') failCms('CMS_INVALID_VALUE', 'PbootCMS content title cannot be empty');
         if ($field === 'content') $value = stripslashes(normalize_richtext_for_storage((string)$value));

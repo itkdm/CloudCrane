@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly user_chain="CLOUDCRANE-METADATA-DENY"
+readonly metadata_ip="100.100.100.200/32"
+
+command -v iptables >/dev/null 2>&1 || {
+  echo "iptables is required for CloudCrane metadata isolation" >&2
+  exit 1
+}
+iptables -w -nL DOCKER-USER >/dev/null 2>&1 || {
+  echo "Docker DOCKER-USER chain is unavailable; refusing to start without metadata isolation" >&2
+  exit 1
+}
+
+if ! iptables -w -nL "${user_chain}" >/dev/null 2>&1; then
+  iptables -w -N "${user_chain}"
+fi
+iptables -w -C "${user_chain}" -d "${metadata_ip}" -j REJECT 2>/dev/null || \
+  iptables -w -A "${user_chain}" -d "${metadata_ip}" -j REJECT
+iptables -w -C "${user_chain}" -j RETURN 2>/dev/null || \
+  iptables -w -A "${user_chain}" -j RETURN
+iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}" 2>/dev/null || \
+  iptables -w -I DOCKER-USER 1 -i 'br+' -j "${user_chain}"
+
+iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}"
+iptables -w -C "${user_chain}" -d "${metadata_ip}" -j REJECT
