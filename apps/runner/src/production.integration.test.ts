@@ -337,6 +337,18 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect(initialized.exitCode).toBe(0);
       expect(initialized.stdout).toContain('INITIALIZED');
+      await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'preview.example'), ('sn_user', 'preview-user'), ('licensecode', 'preview-license');",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000097',
+      });
 
       await daemon.write({
         path: '/workspace/cloudcrane-release-check.php',
@@ -581,7 +593,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         Cmd: [
           'php',
           '-r',
-          `$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12);`,
+          `$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); $d->exec("INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'production.example'), ('sn_user', 'production-user'), ('licensecode', 'production-license')");`,
         ],
         User: '1000:1000',
         AttachStdout: true,
@@ -665,6 +677,23 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         executionId: '00000000-0000-4000-8000-000000000096',
       });
       expect(afterRefresh.stdout.trim()).toBe(externalTitle);
+      const previewAuthorizationAfterRefresh = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "SELECT name || '=' || value FROM ay_config WHERE name IN ('sn', 'sn_user', 'licensecode') ORDER BY name;",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000098',
+      });
+      expect(previewAuthorizationAfterRefresh.stdout.trim().split('\n')).toEqual([
+        'licensecode=preview-license',
+        'sn=preview.example',
+        'sn_user=preview-user',
+      ]);
       expect(
         await readFile(path.join(workspaceRoot, 'cloudcrane-release-check.php'), 'utf8'),
       ).toContain('release-one');
