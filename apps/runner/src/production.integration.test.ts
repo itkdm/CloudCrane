@@ -146,7 +146,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           snapshotDirectory: invalidSnapshot,
         }),
       ).rejects.toThrow('Production snapshot database integrity check failed');
-      const afterRejectedImport = await daemon.exec({
+      const afterRejectedImport = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
         cwd: '/workspace',
@@ -158,11 +158,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(afterRejectedImport.stdout.trim()).toBe('production-content');
 
       const mismatchSource = '/workspace/.cloudcrane/schema-mismatch/pbootcms.db';
-      await daemon.mkdir({
+      await refreshedDaemon.mkdir({
         path: '/workspace/.cloudcrane/schema-mismatch/upload',
         recursive: true,
       });
-      await daemon.exec({
+      await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [mismatchSource, 'CREATE TABLE incompatible (value TEXT);'],
         cwd: '/workspace',
@@ -184,7 +184,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           snapshotDirectory: mismatchSnapshot,
         }),
       ).rejects.toThrow('Production and Workspace use different database schemas');
-      const afterMismatch = await daemon.exec({
+      const afterMismatch = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
         cwd: '/workspace',
