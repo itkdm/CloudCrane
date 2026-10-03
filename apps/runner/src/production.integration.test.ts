@@ -74,7 +74,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         command: 'sqlite3',
         args: [
           '/workspace/data/pbootcms.db',
-          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('preview-content');",
+          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('preview-content'); CREATE TABLE ay_config (name TEXT PRIMARY KEY, value TEXT); INSERT INTO ay_config VALUES('sn','preview-domain.example'); INSERT INTO ay_config VALUES('sn_user','preview-user'); INSERT INTO ay_config VALUES('licensecode','preview-license');",
         ],
         cwd: '/workspace',
         env: {},
@@ -86,7 +86,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         command: 'sqlite3',
         args: [
           '/workspace/.cloudcrane/production-source/pbootcms.db',
-          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('production-content');",
+          "CREATE TABLE content (value TEXT); INSERT INTO content VALUES('production-content'); CREATE TABLE ay_config (name TEXT PRIMARY KEY, value TEXT); INSERT INTO ay_config VALUES('sn','production-domain.example'); INSERT INTO ay_config VALUES('sn_user','production-user'); INSERT INTO ay_config VALUES('licensecode','production-license');",
         ],
         cwd: '/workspace',
         env: {},
@@ -122,6 +122,23 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         executionId: '00000000-0000-4000-8000-000000000087',
       });
       expect(refreshed.stdout.trim()).toBe('production-content');
+      const previewAuthorization = await refreshedDaemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "SELECT name || '=' || value FROM ay_config WHERE name IN ('sn','sn_user','licensecode') ORDER BY name;",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000093',
+      });
+      expect(previewAuthorization.stdout.trim().split('\n')).toEqual([
+        'licensecode=preview-license',
+        'sn=preview-domain.example',
+        'sn_user=preview-user',
+      ]);
       expect(
         await readFile(path.join(workspaceRoot, 'static', 'upload', 'production.txt'), 'utf8'),
       ).toBe('production-upload');

@@ -9,7 +9,7 @@ Production SQLite + uploads → Workspace SQLite + uploads
 ```
 
 - Production 是内容源。刷新流程不会对 Production 数据库或上传目录执行写入。
-- Workspace 的 `data/pbootcms.db` 与 `static/upload` 会被正式站内容替换。Workspace 代码、模板和其他文件保留。
+- Workspace 的 `data/pbootcms.db` 与 `static/upload` 会被正式站内容替换。合并数据库时保留 Workspace 的 PbootCMS 授权字段 `ay_config.sn`、`sn_user`、`licensecode`，并清理授权缓存；Production 授权不会覆盖 Preview 域名授权。Workspace 代码、模板和其他文件保留。
 - 替换前比较 Production 快照与当前 Workspace 数据库的 SQLite schema 指纹。结构不同则在修改 Workspace 前拒绝刷新；先同步代码或完成兼容迁移，再重试。
 - 操作要求 Production 处于 active 且已授权；开始时拒绝已有 PENDING/RUNNING Agent run 和正在发布的 Website。
 - 刷新期间阻止新的 Agent run 与发布操作进入。Production 网站继续对外服务。
