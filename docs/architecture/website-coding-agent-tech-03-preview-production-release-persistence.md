@@ -897,14 +897,14 @@ Real-time Dev/Prod DB Sync
 - Create 的请求幂等键必填，并与规范化业务请求哈希绑定。Runner 内存缓存拒绝同 key 不同请求；受信 Pboot adapter 在同一个 SQLite `BEGIN IMMEDIATE` 事务里提交内容行、扩展字段和幂等结果指针，因此 Runner/容器重启或响应丢失后仍能安全重试。
 - SQLite 只保存幂等 key 的 SHA-256、请求哈希、创建出的内容 ID 和时间，不保存原 key 或文章正文。相同 key/相同请求返回既有内容；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；内容后来被删除时返回 `CMS_CREATE_RESULT_UNAVAILABLE`，避免误建第二条。
 - `cloudcrane_cms_content_create_ops` 是 Production 专用操作账本，不属于 PbootCMS 内容 Schema。Refresh 只在待导入的快照副本中删除该表，再执行 Schema 比对；Production 原库不变，幂等记录也不会进入 Workspace。
-- PbootCMS 3.2.24 与 3.2.26 均已由 GitHub Docker integration 覆盖；CI #504 验证了 3.2.24 的完整 Publish、CMS 读写、Refresh 和第二次 Publish，CI #513 及 Deploy #112 也在当前 `0a45493` 基线上通过。版本差异不要求重建网站。目标线上站的 CMS 工具 E2E 仍未通过：2026-10-04 排查确认其现存 Production 容器仍使用旧镜像，缺少 `cloudcrane-pboot-cms`；详见下方更新。CI/CD 更新 ECS 上的镜像 tag 不会自动替换已运行的网站容器。
+- PbootCMS 3.2.24 与 3.2.26 均已由 GitHub Docker integration 覆盖；CI #504 验证了 3.2.24 的完整 Publish、CMS 读写、Refresh 和第二次 Publish，CI #513 及 Deploy #112 也在 `0a45493` 基线上通过。版本差异不要求重建网站。Production 容器镜像更新现在由单站 `production.ensure` 显式触发：它比较 immutable image ID，健康检查通过前保留旧容器，复用 loopback port 与持久挂载，并检查 CMS helper；Runner 启动时只恢复被中断的替换，不批量升级网站。目标线上站仍需在本次实现部署后执行一次显式 Publish/ensure，才能验证实际替换和 CMS E2E。
 
 ## Implementation Status (2026-10-04): CMS Content Create 与线上 E2E
 
 - 当前基线 `0a45493` 的 CI #513 质量与 Docker 集成通过；Deploy production #112 成功。CI 覆盖 PbootCMS 3.2.24/3.2.26 的容器集成，但这不等价于目标线上站的 Agent E2E。
 - 对线上 `CloudCrane Production E2E`（Website `0d173aae-2ae4-422d-87de-930d63d3c775`）通过 UI 发起的只读 CMS 类别/内容查询均返回 `CMS_OPERATION_FAILED`。Runner 和 Production Gateway 健康检查正常；Runner 结构化日志确认 CMS operation 失败。没有执行 CMS Create，也没有修改线上 CMS 内容。
 - 只读检查确认目标容器仍运行 Production 镜像旧 image ID `f4004062…`，而服务器当前 `cloudcrane-production-pboot:v1` 指向 `8afbf096…`。旧容器内找不到 `cloudcrane-pboot-cms`；当前镜像包含 `/usr/local/bin/cloudcrane-pboot-cms`。因此本次线上失败由已知镜像漂移导致，不是 PbootCMS 3.2.24 不兼容，也不需要重建 Website 或数据库。
-- 仍未实现已运行 Production 容器的安全镜像替换/回滚。完成该站验收需要在保留 `shared/data`、`shared/upload`、`shared/config`、`shared/runtime` 和当前 Release 的前提下替换该站运行容器，执行健康检查并保留旧容器作为失败回滚；替换会造成短暂访问中断。执行前需取得本轮明确授权。替换成功后再验证只读 CMS 查询、创建隐藏草稿、结果持久化及 Refresh 保留账本的端到端流程。
+- 已实现已运行 Production 容器的单站镜像替换与中断恢复：只在显式 `production.ensure`（Website Publish 流程）时执行；保留 `shared/data`、`shared/upload`、`shared/config`、`shared/runtime`、固定 loopback port 和当前 Release；替换后同时检查 CMS helper 与 Production health probe；不通过时恢复旧容器。Runner 启动 reconciliation 会先收敛未完成替换，但不会主动升级其它站点。CI 与 CD 验证通过后，仍需对目标测试站执行一次显式 Publish/ensure；该动作会短暂中断访问，执行前仍需取得本轮明确授权。成功后继续验证只读 CMS 查询、创建隐藏草稿、结果持久化及 Refresh 保留账本的端到端流程。
 
 # 31. 当前最终架构
 

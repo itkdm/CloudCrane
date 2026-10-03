@@ -180,7 +180,7 @@ CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 
 
 只读服务器检查确认目标容器仍基于旧镜像 ID `f4004062…`，而服务器当前镜像 tag 已指向 `8afbf096…`；旧容器内缺少 `cloudcrane-pboot-cms`，当前镜像包含该 helper。根因是 CI/CD 更新服务器镜像 tag 不会自动替换既有 Website Production 容器。该问题与 PbootCMS 3.2.24 版本无关；不需要重建 Website、升级 PbootCMS 或替换数据库。
 
-线上 E2E 的下一步是只替换该测试站的 Production 运行容器，完整保留 `shared/data`、`shared/upload`、`shared/config`、`shared/runtime`、授权状态和当前 Release；新容器通过健康检查后再查询 CMS，失败则恢复旧容器。替换会造成短暂访问中断，尚待项目负责人授权。镜像漂移的通用安全升级/回滚机制仍未实现。
+代码已补充按单站显式 `production.ensure` 执行的镜像漂移替换：只发生在该 Website 的 Publish 流程，不会因平台 CD 或 Runner 启动批量替换现有站点；替换复用原 loopback port 与持久挂载，检查 CMS helper 和健康探针，失败时恢复旧容器，Runner 启动时也能恢复被中断的替换。该实现还需等待 CI/CD 验证。目标站仍需一次显式 Publish/ensure 才会从旧镜像切换到新镜像；期间可能短暂中断访问。执行该线上动作仍需项目负责人授权，成功后继续完成 CMS 只读、隐藏草稿创建、刷新保留和 Release 流程 E2E。
 
 ### 2026-10-04 Workspace Host 隔离状态复核
 

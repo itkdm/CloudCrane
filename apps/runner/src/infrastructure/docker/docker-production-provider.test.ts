@@ -240,6 +240,437 @@ describe('DockerProductionProvider', () => {
     }
   });
 
+  it('upgrades a drifted Production image only during per-Website ensure and keeps persistent mounts', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-image-upgrade-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const productionSlug = 'production-website';
+    const runtimeRoot = path.join(base, 'production', websiteId);
+    const port = 43127;
+    const imageTag = 'cloudcrane-production-pboot:test';
+    const previousImageId = 'sha256:previous-image';
+    const currentImageId = 'sha256:current-image';
+    await mkdir(path.join(runtimeRoot, 'releases', releaseId), { recursive: true });
+    await mkdir(path.join(runtimeRoot, 'shared'), { recursive: true });
+    await symlink(path.join('releases', releaseId), path.join(runtimeRoot, 'current'), 'dir');
+    await writeFile(path.join(runtimeRoot, 'shared', '.verified-release'), `${releaseId}\n`);
+    await writeFile(path.join(runtimeRoot, '.production-port'), `${port}\n`);
+
+    const containers = new Map<string, { inspect: () => Promise<unknown> }>();
+    let previousName = `cloudcrane-production-${websiteId}`;
+    let previousRunning = true;
+    const inspectInfo = (name: string, imageId: string, running: boolean, boundPort = port) => ({
+      Id: `${name}-id`,
+      Name: `/${name}`,
+      Image: imageId,
+      State: { Running: running },
+      Config: {
+        Labels: {
+          'cloudcrane.service': 'production',
+          'cloudcrane.website_id': websiteId,
+          'cloudcrane.production_slug': productionSlug,
+        },
+        Image: imageTag,
+        User: '1000:1000',
+        WorkingDir: '/site',
+      },
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+        Binds: [
+          `${runtimeRoot}:/site:ro`,
+          `${path.join(runtimeRoot, 'shared', 'data')}:/site/shared/data:rw`,
+          `${path.join(runtimeRoot, 'shared', 'upload')}:/site/shared/upload:rw`,
+          `${path.join(runtimeRoot, 'shared', 'config')}:/site/shared/config:rw`,
+          `${path.join(runtimeRoot, 'shared', 'runtime')}:/site/shared/runtime:rw`,
+        ],
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidsLimit: 64,
+      },
+      NetworkSettings: {
+        Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(boundPort) }] },
+      },
+    });
+
+    const previousContainer = {
+      inspect: vi.fn(async () => inspectInfo(previousName, previousImageId, previousRunning)),
+      stop: vi.fn(async () => {
+        previousRunning = false;
+      }),
+      start: vi.fn(async () => {
+        previousRunning = true;
+      }),
+      rename: vi.fn(async ({ name }: { name: string }) => {
+        containers.delete(previousName);
+        previousName = name;
+        containers.set(name, previousContainer);
+      }),
+      remove: vi.fn(async () => {
+        containers.delete(previousName);
+      }),
+    };
+    containers.set(previousName, previousContainer);
+    const createContainer = vi.fn(async (options: Docker.ContainerCreateOptions) => {
+      let running = false;
+      const name = options.name ?? 'cloudcrane-production-candidate';
+      const candidate = {
+        id: `${name}-id`,
+        inspect: vi.fn(async () => inspectInfo(name, currentImageId, running)),
+        exec: vi.fn(async () => ({
+          start: vi.fn(async () => Readable.from([])),
+          inspect: vi.fn(async () => ({ ExitCode: 0 })),
+        })),
+        start: vi.fn(async () => {
+          running = true;
+        }),
+        stop: vi.fn(async () => {
+          running = false;
+        }),
+        remove: vi.fn(async () => {
+          containers.delete(name);
+        }),
+      };
+      containers.set(name, candidate);
+      return candidate as unknown as Docker.Container;
+    });
+    const docker = {
+      getContainer: vi.fn(
+        (name: string) =>
+          containers.get(name) ?? {
+            inspect: vi.fn().mockRejectedValue({ statusCode: 404 }),
+          },
+      ),
+      getImage: vi.fn(() => ({ inspect: vi.fn(async () => ({ Id: currentImageId })) })),
+      createContainer,
+    } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: imageTag,
+      workspaceImage: 'website-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    try {
+      const runtime = await new DockerProductionProvider(
+        config,
+        docker,
+        vi.fn(async () => new Response(null, { status: 204 })),
+      ).ensureRuntime(websiteId, productionSlug);
+
+      expect(runtime).toMatchObject({
+        status: 'authorization_required',
+        currentReleaseId: releaseId,
+        productionPort: port,
+      });
+      expect(runtime.containerRef).toBe(`cloudcrane-production-${websiteId}-id`);
+      expect(previousContainer.stop).toHaveBeenCalledOnce();
+      expect(previousContainer.rename).toHaveBeenCalledWith({
+        name: `cloudcrane-production-previous-${websiteId}`,
+      });
+      expect(previousContainer.remove).toHaveBeenCalledOnce();
+      expect(createContainer).toHaveBeenCalledOnce();
+      const options = createContainer.mock.calls[0]?.[0];
+      expect(options?.HostConfig).toMatchObject({
+        Binds: [
+          `${runtimeRoot}:/site:ro`,
+          `${path.join(runtimeRoot, 'shared', 'data')}:/site/shared/data:rw`,
+          `${path.join(runtimeRoot, 'shared', 'upload')}:/site/shared/upload:rw`,
+          `${path.join(runtimeRoot, 'shared', 'config')}:/site/shared/config:rw`,
+          `${path.join(runtimeRoot, 'shared', 'runtime')}:/site/shared/runtime:rw`,
+        ],
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+        ReadonlyRootfs: true,
+        CapDrop: ['ALL'],
+      });
+      expect(await readFile(path.join(runtimeRoot, '.production-port'), 'utf8')).toBe(`${port}\n`);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('restores the previous Production container when an updated image fails validation', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-image-rollback-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const productionSlug = 'production-website';
+    const runtimeRoot = path.join(base, 'production', websiteId);
+    const port = 43127;
+    const imageTag = 'cloudcrane-production-pboot:test';
+    const previousImageId = 'sha256:previous-image';
+    const currentImageId = 'sha256:current-image';
+    await mkdir(path.join(runtimeRoot, 'releases', releaseId), { recursive: true });
+    await mkdir(path.join(runtimeRoot, 'shared'), { recursive: true });
+    await symlink(path.join('releases', releaseId), path.join(runtimeRoot, 'current'), 'dir');
+    await writeFile(path.join(runtimeRoot, 'shared', '.verified-release'), `${releaseId}\n`);
+    await writeFile(path.join(runtimeRoot, '.production-port'), `${port}\n`);
+
+    const containers = new Map<string, { inspect: () => Promise<unknown> }>();
+    let previousName = `cloudcrane-production-${websiteId}`;
+    let previousRunning = true;
+    const inspectInfo = (name: string, imageId: string, running: boolean, boundPort = port) => ({
+      Id: `${name}-id`,
+      Name: `/${name}`,
+      Image: imageId,
+      State: { Running: running },
+      Config: {
+        Labels: {
+          'cloudcrane.service': 'production',
+          'cloudcrane.website_id': websiteId,
+          'cloudcrane.production_slug': productionSlug,
+        },
+        Image: imageTag,
+        User: '1000:1000',
+        WorkingDir: '/site',
+      },
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+        Binds: [`${runtimeRoot}:/site:ro`],
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidsLimit: 64,
+      },
+      NetworkSettings: {
+        Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(boundPort) }] },
+      },
+    });
+    const previousContainer = {
+      inspect: vi.fn(async () => inspectInfo(previousName, previousImageId, previousRunning)),
+      stop: vi.fn(async () => {
+        previousRunning = false;
+      }),
+      start: vi.fn(async () => {
+        previousRunning = true;
+      }),
+      rename: vi.fn(async ({ name }: { name: string }) => {
+        containers.delete(previousName);
+        previousName = name;
+        containers.set(name, previousContainer);
+      }),
+      remove: vi.fn(async () => {
+        containers.delete(previousName);
+      }),
+    };
+    containers.set(previousName, previousContainer);
+    const candidate = {
+      inspect: vi.fn(async () =>
+        inspectInfo(`cloudcrane-production-${websiteId}`, currentImageId, true, port + 1),
+      ),
+      exec: vi.fn(async () => ({
+        start: vi.fn(async () => Readable.from([])),
+        inspect: vi.fn(async () => ({ ExitCode: 0 })),
+      })),
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+      remove: vi.fn(async () => {
+        containers.delete(`cloudcrane-production-${websiteId}`);
+      }),
+    };
+    const docker = {
+      getContainer: vi.fn(
+        (name: string) =>
+          containers.get(name) ?? {
+            inspect: vi.fn().mockRejectedValue({ statusCode: 404 }),
+          },
+      ),
+      getImage: vi.fn(() => ({ inspect: vi.fn(async () => ({ Id: currentImageId })) })),
+      createContainer: vi.fn(async () => {
+        containers.set(`cloudcrane-production-${websiteId}`, candidate);
+        return candidate as unknown as Docker.Container;
+      }),
+    } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: imageTag,
+      workspaceImage: 'website-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    const provider = new DockerProductionProvider(
+      config,
+      docker,
+      vi.fn(async () => new Response(null, { status: 204 })),
+    );
+    try {
+      await expect(provider.ensureRuntime(websiteId, productionSlug)).rejects.toMatchObject({
+        code: 'PRODUCTION_HEALTHCHECK_FAILED',
+      });
+      expect(previousContainer.rename).toHaveBeenNthCalledWith(1, {
+        name: `cloudcrane-production-previous-${websiteId}`,
+      });
+      expect(previousContainer.rename).toHaveBeenNthCalledWith(2, {
+        name: `cloudcrane-production-${websiteId}`,
+      });
+      expect(previousContainer.start).toHaveBeenCalledOnce();
+      expect(previousContainer.remove).not.toHaveBeenCalled();
+      expect(candidate.stop).toHaveBeenCalledOnce();
+      expect(candidate.remove).toHaveBeenCalledOnce();
+      expect(previousRunning).toBe(true);
+      expect(await readFile(path.join(runtimeRoot, '.production-port'), 'utf8')).toBe(`${port}\n`);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  it('restores a renamed previous container after Runner interruption without upgrading on startup', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-image-recovery-'));
+    const websiteId = '00000000-0000-4000-8000-000000000001';
+    const productionSlug = 'production-website';
+    const runtimeRoot = path.join(base, 'production', websiteId);
+    const canonicalName = `cloudcrane-production-${websiteId}`;
+    const previousName = `cloudcrane-production-previous-${websiteId}`;
+    const port = 43127;
+    await mkdir(path.join(runtimeRoot, 'releases', releaseId), { recursive: true });
+    await mkdir(path.join(runtimeRoot, 'shared'), { recursive: true });
+    await symlink(path.join('releases', releaseId), path.join(runtimeRoot, 'current'), 'dir');
+    await writeFile(path.join(runtimeRoot, 'shared', '.verified-release'), `${releaseId}\n`);
+    await writeFile(path.join(runtimeRoot, '.production-port'), `${port}\n`);
+
+    let name = previousName;
+    let running = false;
+    const info = () => ({
+      Id: 'previous-container-id',
+      Name: `/${name}`,
+      Image: 'sha256:previous-image',
+      State: { Running: running },
+      Config: {
+        Labels: {
+          'cloudcrane.service': 'production',
+          'cloudcrane.website_id': websiteId,
+          'cloudcrane.production_slug': productionSlug,
+        },
+        Image: 'cloudcrane-production-pboot:test',
+        User: '1000:1000',
+        WorkingDir: '/site',
+      },
+      HostConfig: {
+        RestartPolicy: { Name: 'unless-stopped' },
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+        Binds: ['/production:/site:ro'],
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidsLimit: 64,
+      },
+      NetworkSettings: {
+        Ports: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+      },
+    });
+    const previousContainer = {
+      inspect: vi.fn(async () => info()),
+      start: vi.fn(async () => {
+        running = true;
+      }),
+      stop: vi.fn(async () => {
+        running = false;
+      }),
+      rename: vi.fn(async ({ name: nextName }: { name: string }) => {
+        containers.delete(name);
+        name = nextName;
+        containers.set(name, previousContainer);
+      }),
+      remove: vi.fn(async () => {
+        containers.delete(name);
+      }),
+      update: vi.fn(
+        async (options: { RestartPolicy?: { Name?: string } }) => options.RestartPolicy?.Name,
+      ),
+    };
+    const containers = new Map<string, typeof previousContainer>([
+      [previousName, previousContainer],
+    ]);
+    const containerFor = (containerName: string) => ({
+      inspect: vi.fn(async () => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.inspect();
+      }),
+      start: vi.fn(async () => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.start();
+      }),
+      stop: vi.fn(async () => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.stop?.();
+      }),
+      update: vi.fn(async (options: { RestartPolicy?: { Name?: string } }) => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.update(options);
+      }),
+      rename: vi.fn(async (options: { name: string }) => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.rename(options);
+      }),
+      remove: vi.fn(async () => {
+        const container = containers.get(containerName);
+        if (!container) throw { statusCode: 404 };
+        return container.remove();
+      }),
+    });
+    const docker = {
+      listContainers: vi.fn(async () => [
+        {
+          Id: 'previous-container-id',
+          Labels: info().Config.Labels,
+        },
+      ]),
+      getContainer: vi.fn((containerName: string) => containerFor(containerName)),
+      getImage: vi.fn(),
+      createContainer: vi.fn(),
+    } as unknown as Docker;
+    const config = {
+      runnerId: '00000000-0000-4000-8000-000000000010',
+      workspaceRoot: path.join(base, 'workspaces'),
+      productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
+      releaseArtifactRoot: path.join(base, 'releases'),
+      productionKeepReleases: 5,
+      productionImage: 'cloudcrane-production-pboot:test',
+      workspaceImage: 'website-workspace-pboot:test',
+      daemonPort: 7070,
+      cpuLimit: 500_000_000,
+      memoryLimitBytes: 268_435_456,
+      pidsLimit: 64,
+    };
+    try {
+      await expect(
+        new DockerProductionProvider(
+          config,
+          docker,
+          vi.fn(async () => new Response(null, { status: 204 })),
+        ).reconcileRuntimes(),
+      ).resolves.toEqual({ scanned: 1, restored: 0, failed: 0 });
+      expect(name).toBe(canonicalName);
+      expect(previousContainer.start).toHaveBeenCalledOnce();
+      expect(docker.getImage).not.toHaveBeenCalled();
+      expect(docker.createContainer).not.toHaveBeenCalled();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   it('reports a stopped runtime without executing inside the stopped container', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-stopped-'));
     const websiteId = '00000000-0000-4000-8000-000000000001';

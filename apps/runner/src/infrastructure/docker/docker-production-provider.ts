@@ -81,15 +81,19 @@ export class DockerProductionProvider implements ProductionProvider {
       all: true,
       filters: JSON.stringify({ label: ['cloudcrane.service=production'] }),
     });
-    let restored = 0;
-    let failed = 0;
+    const runtimes = new Map<string, string>();
     for (const item of containers) {
       const labels = item.Labels ?? {};
       const websiteId = labels['cloudcrane.website_id'];
       const productionSlug = labels['cloudcrane.production_slug'];
-      if (!websiteId || !productionSlug) continue;
-      const container = this.docker.getContainer(item.Id);
+      if (websiteId && productionSlug) runtimes.set(websiteId, productionSlug);
+    }
+    let restored = 0;
+    let failed = 0;
+    for (const [websiteId, productionSlug] of runtimes) {
+      const container = this.docker.getContainer(this.containerName(websiteId));
       try {
+        await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
         let info = await container.inspect();
         this.assertRuntimeMatches(info, websiteId, productionSlug);
         if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
@@ -114,7 +118,7 @@ export class DockerProductionProvider implements ProductionProvider {
         );
       }
     }
-    return { scanned: containers.length, restored, failed };
+    return { scanned: runtimes.size, restored, failed };
   }
 
   async ensureRuntime(websiteId: string, productionSlug: string): Promise<ProductionRuntime> {
@@ -132,6 +136,7 @@ export class DockerProductionProvider implements ProductionProvider {
     } else {
       await writeFileSecure(slugPath, productionSlug);
     }
+    await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
     const containerName = this.containerName(websiteId);
     const persistedPort = await this.readProductionPort(root);
     const container = this.docker.getContainer(containerName);
@@ -152,51 +157,9 @@ export class DockerProductionProvider implements ProductionProvider {
           Internal: false,
           Labels: { 'cloudcrane.service': 'production', 'cloudcrane.website_id': websiteId },
         });
-        const created = await this.docker.createContainer({
-          Image: this.config.productionImage,
-          name: containerName,
-          User: '1000:1000',
-          WorkingDir: '/site',
-          ExposedPorts: { '8080/tcp': {} },
-          Labels: {
-            'cloudcrane.service': 'production',
-            'cloudcrane.website_id': websiteId,
-            'cloudcrane.production_slug': productionSlug,
-          },
-          HostConfig: {
-            Binds: [
-              `${root}:/site:ro`,
-              `${path.join(root, 'shared', 'data')}:/site/shared/data:rw`,
-              `${path.join(root, 'shared', 'upload')}:/site/shared/upload:rw`,
-              `${path.join(root, 'shared', 'config')}:/site/shared/config:rw`,
-              `${path.join(root, 'shared', 'runtime')}:/site/shared/runtime:rw`,
-            ],
-            NetworkMode: networkName,
-            PortBindings: {
-              '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(portToBind) }],
-            },
-            Privileged: false,
-            ReadonlyRootfs: true,
-            SecurityOpt: ['no-new-privileges:true'],
-            CapDrop: ['ALL'],
-            PidMode: '',
-            IpcMode: 'private',
-            NanoCpus: this.config.cpuLimit,
-            Memory: this.config.memoryLimitBytes,
-            PidsLimit: this.config.pidsLimit,
-            Tmpfs: {
-              '/tmp': 'rw,noexec,nosuid,size=64m',
-              '/run': 'rw,noexec,nosuid,size=8m',
-              '/var/cache/nginx': 'rw,noexec,nosuid,size=16m',
-            },
-            AutoRemove: false,
-            RestartPolicy: { Name: 'unless-stopped' },
-            LogConfig: {
-              Type: 'json-file',
-              Config: { 'max-size': '10m', 'max-file': '5' },
-            },
-          },
-        });
+        const created = await this.docker.createContainer(
+          this.runtimeContainerOptions(websiteId, productionSlug, portToBind),
+        );
         try {
           await created.start();
           info = await created.inspect();
@@ -224,6 +187,12 @@ export class DockerProductionProvider implements ProductionProvider {
       }
       const assignedPort = this.runtimePort(info);
       if (assignedPort) await this.persistProductionPort(root, assignedPort);
+      const currentReleaseId = await this.readVerifiedRelease(root);
+      if (info.Image && currentReleaseId) {
+        const currentImageId = await this.productionImageId();
+        if (info.Image !== currentImageId)
+          info = await this.replaceRuntimeImage(websiteId, productionSlug, info, assignedPort);
+      }
     }
     await this.reconcileActivation(websiteId, productionSlug);
     return this.runtime(
@@ -234,6 +203,277 @@ export class DockerProductionProvider implements ProductionProvider {
       await this.readVerifiedRelease(root),
       await this.isAuthorizationComplete(websiteId),
     );
+  }
+
+  private runtimeContainerOptions(
+    websiteId: string,
+    productionSlug: string,
+    port: number,
+  ): Docker.ContainerCreateOptions {
+    const root = this.root(websiteId);
+    const networkName = this.networkName(websiteId);
+    return {
+      Image: this.config.productionImage,
+      name: this.containerName(websiteId),
+      User: '1000:1000',
+      WorkingDir: '/site',
+      ExposedPorts: { '8080/tcp': {} },
+      Labels: {
+        'cloudcrane.service': 'production',
+        'cloudcrane.website_id': websiteId,
+        'cloudcrane.production_slug': productionSlug,
+      },
+      HostConfig: {
+        Binds: [
+          `${root}:/site:ro`,
+          `${path.join(root, 'shared', 'data')}:/site/shared/data:rw`,
+          `${path.join(root, 'shared', 'upload')}:/site/shared/upload:rw`,
+          `${path.join(root, 'shared', 'config')}:/site/shared/config:rw`,
+          `${path.join(root, 'shared', 'runtime')}:/site/shared/runtime:rw`,
+        ],
+        NetworkMode: networkName,
+        PortBindings: { '8080/tcp': [{ HostIp: '127.0.0.1', HostPort: String(port) }] },
+        Privileged: false,
+        ReadonlyRootfs: true,
+        SecurityOpt: ['no-new-privileges:true'],
+        CapDrop: ['ALL'],
+        PidMode: '',
+        IpcMode: 'private',
+        NanoCpus: this.config.cpuLimit,
+        Memory: this.config.memoryLimitBytes,
+        PidsLimit: this.config.pidsLimit,
+        Tmpfs: {
+          '/tmp': 'rw,noexec,nosuid,size=64m',
+          '/run': 'rw,noexec,nosuid,size=8m',
+          '/var/cache/nginx': 'rw,noexec,nosuid,size=16m',
+        },
+        AutoRemove: false,
+        RestartPolicy: { Name: 'unless-stopped' },
+        LogConfig: { Type: 'json-file', Config: { 'max-size': '10m', 'max-file': '5' } },
+      },
+    };
+  }
+
+  private previousRuntimeName(websiteId: string): string {
+    return `cloudcrane-production-previous-${websiteId}`;
+  }
+
+  private async productionImageId(): Promise<string> {
+    const info = await this.docker.getImage(this.config.productionImage).inspect();
+    if (!info.Id) throw new Error('Production image has no immutable image ID');
+    return info.Id;
+  }
+
+  private async hasCmsRuntimeHelper(container: Docker.Container): Promise<boolean> {
+    try {
+      const command = await container.exec({
+        Cmd: ['test', '-x', '/usr/local/bin/cloudcrane-pboot-cms'],
+        User: '1000:1000',
+        WorkingDir: '/site',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const stream = await command.start({ hijack: true, stdin: false });
+      await new Promise<void>((resolve, reject) => {
+        stream.once('end', resolve);
+        stream.once('close', resolve);
+        stream.once('error', reject);
+        stream.resume();
+      });
+      return (await command.inspect()).ExitCode === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async recoverInterruptedImageUpgrade(
+    websiteId: string,
+    productionSlug: string,
+  ): Promise<void> {
+    const previousName = this.previousRuntimeName(websiteId);
+    const previous = this.docker.getContainer(previousName);
+    let previousInfo: Docker.ContainerInspectInfo;
+    try {
+      previousInfo = await previous.inspect();
+    } catch (error) {
+      if (this.isNotFound(error)) return;
+      throw error;
+    }
+    if (previousInfo.Name !== `/${previousName}`) return;
+    this.assertRuntimeMatches(previousInfo, websiteId, productionSlug);
+    const expectedPort = await this.readProductionPort(this.root(websiteId));
+
+    const current = this.docker.getContainer(this.containerName(websiteId));
+    let currentInfo: Docker.ContainerInspectInfo | undefined;
+    try {
+      currentInfo = await current.inspect();
+    } catch (error) {
+      if (!this.isNotFound(error)) throw error;
+    }
+
+    if (currentInfo) {
+      let currentImageIsHealthy = false;
+      try {
+        this.assertRuntimeMatches(currentInfo, websiteId, productionSlug);
+        currentImageIsHealthy =
+          currentInfo.Image === (await this.productionImageId()) &&
+          this.runtimePort(currentInfo) === expectedPort &&
+          currentInfo.State?.Running === true &&
+          (await this.hasCmsRuntimeHelper(current)) &&
+          (await this.healthCheck(
+            this.runtimePort(currentInfo) ?? null,
+            this.canonicalHost(productionSlug),
+          ));
+      } catch {
+        // A candidate that cannot be verified must never displace the previous runtime.
+      }
+      if (currentImageIsHealthy) {
+        await previous.remove({ force: true });
+        logger.info(
+          { event: 'production.runtime.image-upgrade.recovered', websiteId },
+          'completed cleanup after a verified Production image upgrade',
+        );
+        return;
+      }
+      if (currentInfo.State?.Running) await current.stop().catch(() => undefined);
+      await current.remove({ force: true });
+    }
+
+    await previous.rename({ name: this.containerName(websiteId) });
+    const restored = this.docker.getContainer(this.containerName(websiteId));
+    let restoredInfo = await restored.inspect();
+    if (restoredInfo.State?.Running !== true) {
+      await restored.start();
+      restoredInfo = await restored.inspect();
+    }
+    const releaseId = await this.readVerifiedRelease(this.root(websiteId));
+    if (
+      restoredInfo.Image !== previousInfo.Image ||
+      this.runtimePort(restoredInfo) !== expectedPort ||
+      (releaseId &&
+        !(await this.waitForHealth(this.runtimePort(restoredInfo) ?? null, productionSlug)))
+    )
+      throw new ProductionOperationError(
+        'PRODUCTION_RUNTIME_UNAVAILABLE',
+        'The previous Production runtime could not be verified after image-upgrade recovery',
+      );
+    logger.warn(
+      { event: 'production.runtime.image-upgrade.rolled-back', websiteId },
+      'restored the previous Production container after an interrupted image upgrade',
+    );
+  }
+
+  private async replaceRuntimeImage(
+    websiteId: string,
+    productionSlug: string,
+    previousInfo: Docker.ContainerInspectInfo,
+    port: number | undefined,
+  ): Promise<Docker.ContainerInspectInfo> {
+    if (!port || !previousInfo.Image)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production image upgrade requires an existing immutable image and loopback port',
+      );
+    const root = this.root(websiteId);
+    const releaseId = await this.readVerifiedRelease(root);
+    if (!releaseId)
+      throw new ProductionOperationError(
+        'PRODUCTION_STATE_CONFLICT',
+        'Production image upgrade requires a verified Release for health checking',
+      );
+    if (previousInfo.State?.Running !== true || !(await this.waitForHealth(port, productionSlug)))
+      throw new ProductionOperationError(
+        'PRODUCTION_RUNTIME_UNAVAILABLE',
+        'The existing Production runtime must be healthy before an image upgrade',
+      );
+
+    const current = this.docker.getContainer(this.containerName(websiteId));
+    const previousName = this.previousRuntimeName(websiteId);
+    await current.stop();
+    try {
+      await current.rename({ name: previousName });
+    } catch (error) {
+      await current.start().catch(() => undefined);
+      throw error;
+    }
+
+    let candidate: Docker.Container | undefined;
+    try {
+      candidate = await this.docker.createContainer(
+        this.runtimeContainerOptions(websiteId, productionSlug, port),
+      );
+      await candidate.start();
+      const candidateInfo = await candidate.inspect();
+      this.assertRuntimeMatches(candidateInfo, websiteId, productionSlug);
+      if (
+        !(await this.hasCmsRuntimeHelper(candidate)) ||
+        this.runtimePort(candidateInfo) !== port ||
+        !(await this.waitForHealth(port, productionSlug))
+      )
+        throw new Error('updated Production runtime failed health validation');
+      await this.persistProductionPort(root, port);
+      try {
+        await this.docker.getContainer(previousName).remove({ force: true });
+      } catch (error) {
+        logger.warn(
+          {
+            event: 'production.runtime.image-upgrade.previous-container-cleanup.failed',
+            websiteId,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+          },
+          'the previous Production container remains available for later cleanup',
+        );
+      }
+      logger.info(
+        {
+          event: 'production.runtime.image-upgrade.completed',
+          websiteId,
+          releaseId,
+          imageId: candidateInfo.Image,
+        },
+        'upgraded Production runtime image after a per-Website ensure operation',
+      );
+      return candidateInfo;
+    } catch (error) {
+      if (candidate) {
+        const candidateContainer = this.docker.getContainer(this.containerName(websiteId));
+        const candidateInfo = await candidateContainer.inspect().catch(() => undefined);
+        if (candidateInfo?.State?.Running) await candidateContainer.stop().catch(() => undefined);
+        await candidateContainer.remove({ force: true }).catch(() => undefined);
+      }
+      try {
+        await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
+      } catch (rollbackError) {
+        logger.error(
+          {
+            event: 'production.runtime.image-upgrade.rollback.failed',
+            websiteId,
+            errorType:
+              rollbackError instanceof Error
+                ? rollbackError.constructor.name
+                : typeof rollbackError,
+          },
+          'failed to verify the previous Production runtime after image-upgrade rollback',
+        );
+        throw new ProductionOperationError(
+          'PRODUCTION_RUNTIME_UNAVAILABLE',
+          'Production image update failed and the previous runtime could not be verified',
+        );
+      }
+      logger.warn(
+        {
+          event: 'production.runtime.image-upgrade.failed',
+          websiteId,
+          errorType: error instanceof Error ? error.constructor.name : typeof error,
+        },
+        'Production image update failed; the previous runtime was restored',
+      );
+      throw new ProductionOperationError(
+        'PRODUCTION_HEALTHCHECK_FAILED',
+        'The updated Production image failed health checks; the previous runtime was restored',
+      );
+    }
   }
 
   async deployRelease(input: ProductionDeployInput): Promise<ProductionRuntime> {
