@@ -797,6 +797,19 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         executionId: '00000000-0000-4000-8000-000000000096',
       });
       expect(afterRefresh.stdout.trim()).toBe(externalTitle);
+      const refreshedOperationLedger = await refreshedDaemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cloudcrane_cms_content_create_ops';",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000099',
+      });
+      expect(refreshedOperationLedger.stdout.trim()).toBe('0');
       const previewAuthorizationAfterRefresh = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [

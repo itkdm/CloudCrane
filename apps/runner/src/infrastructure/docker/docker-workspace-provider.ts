@@ -262,6 +262,20 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         ].join('\n'),
         snapshotDirectory,
       );
+      const stripProductionOperationLedger = await daemon.exec({
+        command: 'sqlite3',
+        args: [
+          `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
+          'DROP TABLE IF EXISTS cloudcrane_cms_content_create_ops;',
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 30_000,
+        maxOutputBytes: 4096,
+        executionId: randomUUID(),
+      });
+      if (stripProductionOperationLedger.exitCode !== 0)
+        throw new Error('Production-only operation metadata cleanup failed');
       const integrity = await daemon.exec({
         command: 'sqlite3',
         args: [
