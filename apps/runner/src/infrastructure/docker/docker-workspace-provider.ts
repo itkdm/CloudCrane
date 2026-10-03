@@ -358,7 +358,9 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       ].join('\n');
       await this.runProductionRefreshFilesystemHelper(workspaceId, input.refreshId, swapCommands);
       await this.startWithoutRefreshRecovery(workspaceId);
-      const verificationDaemon = new WorkspaceDaemonClient(endpoint, 60_000);
+      const restartedContainer = await this.container(workspaceId);
+      const verificationEndpoint = await this.getEndpointByContainer(restartedContainer);
+      const verificationDaemon = new WorkspaceDaemonClient(verificationEndpoint, 60_000);
       const verified = await verificationDaemon.exec({
         command: 'sqlite3',
         args: ['/workspace/data/pbootcms.db', 'PRAGMA integrity_check;'],
