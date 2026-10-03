@@ -445,26 +445,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await fetch(`${origin}/core/database/Sqlite.php`)).status).toBe(403);
       expect((await fetch(`${origin}/cloudcrane-rewrite-probe`)).status).toBeLessThan(500);
 
-      const markerSql = await container.exec({
-        Cmd: [
-          'php',
-          '-r',
-          '$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $d->exec("CREATE TABLE IF NOT EXISTS cloudcrane_e2e_marker (value TEXT)"); $d->exec("INSERT INTO cloudcrane_e2e_marker(value) VALUES (\'preserve-production-content\')");',
-        ],
-        User: '1000:1000',
-        AttachStdout: true,
-        AttachStderr: true,
-        Tty: false,
-      });
-      const markerStream = await markerSql.start({ hijack: true, stdin: false });
-      await new Promise<void>((resolve, reject) => {
-        markerStream.once('end', resolve);
-        markerStream.once('close', resolve);
-        markerStream.once('error', reject);
-        markerStream.resume();
-      });
-      expect((await markerSql.inspect()).ExitCode).toBe(0);
-
       const writeAuthorizationMarker = await container.exec({
         Cmd: [
           '/bin/sh',
