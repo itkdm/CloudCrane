@@ -199,6 +199,7 @@ function matchesPatch(array $current, array $patch, bool $content): bool {
 }
 function handleCms(PDO $pdo, string $operation, array $input): mixed {
     if ($operation === 'cms.categories.list') {
+        pbootFunctions();
         requireColumns($pdo, 'ay_content_sort', ['id', 'acode', 'mcode', 'pcode', 'scode', 'name', 'status', 'filename']);
         requireColumns($pdo, 'ay_model', ['mcode', 'type']);
         $limit = min(100, max(1, (int)($input['limit'] ?? 50)));
@@ -212,6 +213,7 @@ function handleCms(PDO $pdo, string $operation, array $input): mixed {
         return ['items'=>$items,'nextCursor'=>$hasMore ? (string)end($rows)['scode'] : null];
     }
     if ($operation === 'cms.content.list') {
+        pbootFunctions();
         requireColumns($pdo, 'ay_content', ['id','acode','scode',...LIST_CONTENT_FIELDS]); requireColumns($pdo, 'ay_content_sort', ['scode','acode','name']);
         $limit = min(100, max(1, (int)($input['limit'] ?? 20)));
         $sql = 'SELECT c.id,c.scode,s.name AS category_name,c.title,c.status,c.date,c.filename FROM ay_content c JOIN ay_content_sort s ON s.scode=c.scode AND s.acode=c.acode WHERE c.acode=:acode';
