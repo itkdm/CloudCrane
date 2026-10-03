@@ -341,7 +341,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         command: 'sqlite3',
         args: [
           '/workspace/data/pbootcms.db',
-          "INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'preview.example'), ('sn_user', 'preview-user'), ('licensecode', 'preview-license');",
+          "INSERT OR REPLACE INTO ay_config(name, value, type, sorting, description) VALUES ('sn', 'preview.example', '2', 255, ''), ('sn_user', 'preview-user', '2', 255, ''), ('licensecode', 'preview-license', '2', 255, '');",
         ],
         cwd: '/workspace',
         env: {},
@@ -594,7 +594,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         Cmd: [
           'php',
           '-r',
-          `$d=new SQLite3("/site/shared/data/cloudcrane.db"); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); if (!$d->exec("INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'production.example'), ('sn_user', 'production-user'), ('licensecode', 'production-license')")) exit(13); if ($d->querySingle("SELECT COUNT(*) FROM ay_config WHERE name IN ('sn', 'sn_user', 'licensecode')") !== 3) exit(14);`,
+          `$d=new SQLite3("/site/shared/data/cloudcrane.db"); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); if (!$d->exec("INSERT OR REPLACE INTO ay_config(name, value, type, sorting, description) VALUES ('sn', 'production.example', '2', 255, ''), ('sn_user', 'production-user', '2', 255, ''), ('licensecode', 'production-license', '2', 255, '')")) exit(13); if ($d->querySingle("SELECT COUNT(*) FROM ay_config WHERE name IN ('sn', 'sn_user', 'licensecode')") !== 3) exit(14);`,
         ],
         User: '1000:1000',
         AttachStdout: true,
