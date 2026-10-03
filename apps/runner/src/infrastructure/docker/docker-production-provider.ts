@@ -1276,6 +1276,7 @@ export class DockerProductionProvider implements ProductionProvider {
     } finally {
       await helper.remove({ force: true }).catch(() => undefined);
     }
+    await this.reloadProductionPhpFpm(websiteId);
   }
 
   private async verifyHost(port: number, canonicalHost: string): Promise<boolean> {

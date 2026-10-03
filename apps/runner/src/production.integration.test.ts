@@ -111,7 +111,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           snapshotDirectory: snapshot,
         }),
       ).resolves.toMatchObject({ uploadFiles: 1 });
-      const refreshed = await daemon.exec({
+      const refreshedDaemon = new WorkspaceDaemonClient(await provider.getEndpoint(workspaceId));
+      const refreshed = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: ['/workspace/data/pbootcms.db', 'SELECT value FROM content;'],
         cwd: '/workspace',
