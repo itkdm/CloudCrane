@@ -157,3 +157,9 @@ Release #13 发布并生成 `.production-port=32800` 后，为直接验证自动
 对新建容器再单独执行 `docker restart`，等待本机探针恢复后，HostConfig 和实际映射仍为 `32801`；Production marker、SQLite 哈希和 25 个上传文件均未变化；公网首页仍 HTTP 200、健康探针仍 HTTP 204。内置浏览器刷新后的截图显示首页与 `Release 2 验收` 副标题正常。DEVTOOLS MCP 不可用，因此没有 Network/Console 面板证据；截图与外部 HTTP 状态只证明可见页面和响应状态。
 
 Deploy production #69 会按现有发布流程重启平台 tmux 服务栈（包括 Runner）；部署结束后、删除测试容器之前，该站点公网首页和探针仍分别返回 200/204。这证明网站容器及持久数据在平台服务重启后仍可用，但未单独对 Runner 进程执行故障注入。当前已验证平台服务部署重启后的站点可用、Production 容器重建复用固定端口、Production 容器单独重启后公网恢复；Docker daemon/ECS 主机重启、自动镜像滚动升级/回滚以及证书自动续期仍未验收。
+
+### 2026-10-03 Production Refresh 与 CMS 能力 CI/部署验证
+
+CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 集成实际运行了 PbootCMS Production 发布、Production → Workspace 内容刷新、Workspace 内容更新后再次发布、数据保留及 Release 检查。第一次 CI #496 暴露测试在 Refresh 重启 Workspace 后继续复用旧 Daemon 客户端；测试现在会重新获取 endpoint 后验证 Refresh 结果。
+
+同一提交的 Deploy production #96 在 ECS 执行 Web 构建时以退出码 137 失败，发生在数据库备份、迁移和服务重启之前，故该次部署没有切换线上应用。只读检查当时主机约 3.8 GiB RAM、无 Swap，构建期间服务器负载偏高。部署脚本已改为 `pnpm exec turbo run build --concurrency=1`，串行执行 Turbo build 任务以降低并发峰值内存；后续需由 Deploy workflow 确认服务器构建及健康检查通过，再记为已上线。不要将服务器退出码 137 与应用构建代码错误混为一谈，也不要手动清理或覆盖 `/opt/cloudcrane-releases/<SHA>` 未完成 worktree；重试应让部署脚本复用同一目标 SHA 并按日志检查构建结果。

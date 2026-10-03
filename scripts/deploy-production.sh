@@ -43,7 +43,8 @@ if [[ -f ./.env.private.local ]]; then
   . ./.env.private.local
 fi
 set +a
-pnpm build
+# The ECS has 4 GiB RAM; serialize Turbo tasks so concurrent package builds do not OOM.
+pnpm exec turbo run build --concurrency=1
 nginx -t
 
 # Keep immutable upstream baselines available so Production Release staging can
