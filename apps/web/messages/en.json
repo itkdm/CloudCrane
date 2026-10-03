@@ -219,6 +219,7 @@
     "productionRefreshStarting": "Preparing a consistent Production content snapshot…",
     "productionRefreshProcessing": "Refreshing the Workspace and checking Preview…",
     "productionRefreshSucceeded": "Workspace refreshed. {files} upload files copied ({megabytes} MB). Preview is ready.",
+    "productionRefreshPreviewUnavailable": "Workspace content was refreshed, but Preview runtime status could not be synchronized. Reopen the workbench and check Preview.",
     "productionRefreshError": "Could not refresh Workspace from Production. The previous Workspace state was restored when possible.",
     "productionAuthorizationError": "Production authorization failed. Check the code and domain.",
     "copyProductionError": "Could not copy. Select and copy the Production address manually.",

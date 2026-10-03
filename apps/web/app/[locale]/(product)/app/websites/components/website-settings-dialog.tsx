@@ -345,6 +345,7 @@ export function WebsiteSettingsDialog({
         status?: string;
         operationId?: string;
         result?: { databaseBytes?: number; uploadFiles?: number; uploadBytes?: number } | null;
+        previewSynchronized?: boolean | null;
         error?: { message?: string };
       };
       if (!response.ok && response.status !== 202) {
@@ -355,6 +356,7 @@ export function WebsiteSettingsDialog({
 
       let status = payload.status;
       let result = payload.result;
+      let previewSynchronized = payload.previewSynchronized;
       for (
         let attempt = 0;
         ['processing', 'pending', 'running'].includes(status ?? '') && attempt < 90;
@@ -370,15 +372,18 @@ export function WebsiteSettingsDialog({
         const statusPayload = (await statusResponse.json()) as typeof payload;
         status = statusPayload.status;
         result = statusPayload.result;
+        previewSynchronized = statusPayload.previewSynchronized;
       }
       if (status === 'succeeded') {
         productionRefreshKey.current = null;
         window.localStorage.removeItem(storageKey);
         setRefreshNotice(
-          t('productionRefreshSucceeded', {
-            files: result?.uploadFiles ?? 0,
-            megabytes: Math.ceil((result?.uploadBytes ?? 0) / (1024 * 1024)),
-          }),
+          previewSynchronized === false
+            ? t('productionRefreshPreviewUnavailable')
+            : t('productionRefreshSucceeded', {
+                files: result?.uploadFiles ?? 0,
+                megabytes: Math.ceil((result?.uploadBytes ?? 0) / (1024 * 1024)),
+              }),
         );
         await onRefresh();
       } else if (status === 'failed') {

@@ -22,7 +22,7 @@ Production SQLite + uploads → Workspace SQLite + uploads
 
 1. 在 Settings → Production 点击“从正式网站刷新工作区”。
 2. 确认将覆盖 Workspace 当前数据库和上传文件。
-3. 等待操作结果。成功提示包含复制的上传文件数量，并表示 Preview 已重新就绪。
+3. 等待操作结果。成功提示包含复制的上传文件数量，并表示 Preview 已重新就绪。刷新完成后，Web 会通过 Workspace Gateway 读取一次 `runtime.status`，让控制面同步容器重建后可能变化的 Preview 主机端口；同步未完成时，页面会明确提示 Preview 尚未就绪。
 4. 打开 Preview 检查需要修改的页面，再让 Agent 继续工作。
 
 浏览器刷新或 Web 响应丢失时，页面用相同 Idempotency-Key 查询操作状态。运行中的操作通过持久 operation 记录和 Runner 幂等键避免重复替换。

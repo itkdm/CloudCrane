@@ -12,7 +12,11 @@ import {
   websiteRelease,
   workspace,
 } from '@cloudcrane/db';
-import { ProductionClient, ProductionClientError } from '@cloudcrane/workspace-client';
+import {
+  ProductionClient,
+  ProductionClientError,
+  WorkspaceClient,
+} from '@cloudcrane/workspace-client';
 import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
 import { auth, authDb } from '../../../../../../lib/server/auth.js';
 import { withWebRequestContext } from '../../../../../../lib/server/observability.js';
@@ -334,12 +338,42 @@ export async function POST(
           { productionSlug, refreshId: operationId },
           { deadlineMs: 300_000, idempotencyKey: `production-refresh-${operationId}` },
         );
+        let previewSynchronized = false;
+        try {
+          const runtime = await new WorkspaceClient(endpoint, token, {
+            websiteId,
+            workspaceId,
+            traceId: getActiveTraceContext().traceId,
+          }).runtime.status();
+          previewSynchronized = runtime.status === 'running';
+        } catch (error) {
+          logger.warn(
+            {
+              event: 'website.production-refresh.preview-sync.failed',
+              websiteId,
+              workspaceId,
+              operationId,
+              errorType: error instanceof Error ? error.constructor.name : typeof error,
+            },
+            'Workspace Preview runtime metadata could not be synchronized after Production refresh',
+          );
+        }
+        if (!previewSynchronized)
+          logger.warn(
+            {
+              event: 'website.production-refresh.preview-sync.unavailable',
+              websiteId,
+              workspaceId,
+              operationId,
+            },
+            'Workspace Preview runtime is not running after Production refresh',
+          );
         await authDb
           .update(operation)
           .set({
             status: 'succeeded',
             resultResourceId: websiteId,
-            metadata: { refreshResult: result },
+            metadata: { refreshResult: result, previewSynchronized },
             finishedAt: new Date(),
             updatedAt: new Date(),
           })
@@ -349,7 +383,7 @@ export async function POST(
           durationMs: Date.now() - startedAt,
           resultSummary: result,
         });
-        return NextResponse.json({ status: 'succeeded', result });
+        return NextResponse.json({ status: 'succeeded', result, previewSynchronized });
       } catch (error) {
         const unknownResult =
           error instanceof ProductionClientError && error.code === 'UNKNOWN_RESULT';
@@ -458,6 +492,7 @@ export async function GET(
           operationId: row.id,
           status: row.status,
           result: row.metadata.refreshResult ?? null,
+          previewSynchronized: row.metadata.previewSynchronized ?? null,
           errorCode: row.errorCode,
         });
       } catch (error) {
