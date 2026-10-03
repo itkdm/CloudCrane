@@ -502,6 +502,16 @@ export class DockerProductionProvider implements ProductionProvider {
         'Production CMS runtime is unavailable',
       );
     const runtime = await this.getStatus(websiteId, productionSlug);
+    if (!runtime.currentReleaseId)
+      throw new ProductionOperationError(
+        'CMS_PRODUCTION_NOT_ACTIVE',
+        'Production runtime has no active release',
+      );
+    if (runtime.status !== 'active' && runtime.status !== 'authorization_required')
+      throw new ProductionOperationError(
+        'CMS_PRODUCTION_NOT_ACTIVE',
+        'Production runtime is not active',
+      );
     if (!runtime.authorized)
       throw new ProductionOperationError(
         'CMS_AUTHORIZATION_REQUIRED',
