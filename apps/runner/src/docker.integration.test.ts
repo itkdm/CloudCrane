@@ -185,9 +185,10 @@ describe.skipIf(!enabled)('Docker Workspace Runtime integration', () => {
         maxOutputBytes: 1_000,
         executionId: cancelId,
       });
+      const cancellation = expect(cancellable).rejects.toMatchObject({ code: 'PROCESS_ABORTED' });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect((await client.cancel(cancelId)).cancelled).toBe(true);
-      await expect(cancellable).rejects.toMatchObject({ code: 'PROCESS_ABORTED' });
+      await cancellation;
       const outbound = await client.exec({
         command: 'curl',
         args: ['-fsSI', '--max-time', '10', 'https://deb.debian.org'],
