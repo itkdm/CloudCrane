@@ -65,8 +65,8 @@ while IFS=$'\t' read -r version commit; do
   fi
   git -C "${temporary}/source" archive "${commit}" | tar -xf - -C "${temporary}/base"
   printf 'pbootcms=%s\nsourceCommit=%s\n' "${version}" "${commit}" > "${temporary}/base/.cloudcrane-base"
-  chmod -R a-w "${temporary}/base"
   mv -T "${temporary}/base" "${target}"
+  chmod -R a-w "${target}"
   chmod -R u+w -- "${temporary}"
   rm -rf -- "${temporary}"
   trap - EXIT
