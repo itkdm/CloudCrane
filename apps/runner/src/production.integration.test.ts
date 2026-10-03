@@ -318,6 +318,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       WORKSPACE_ROOT: path.join(base, 'workspaces'),
       WORKSPACE_IMAGE: pbootIntegrationTarget.workspaceImage,
       WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
+      WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT:
+        process.env.WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT,
       RELEASE_ARTIFACT_ROOT: path.join(base, 'artifacts'),
       PRODUCTION_ROOT: path.join(base, 'production'),
       PRODUCTION_IMAGE: 'cloudcrane-production-pboot:v1',

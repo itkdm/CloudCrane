@@ -76,6 +76,7 @@ jobs:
       RUNNER_AUTH_TOKEN: integration-runner-token
       WORKSPACE_ROOT: /tmp/cloudcrane-workspaces
       WORKSPACE_REFERENCE_ROOT: /tmp/cloudcrane-references
+      WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT: /tmp/cloudcrane-pboot-bases
       WORKSPACE_IMAGE: website-workspace-pboot:v1
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +91,11 @@ jobs:
       - run: docker build -f docker/workspace-pboot/Dockerfile -t website-workspace-pboot:v1 .
       - run: docker build -f docker/workspace-pboot/Dockerfile --build-arg PBOOT_VERSION=3.2.24 --build-arg PBOOT_SOURCE_COMMIT=29ff72ee5afc9c6553b949f04d3fc99443879f40 -t website-workspace-pboot:3.2.24 .
       - run: docker build -f docker/production-pboot/Dockerfile -t cloudcrane-production-pboot:v1 .
+      - name: Install trusted PbootCMS release bases
+        run: |
+          WORKSPACE_MANAGED_PBOOT_BASE_ROOT=/tmp/cloudcrane-pboot-current \
+          WORKSPACE_MANAGED_PBOOT_BASE_REGISTRY_ROOT=/tmp/cloudcrane-pboot-bases \
+          bash scripts/install-managed-pboot-bases.sh "$GITHUB_WORKSPACE"
       - run: pnpm --filter @cloudcrane/db db:migrate
       - run: pnpm --filter @cloudcrane/runner... build
       - run: pnpm --filter @cloudcrane/workspace-gateway... build
