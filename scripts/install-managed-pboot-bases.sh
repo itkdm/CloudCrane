@@ -53,7 +53,7 @@ while IFS=$'\t' read -r version commit; do
   fi
 
   temporary="$(mktemp -d "${BASE_REGISTRY_ROOT}/.install-${version}.XXXXXX")"
-  trap 'rm -rf -- "${temporary}"' EXIT
+  trap 'chmod -R u+w -- "${temporary}" 2>/dev/null || true; rm -rf -- "${temporary}"' EXIT
   mkdir "${temporary}/source" "${temporary}/base"
   git -C "${temporary}/source" init --quiet
   git -C "${temporary}/source" remote add origin https://github.com/pbootcmspro/PbootCMS.git
@@ -67,6 +67,7 @@ while IFS=$'\t' read -r version commit; do
   printf 'pbootcms=%s\nsourceCommit=%s\n' "${version}" "${commit}" > "${temporary}/base/.cloudcrane-base"
   chmod -R a-w "${temporary}/base"
   mv -T "${temporary}/base" "${target}"
+  chmod -R u+w -- "${temporary}"
   rm -rf -- "${temporary}"
   trap - EXIT
 done <<< "${releases}"
