@@ -1,5 +1,6 @@
 import { chmod, lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import Docker from 'dockerode';
 import { z } from 'zod';
@@ -517,10 +518,42 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
       },
     });
     try {
+      const output = await container.attach({ stream: true, stdout: true, stderr: true });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      const collect = (chunks: Buffer[]) => (chunk: Buffer) => {
+        if (chunks.reduce((size, item) => size + item.length, 0) < 4096) chunks.push(chunk);
+      };
+      stdout.on('data', collect(stdoutChunks));
+      stderr.on('data', collect(stderrChunks));
+      const outputClosed = new Promise<void>((resolve, reject) => {
+        output.once('end', resolve);
+        output.once('close', resolve);
+        output.once('error', reject);
+      });
+      this.docker.modem.demuxStream(output, stdout, stderr);
       await container.start();
       const result = await container.wait();
-      if (result.StatusCode !== 0)
-        throw new Error('Workspace Production refresh filesystem operation failed');
+      await outputClosed;
+      if (result.StatusCode !== 0) {
+        const details = Buffer.concat([...stdoutChunks, ...stderrChunks])
+          .toString('utf8')
+          .split('')
+          .filter((character) => {
+            const code = character.charCodeAt(0);
+            return code >= 0x20 || code === 0x09 || code === 0x0a || code === 0x0d;
+          })
+          .join('')
+          .slice(-4096)
+          .trim();
+        throw new Error(
+          details
+            ? `Workspace Production refresh filesystem operation failed: ${details}`
+            : 'Workspace Production refresh filesystem operation failed',
+        );
+      }
     } finally {
       await container.remove({ force: true }).catch(() => undefined);
     }
