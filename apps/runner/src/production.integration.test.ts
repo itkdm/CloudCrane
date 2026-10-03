@@ -665,7 +665,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         productionSlug: 'real-pboot-integration',
         refreshId: '00000000-0000-4000-8000-000000000095',
       });
-      const afterRefresh = await daemon.exec({
+      // Refresh stops and restarts the Workspace runtime while replacing SQLite state.
+      // Resolve its endpoint again instead of retaining the client created before that lifecycle change.
+      const refreshedDaemon = new WorkspaceDaemonClient(
+        await workspaceProvider.getEndpoint(workspaceId),
+      );
+      const afterRefresh = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [
           '/workspace/data/pbootcms.db',
@@ -678,7 +683,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         executionId: '00000000-0000-4000-8000-000000000096',
       });
       expect(afterRefresh.stdout.trim()).toBe(externalTitle);
-      const previewAuthorizationAfterRefresh = await daemon.exec({
+      const previewAuthorizationAfterRefresh = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [
           '/workspace/data/pbootcms.db',
@@ -698,11 +703,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(
         await readFile(path.join(workspaceRoot, 'cloudcrane-release-check.php'), 'utf8'),
       ).toContain('release-one');
-      await daemon.write({
+      await refreshedDaemon.write({
         path: '/workspace/template/default/cloudcrane-release-note.txt',
         content: 'second release',
       });
-      await daemon.write({
+      await refreshedDaemon.write({
         path: '/workspace/cloudcrane-release-check.php',
         content: "<?php echo 'release-two';\n",
       });
