@@ -337,7 +337,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       });
       expect(initialized.exitCode).toBe(0);
       expect(initialized.stdout).toContain('INITIALIZED');
-      await daemon.exec({
+      const previewAuthorizationSeed = await daemon.exec({
         command: 'sqlite3',
         args: [
           '/workspace/data/pbootcms.db',
@@ -349,6 +349,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         maxOutputBytes: 16_384,
         executionId: '00000000-0000-4000-8000-000000000097',
       });
+      expect(previewAuthorizationSeed.exitCode).toBe(0);
 
       await daemon.write({
         path: '/workspace/cloudcrane-release-check.php',
@@ -593,7 +594,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         Cmd: [
           'php',
           '-r',
-          `$c=require "/site/current/config/database.php"; $d=new SQLite3("/site/current".$c["database"]["dbname"]); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); $d->exec("INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'production.example'), ('sn_user', 'production-user'), ('licensecode', 'production-license')");`,
+          `$d=new SQLite3("/site/shared/data/cloudcrane.db"); $q=$d->prepare("UPDATE ay_content SET title=:title WHERE id=:id"); $q->bindValue(":title", "${externalTitle}"); $q->bindValue(":id", ${content.id}, SQLITE3_INTEGER); if (!$q->execute()) exit(12); if (!$d->exec("INSERT OR REPLACE INTO ay_config(name, value) VALUES ('sn', 'production.example'), ('sn_user', 'production-user'), ('licensecode', 'production-license')")) exit(13); if ($d->querySingle("SELECT COUNT(*) FROM ay_config WHERE name IN ('sn', 'sn_user', 'licensecode')") !== 3) exit(14);`,
         ],
         User: '1000:1000',
         AttachStdout: true,
