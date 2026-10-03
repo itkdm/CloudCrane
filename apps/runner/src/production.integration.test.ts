@@ -31,6 +31,18 @@ const enabled = process.env.CLOUDCRANE_DOCKER_INTEGRATION === '1';
 const websiteId = '00000000-0000-4000-8000-000000000071';
 const productionSlug = 'production-integration-site';
 const coreCommit = '8c7ad1da5e1d1ba217fde56912f001e14cb9b0ea';
+const pbootIntegrationTarget =
+  process.env.CLOUDCRANE_PBOOT_INTEGRATION_VERSION === '3.2.24'
+    ? {
+        version: '3.2.24',
+        sourceCoreCommit: '29ff72ee5afc9c6553b949f04d3fc99443879f40',
+        workspaceImage: 'website-workspace-pboot:3.2.24',
+      }
+    : {
+        version: '3.2.26',
+        sourceCoreCommit: coreCommit,
+        workspaceImage: 'website-workspace-pboot:v1',
+      };
 
 describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
   it('refreshes only Workspace content from a validated Production snapshot', async () => {
@@ -304,7 +316,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
     const managedBase = path.join(base, 'managed-pboot');
     const config = loadRunnerConfig({
       WORKSPACE_ROOT: path.join(base, 'workspaces'),
-      WORKSPACE_IMAGE: 'website-workspace-pboot:v1',
+      WORKSPACE_IMAGE: pbootIntegrationTarget.workspaceImage,
       WORKSPACE_MANAGED_PBOOT_BASE_ROOT: managedBase,
       RELEASE_ARTIFACT_ROOT: path.join(base, 'artifacts'),
       PRODUCTION_ROOT: path.join(base, 'production'),
@@ -366,8 +378,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const staged = await stager.stage(realWebsiteId, workspaceId, {
         artifactStorageKey: `release-${releaseId}.zip`,
         releaseId,
-        sourcePbootVersion: '3.2.26',
-        sourceCoreCommit: coreCommit,
+        sourcePbootVersion: pbootIntegrationTarget.version,
+        sourceCoreCommit: pbootIntegrationTarget.sourceCoreCommit,
         firstPublish: true,
       });
 
@@ -715,8 +727,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       const secondArtifact = await stager.stage(realWebsiteId, workspaceId, {
         artifactStorageKey: `release-${secondReleaseId}.zip`,
         releaseId: secondReleaseId,
-        sourcePbootVersion: '3.2.26',
-        sourceCoreCommit: coreCommit,
+        sourcePbootVersion: pbootIntegrationTarget.version,
+        sourceCoreCommit: pbootIntegrationTarget.sourceCoreCommit,
         firstPublish: false,
       });
       const secondPublished = await provider.deployRelease({

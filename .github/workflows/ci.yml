@@ -88,6 +88,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: docker build -f docker/workspace-pboot/Dockerfile -t website-workspace-pboot:v1 .
+      - run: docker build -f docker/workspace-pboot/Dockerfile --build-arg PBOOT_VERSION=3.2.24 --build-arg PBOOT_SOURCE_COMMIT=29ff72ee5afc9c6553b949f04d3fc99443879f40 -t website-workspace-pboot:3.2.24 .
       - run: docker build -f docker/production-pboot/Dockerfile -t cloudcrane-production-pboot:v1 .
       - run: pnpm --filter @cloudcrane/db db:migrate
       - run: pnpm --filter @cloudcrane/runner... build
@@ -114,6 +115,10 @@ jobs:
             echo "::error title=Docker integration failure::$detail"
             exit "$status"
           fi
+      - name: Run PbootCMS 3.2.24 Production integration
+        env:
+          CLOUDCRANE_PBOOT_INTEGRATION_VERSION: '3.2.24'
+        run: pnpm --filter @cloudcrane/runner exec vitest run --exclude dist/** --exclude .next/** src/production.integration.test.ts -t "publishes the pinned PbootCMS base into the real Production image"
       - name: Run remote execution integration test
         run: pnpm --filter @cloudcrane/workspace-gateway exec vitest run --exclude dist/** --exclude .next/** src/remote-execution.integration.test.ts
       - name: Run Pi remote tools integration test
