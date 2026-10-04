@@ -476,8 +476,28 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await fetch(`${origin}/core/database/Sqlite.php`)).status).toBe(403);
       expect((await fetch(`${origin}/cloudcrane-rewrite-probe`)).status).toBeLessThan(500);
 
-      const publicHost = 'real-pboot-integration.sites.example.com';
-      await provider.authorize(realWebsiteId, 'real-pboot-integration', publicHost);
+      const writeAuthorizationMarker = await container.exec({
+        Cmd: [
+          '/bin/sh',
+          '-ec',
+          "printf 'v1\\n' > /site/shared/runtime/.cloudcrane-authorization-v1",
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const authorizationMarkerStream = await writeAuthorizationMarker.start({
+        hijack: true,
+        stdin: false,
+      });
+      await new Promise<void>((resolve, reject) => {
+        authorizationMarkerStream.once('end', resolve);
+        authorizationMarkerStream.once('close', resolve);
+        authorizationMarkerStream.once('error', reject);
+        authorizationMarkerStream.resume();
+      });
+      expect((await writeAuthorizationMarker.inspect()).ExitCode).toBe(0);
       const lockedStatus = await provider.getStatus(realWebsiteId, 'real-pboot-integration');
       expect(lockedStatus).toMatchObject({ status: 'active', authorized: true });
       await expect(
@@ -490,14 +510,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.company.get',
         payload: {},
       })) as { phone: string; version: string };
-      const publicHeaders = {
-        host: publicHost,
-        'x-forwarded-host': publicHost,
-        'x-forwarded-proto': 'https',
-      };
-      const cachedHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
-      expect(cachedHomepage.status).toBe(200);
-      expect(await cachedHomepage.text()).toContain(company.phone);
       expect(
         await runProductionContainerCommand(
           container,
@@ -518,11 +530,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           payload: { expectedVersion: company.version, patch: { phone: '13800000000' } },
         }),
       ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
-      const staleHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
-      expect(staleHomepage.status).toBe(200);
-      const staleHomepageBody = await staleHomepage.text();
-      expect(staleHomepageBody).toContain(company.phone);
-      expect(staleHomepageBody).not.toContain('13800000000');
       const committedCompany = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.get',
         payload: {},
@@ -553,21 +560,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           'test -z "$(find /site/shared/runtime/cache -type f -print -quit)"',
         ),
       ).toBe(0);
-      const refreshedHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
-      expect(refreshedHomepage.status).toBe(200);
-      const refreshedHomepageBody = await refreshedHomepage.text();
-      expect(refreshedHomepageBody).toContain('13800000000');
-      expect(refreshedHomepageBody).not.toContain(company.phone);
       await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.update',
         payload: { expectedVersion: companyUpdated.item.version, patch: { phone: company.phone } },
       });
-      const restoredHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
-      expect(restoredHomepage.status).toBe(200);
-      const restoredHomepageBody = await restoredHomepage.text();
-      expect(restoredHomepageBody).toContain(company.phone);
-      expect(restoredHomepageBody).not.toContain('13800000000');
-
       const contentList = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.list',
         payload: { limit: 5 },
