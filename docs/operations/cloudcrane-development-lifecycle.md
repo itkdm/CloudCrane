@@ -184,7 +184,13 @@ CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 
 
 随后从 Production 实时读取 11 个栏目，并在已启用列表栏目 `scode=3` 创建状态 `0` 草稿：内容 ID `18`，标题 `CloudCrane CMS Create E2E 0a45493`。首次调用返回 `replayed=false`；`cms_get_content` 复核的 ID、标题、正文、栏目、状态和版本与 Create 响应一致。`workspaceContentStale=true`，符合 Production 是内容源、Workspace 需显式 Refresh 的单向数据流。未使用 Bash 或直接 SQL，也未改动既有内容、代码、模板、授权或 Release。浏览器刷新后验收消息仍保留；Console 0 条 warning/error。内置浏览器未提供本次所需的 Network 证据，未使用 DEVTOOLS MCP，因此 Network 面板未验证。
 
-CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已提交但响应为 `UNKNOWN_RESULT`，重启容器后用原 idempotency key 和完全相同 payload 重试，结果 replay 且只存在一条草稿；同一 key 换 payload 返回 `IDEMPOTENCY_KEY_REUSED`。CMS 更新缓存测试验证更新提交后清理失败返回 `UNKNOWN_RESULT`，同 version/patch 重试会 replay 并再次清缓存。真实 Pboot HTTP 首页缓存断言第一次 CI #516 因夹具 Host 错用 Preview 域名返回 403，在缓存断言前失败；夹具已改用 Production canonical Host，待下一次 Docker integration 通过后再记为完成。线上 Create 本次为首次响应成功，没有在线模拟响应丢失；持久幂等/丢响应证据来自此前通过的 CI Docker integration。视觉证据截图保存在本机 `C:\Users\33174\.codex\visualizations\2026\10\04`，不加入仓库。
+CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已提交但响应为 `UNKNOWN_RESULT`，重启容器后用原 idempotency key 和完全相同 payload 重试，结果 replay 且只存在一条草稿；同一 key 换 payload 返回 `IDEMPOTENCY_KEY_REUSED`。CMS 更新缓存测试验证更新提交后清理失败返回 `UNKNOWN_RESULT`，同 version/patch 重试会 replay 并再次清缓存。真实 Pboot HTTP 页面缓存断言第一次 CI #516 因夹具 Host 错用 Preview 域名返回 403，在缓存断言前失败；随后改用 Production canonical Host，并在 [CI #528](https://github.com/itkdm/CloudCrane/actions/runs/37175897941) 的 Docker integration 中通过。线上 Create 本次为首次响应成功，没有在线模拟响应丢失；持久幂等/丢响应证据来自 CI Docker integration。视觉证据截图保存在本机 `C:\Users\33174\.codex\visualizations\2026\10\04`，不加入仓库。
+
+### 2026-10-04 Production CMS 更新与公网缓存 E2E
+
+在专用 `CloudCrane Production E2E` 网站上预热公开内容详情页 `/?company/4.html`，页面标题为 `PbootCMSV1.0.0正式发布`。通过 Production CMS 语义工具确认内容 ID `4`、状态 `1`，只将标题改为唯一临时标记 `CloudCrane Cache E2E 20261004 408a675`。紧接着用内置浏览器刷新同一公网 URL，页面标题立即显示新标记，证明 CMS 内容更新后 Pboot 公网页面缓存已失效。之后用 Production CMS 语义工具以当前版本作为 `expectedVersion` 恢复原标题；CMS 读回确认状态仍为 `1`，版本指纹恢复为更新前相同值，公网刷新也恢复原标题且不再包含测试标记。其他内容字段未修改；未写 Workspace、未使用 Bash/SQLite/文件工具、未更改代码/模板/Release/授权。内置浏览器验证了可见页面和刷新结果；Network 面板证据未取得。临时写入和恢复均成功，没有发生 `UNKNOWN_RESULT`；CMS 更新语义没有暴露自定义 `idempotencyKey` 参数，本次使用版本校验。
+
+随后补充 Docker 回归断言：CMS cache invalidation 清掉过期页面缓存哨兵后，仍保留 `runtime/session`、`runtime/image`、共享 `data` 与 `upload` 下的哨兵文件。此项等待包含新断言的后续 CI Docker integration 通过后再标记完成。
 
 ### 2026-10-04 Workspace Host 隔离状态复核
 

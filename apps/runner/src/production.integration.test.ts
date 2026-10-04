@@ -564,9 +564,15 @@ if (!$db->exec('COMMIT')) exit(26);`,
         payload: {},
       })) as { phone: string; version: string };
       const pageCacheProbe = '/site/shared/runtime/cache/cloudcrane-cms-invalidation-probe';
+      const cachePreservationProbes = [
+        '/site/shared/runtime/session/cloudcrane-cms-invalidation-probe',
+        '/site/shared/runtime/image/cloudcrane-cms-invalidation-probe',
+        '/site/shared/data/cloudcrane-cms-invalidation-probe',
+        '/site/shared/upload/cloudcrane-cms-invalidation-probe',
+      ];
       await runProductionContainerCommand(
         container,
-        `mkdir -p /site/shared/runtime/cache && chmod 0700 /site/shared/runtime/cache && printf 'stale-public-page' > '${pageCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
+        `mkdir -p /site/shared/runtime/cache /site/shared/runtime/session /site/shared/runtime/image /site/shared/data /site/shared/upload && printf 'stale-public-page' > '${pageCacheProbe}' && printf 'must-survive' > '${cachePreservationProbes[0]}' && printf 'must-survive' > '${cachePreservationProbes[1]}' && printf 'must-survive' > '${cachePreservationProbes[2]}' && printf 'must-survive' > '${cachePreservationProbes[3]}' && chmod 0700 /site/shared/runtime/cache && chmod 0500 /site/shared/runtime/cache`,
       );
       await expect(
         provider.cmsOperation(realWebsiteId, {
@@ -598,6 +604,14 @@ if (!$db->exec('COMMIT')) exit(26);`,
       expect(await runProductionContainerCommand(container, `test ! -e '${pageCacheProbe}'`)).toBe(
         0,
       );
+      await expect(
+        runProductionContainerCommand(
+          container,
+          cachePreservationProbes
+            .map((probe) => `test "$(cat '${probe}')" = 'must-survive'`)
+            .join(' && '),
+        ),
+      ).resolves.toBe(0);
       expect(
         await runProductionContainerCommand(
           container,
