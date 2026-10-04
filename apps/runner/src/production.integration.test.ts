@@ -510,8 +510,12 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.company.get',
         payload: {},
       })) as { phone: string; version: string };
-      const publicHost = 'preview.example';
-      const publicHeaders = { host: publicHost };
+      const publicHost = 'real-pboot-integration.sites.example.com';
+      const publicHeaders = {
+        host: publicHost,
+        'x-forwarded-host': publicHost,
+        'x-forwarded-proto': 'https',
+      };
       const cachedHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
       expect(cachedHomepage.status).toBe(200);
       expect(await cachedHomepage.text()).toContain(company.phone);

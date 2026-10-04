@@ -184,7 +184,7 @@ CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 
 
 随后从 Production 实时读取 11 个栏目，并在已启用列表栏目 `scode=3` 创建状态 `0` 草稿：内容 ID `18`，标题 `CloudCrane CMS Create E2E 0a45493`。首次调用返回 `replayed=false`；`cms_get_content` 复核的 ID、标题、正文、栏目、状态和版本与 Create 响应一致。`workspaceContentStale=true`，符合 Production 是内容源、Workspace 需显式 Refresh 的单向数据流。未使用 Bash 或直接 SQL，也未改动既有内容、代码、模板、授权或 Release。浏览器刷新后验收消息仍保留；Console 0 条 warning/error。内置浏览器未提供本次所需的 Network 证据，未使用 DEVTOOLS MCP，因此 Network 面板未验证。
 
-CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已提交但响应为 `UNKNOWN_RESULT`，重启容器后用原 idempotency key 和完全相同 payload 重试，结果 replay 且只存在一条草稿；同一 key 换 payload 返回 `IDEMPOTENCY_KEY_REUSED`。CMS 更新缓存测试验证更新提交后清理失败返回 `UNKNOWN_RESULT`，同 version/patch 重试会 replay 并再次清缓存。该测试现在还在真实 Pboot HTTP 首页路径上暖缓存、确认失败后仍读到旧值、retry 后读到新值并恢复原值。线上 Create 这一次是首次响应成功，没有在线模拟响应丢失；持久幂等/丢响应证据来自 CI Docker integration。视觉证据截图保存在本机 `C:\Users\33174\.codex\visualizations\2026\10\04`，不加入仓库。
+CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已提交但响应为 `UNKNOWN_RESULT`，重启容器后用原 idempotency key 和完全相同 payload 重试，结果 replay 且只存在一条草稿；同一 key 换 payload 返回 `IDEMPOTENCY_KEY_REUSED`。CMS 更新缓存测试验证更新提交后清理失败返回 `UNKNOWN_RESULT`，同 version/patch 重试会 replay 并再次清缓存。真实 Pboot HTTP 首页缓存断言第一次 CI #516 因夹具 Host 错用 Preview 域名返回 403，在缓存断言前失败；夹具已改用 Production canonical Host，待下一次 Docker integration 通过后再记为完成。线上 Create 本次为首次响应成功，没有在线模拟响应丢失；持久幂等/丢响应证据来自此前通过的 CI Docker integration。视觉证据截图保存在本机 `C:\Users\33174\.codex\visualizations\2026\10\04`，不加入仓库。
 
 ### 2026-10-04 Workspace Host 隔离状态复核
 
