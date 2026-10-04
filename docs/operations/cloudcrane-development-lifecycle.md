@@ -204,6 +204,8 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 
 在线 Agent 附件验收期间，第一次调用发现专用网站的 Production 容器仍运行旧镜像，尚不认识 `cms.media.upload`；在专用 E2E 网站执行 Republish 后，容器升级至当前 Production 镜像。随后用户提供的 JPEG 为 2924×2775（8.1141 MP），被旧的未文档化 8 MP 拒绝阈值拦截，尚未写入文件或账本。修复将输入上限定为 16 MP，超过 8 MP 时等比缩小。GitHub Actions [CI #535](https://github.com/itkdm/CloudCrane/actions/runs/37183707680) 的 quality 和 docker-integration 均通过，Docker 集成使用 2924×2775 PNG 验证缩放后不超过 8 MP 且公开静态路径返回 200；[Production Deploy #134](https://github.com/itkdm/CloudCrane/actions/runs/37184183564) 部署 `f66ecdb` 并通过公网健康检查。部署后再次在专用 `CloudCrane Production E2E` 网站执行 Republish，并在新的 Agent 对话中附上同一 JPEG。Agent 的 `cms_media_upload` 工具返回 `image/jpeg`、1,079,802 字节、`replayed: false`；随后通过内置浏览器打开其 Production 公网路径，图片成功渲染，浏览器报告尺寸 2903×2755。Agent 工具后最终文字回复在当时仍处于生成状态；工具卡片已明确显示完成且返回成功，未再次提交上传。截图在内置浏览器中截取并目视检查，DEVTOOLS MCP 不可用，因此没有 Network 面板证据。
 
+随后用用户给定的本地 JPEG（896,744 字节，文件签名为 JPEG）在同一 Production E2E 对话发送为当前消息附件，UI 显示附件已附加并开始 Agent 运行。Agent 最终显示 `Run could not be completed`（2 steps）；没有出现 `cms_media_upload` 成功卡片、公开 URL 或完成回复。为避免重复写入，没有再次发送或重试，因此这次图片是否落入 Production CMS 尚未验证，不能据附件上传成功推断 CMS 媒体上传成功。失败状态截图保存在本机 Codex visualizations 目录，未提交到仓库。
+
 ### 2026-10-04 CMS Category Create V1 实现与线上验收
 
 沿用产品定义中已有的 `cms.category.create` 能力，补上受信任 Production CMS adapter 和 Agent 工具。第一版只在已启用列表栏目下创建子栏目，继承父栏目的模型和模板，不开放单页、模型配置、任意 Pboot 字段或 SQL。默认状态为隐藏；操作持久化幂等，缓存清理失败返回可重试的 `UNKNOWN_RESULT`，Refresh 不把生产幂等账本带回 Workspace。
