@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 readonly user_chain="CLOUDCRANE-METADATA-DENY"
-readonly metadata_ip="100.100.100.200/32"
+readonly metadata_networks=("100.100.100.200/32" "169.254.0.0/16")
 
 command -v iptables >/dev/null 2>&1 || {
   echo "iptables is required for CloudCrane metadata isolation" >&2
@@ -16,12 +16,16 @@ iptables -w -nL DOCKER-USER >/dev/null 2>&1 || {
 if ! iptables -w -nL "${user_chain}" >/dev/null 2>&1; then
   iptables -w -N "${user_chain}"
 fi
-iptables -w -C "${user_chain}" -d "${metadata_ip}" -j REJECT 2>/dev/null || \
-  iptables -w -A "${user_chain}" -d "${metadata_ip}" -j REJECT
+for metadata_network in "${metadata_networks[@]}"; do
+  iptables -w -C "${user_chain}" -d "${metadata_network}" -j REJECT 2>/dev/null || \
+    iptables -w -I "${user_chain}" 1 -d "${metadata_network}" -j REJECT
+done
 iptables -w -C "${user_chain}" -j RETURN 2>/dev/null || \
   iptables -w -A "${user_chain}" -j RETURN
 iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}" 2>/dev/null || \
   iptables -w -I DOCKER-USER 1 -i 'br+' -j "${user_chain}"
 
 iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}"
-iptables -w -C "${user_chain}" -d "${metadata_ip}" -j REJECT
+for metadata_network in "${metadata_networks[@]}"; do
+  iptables -w -C "${user_chain}" -d "${metadata_network}" -j REJECT
+done

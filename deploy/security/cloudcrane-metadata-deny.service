@@ -1,5 +1,5 @@
 [Unit]
-Description=Block CloudCrane Docker containers from ECS instance metadata
+Description=Block CloudCrane Docker containers from instance metadata endpoints
 Requires=docker.service
 After=docker.service
 PartOf=docker.service
