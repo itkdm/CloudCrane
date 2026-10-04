@@ -3,6 +3,12 @@ set -Eeuo pipefail
 
 readonly user_chain="CLOUDCRANE-METADATA-DENY"
 readonly metadata_networks=("100.100.100.200/32" "169.254.0.0/16")
+mode="${1:-apply}"
+
+if [[ "$#" -gt 1 ]] || [[ "${mode}" != "apply" && "${mode}" != "--check-only" ]]; then
+  echo "usage: cloudcrane-metadata-deny [--check-only]" >&2
+  exit 64
+fi
 
 command -v iptables >/dev/null 2>&1 || {
   echo "iptables is required for CloudCrane metadata isolation" >&2
@@ -13,19 +19,55 @@ iptables -w -nL DOCKER-USER >/dev/null 2>&1 || {
   exit 1
 }
 
+docker_user_hook_is_first() {
+  local first_rule
+  first_rule="$(iptables -w -S DOCKER-USER | awk '$1 == "-A" { print; exit }')"
+  [[ "${first_rule}" == "-A DOCKER-USER -i br+ -j ${user_chain}" ]]
+}
+
+metadata_denies_are_first() {
+  local -a rules=()
+  iptables -w -nL "${user_chain}" >/dev/null 2>&1 || return 1
+  mapfile -t rules < <(
+    iptables -w -S "${user_chain}" | awk -v chain="${user_chain}" '$1 == "-A" && $2 == chain { print }'
+  )
+  (( ${#rules[@]} >= 2 )) &&
+    [[ "${rules[0]}" == *" -d 169.254.0.0/16 -j REJECT"* ]] &&
+    [[ "${rules[1]}" == *" -d 100.100.100.200/32 -j REJECT"* ]]
+}
+
+verify_policy() {
+  docker_user_hook_is_first || {
+    echo "Docker bridge metadata deny hook is missing or not first in DOCKER-USER" >&2
+    return 1
+  }
+  metadata_denies_are_first || {
+    echo "Metadata REJECT rules are missing or not first in ${user_chain}" >&2
+    return 1
+  }
+}
+
+if [[ "${mode}" == "--check-only" ]]; then
+  verify_policy
+  echo "CloudCrane Docker metadata deny rules are ordered before other bridge policy rules"
+  exit 0
+fi
+
 if ! iptables -w -nL "${user_chain}" >/dev/null 2>&1; then
   iptables -w -N "${user_chain}"
 fi
-for metadata_network in "${metadata_networks[@]}"; do
-  iptables -w -C "${user_chain}" -d "${metadata_network}" -j REJECT 2>/dev/null || \
-    iptables -w -I "${user_chain}" 1 -d "${metadata_network}" -j REJECT
-done
+
+# Insert protective rules at the head without first deleting an existing deny,
+# avoiding a fail-open gap while Docker or CloudCrane services are starting.
+if ! metadata_denies_are_first; then
+  iptables -w -I "${user_chain}" 1 -d "${metadata_networks[0]}" -j REJECT
+  iptables -w -I "${user_chain}" 1 -d "${metadata_networks[1]}" -j REJECT
+fi
 iptables -w -C "${user_chain}" -j RETURN 2>/dev/null || \
   iptables -w -A "${user_chain}" -j RETURN
-iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}" 2>/dev/null || \
-  iptables -w -I DOCKER-USER 1 -i 'br+' -j "${user_chain}"
 
-iptables -w -C DOCKER-USER -i 'br+' -j "${user_chain}"
-for metadata_network in "${metadata_networks[@]}"; do
-  iptables -w -C "${user_chain}" -d "${metadata_network}" -j REJECT
-done
+if ! docker_user_hook_is_first; then
+  iptables -w -I DOCKER-USER 1 -i 'br+' -j "${user_chain}"
+fi
+
+verify_policy

@@ -18,8 +18,4 @@ install -D -o root -g root -m 0644 "${docker_dropin_source}" \
 systemctl daemon-reload
 systemctl enable cloudcrane-metadata-deny.service
 systemctl restart cloudcrane-metadata-deny.service
-systemctl is-active --quiet cloudcrane-metadata-deny.service
-iptables -w -C DOCKER-USER -i 'br+' -j CLOUDCRANE-METADATA-DENY
-iptables -w -C CLOUDCRANE-METADATA-DENY -d 100.100.100.200/32 -j REJECT
-iptables -w -C CLOUDCRANE-METADATA-DENY -d 169.254.0.0/16 -j REJECT
-echo "CloudCrane Docker metadata deny policy is installed and active"
+bash "${ROOT_DIR}/scripts/verify-cloudcrane-metadata-policy-host.sh"

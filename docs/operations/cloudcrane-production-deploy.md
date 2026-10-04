@@ -95,7 +95,7 @@ TEMPLATE_ARTIFACT_ROOT=/var/lib/cloudcrane/templates
 AGENT_SERVICE_INTERNAL_URL=http://127.0.0.1:4101
 ```
 
-仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动服务；脚本默认会话名为 `cloudcrane-acceptance`。2026-10-01 通过 SSH 核验，生产主机使用 `cloudcrane-production` tmux 会话管理服务；Production Gateway 监听 `127.0.0.1:4104` 并返回健康状态。Production Gateway 是 tmux 服务，不以 `systemctl is-active cloudcrane-production-gateway` 判断。服务管理方式可能变化，每次发布前应重新确认。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，模板本身不表示生产主机已启用这些 unit。
+仓库提供的 `scripts/server-acceptance-start.sh` 使用 tmux 启动服务；脚本默认会话名为 `cloudcrane-acceptance`。启动前必须以 root 运行，脚本会核验 Metadata deny service、Docker `ExecStartPost` hook 和当前 iptables 规则；任一项缺失时会中止，不启动 Runner/Agent。2026-10-01 通过 SSH 核验，生产主机使用 `cloudcrane-production` tmux 会话管理服务；Production Gateway 监听 `127.0.0.1:4104` 并返回健康状态。Production Gateway 是 tmux 服务，不以 `systemctl is-active cloudcrane-production-gateway` 判断。服务管理方式可能变化，每次发布前应重新确认。仓库另有 systemd unit 模板，详见 [`deploy/systemd/README.md`](../../deploy/systemd/README.md)，模板本身不表示生产主机已启用这些 unit。
 
 ```bash
 CLOUDCRANE_TMUX_SESSION=cloudcrane-production bash ./scripts/server-acceptance-start.sh
@@ -136,7 +136,7 @@ Docker systemd drop-in 和 Metadata oneshot service 已安装。2026-10-04 已�
 
 - Workspace Docker bridge 出口在 `DOCKER-USER` 链前段拒绝 `100.100.100.200/32` 和通用 IPv4 link-local `169.254.0.0/16`，覆盖 Alibaba Metadata 与常见 IPv4 Metadata 地址；其它公网 HTTPS egress 保持可用。`cloudcrane-metadata-deny.service` 在 Docker 启动后应用规则，Docker systemd drop-in 也会在每次 Docker 启动后重放规则。
 - 真实 Workspace 核验脚本同时探测 Alibaba Metadata GET、Token PUT、`169.254.169.254` GET，并确认三次拒绝都计入 host firewall 规则；同时检查不经代理的公网 HTTPS 连通性。当前生产 Workspace Docker network 的 `EnableIPv6` 为 `false`；若以后启用 IPv6，必须为 IPv6 Metadata 路径补充 host-level deny 和真实容器验证。此策略不代表已确认未知服务商的控制面 token-required 设置；服务商及实例控制面确认后还需按其官方地址与控制项补充验证。
-- 规则安装和存在性检查由 `scripts/install-cloudcrane-metadata-policy.sh` 执行。用真实 Workspace 容器验证 Alibaba GET、Token PUT 和通用 link-local GET 均被 host firewall 计数并拒绝，同时检查 `https://example.com` 仍可访问：
+- 规则安装由 `scripts/install-cloudcrane-metadata-policy.sh` 执行；安装和手动启动入口共用 `scripts/verify-cloudcrane-metadata-policy-host.sh` 检查 service enabled/active、Docker 重启 hook 和当前规则。用真实 Workspace 容器验证 Alibaba GET、Token PUT 和通用 link-local GET 均被 host firewall 计数并拒绝，同时检查 `https://example.com` 仍可访问：
 
   ```bash
   sudo bash ./scripts/verify-cloudcrane-metadata-policy.sh cloudcrane-workspace-<workspace-id>

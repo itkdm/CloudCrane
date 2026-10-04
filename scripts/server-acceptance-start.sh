@@ -11,6 +11,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   echo "missing ${ENV_FILE}" >&2
   exit 1
 fi
+bash "${ROOT_DIR}/scripts/verify-cloudcrane-metadata-policy-host.sh"
 if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then
   echo "tmux session already exists: ${SESSION_NAME}" >&2
   exit 1
