@@ -4,7 +4,7 @@
 
 平台入口与 Website Production Gateway 都使用 Nginx。Tech-03 中的 Caddy 是架构目标描述；当前已部署实现由 Nginx 终止 TLS 并反代到 Production Gateway。
 
-部署记录最近一次记录的新加坡服务器为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）。本文没有实时核验服务器、DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
+部署记录中的生产主机别名为 `xunmao-sg219`（公网 IPv4：`186.244.238.219`）；别名本身不能证明主机地域或云产品。本文没有实时核验 DNS 或 Cloudflare 状态；执行变更前应在 SSH、DNS 和 Cloudflare 控制台分别确认。`itkdm.com` Zone 的 apex 和其他站点记录不属于 CloudCrane：
 
 | 记录 | 类型 | 内容 | 代理 |
 | --- | --- | --- | --- |
@@ -122,7 +122,7 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 ## Workspace 宿主机隔离
 
-每次正式部署先安装并核验 ECS Metadata deny，再在停止 CloudCrane 服务后确保 Workspace 持久目录使用单独的 ext4 project-quota 文件系统。首次切换会短暂停止平台进程与 Workspace 容器；Workspace 内容先复制，旧目录保留作恢复副本。部署失败时脚本会尝试启动上一版服务。
+每次正式部署先安装并核验 host-level Metadata deny，再在停止 CloudCrane 服务后确保 Workspace 持久目录使用单独的 ext4 project-quota 文件系统。首次切换会短暂停止平台进程与 Workspace 容器；Workspace 内容先复制，旧目录保留作恢复副本。部署失败时脚本会尝试启动上一版服务。
 
 当前生产验收记录：`9117c3518ab3f79a93b16a3727a7960b349439c2` 已通过 GitHub CI、Docker/Pboot 集成与生产部署。生产主机上的 `/var/lib/cloudcrane/workspaces-quota` 已确认挂载为带 `prjquota` 的 ext4；两个不同 project ID 的容器写入测试确认 16 MiB Workspace 达到硬限后收到 `ENOSPC`，64 MiB Workspace 仍能写入；Runner、Workspace Gateway 和 Production Gateway 健康检查通过。真实 Workspace 容器测试确认 Metadata GET 与 Token PUT 被拒绝、普通 HTTPS 可访问，DOCKER-USER jump 和 REJECT 规则计数通过。首次部署曾因 `quotaon -P -p` 已启用时返回状态码 1 而被 `pipefail` 误判失败；日志检查确认 quota 实际开启，修正状态解析后重部署成功。不要把命令退出码单独当作 quota 状态，需解析 `quotaon -P -p` 输出。
 
@@ -151,7 +151,7 @@ Docker systemd drop-in 和 Metadata oneshot service 已安装并检查生效；�
 
 `repquota -P -a` reports project usage, block limits and inode limits. The `quota -P <project-id> -f <mount>` form is not supported by the deployed quota tools and must not be used to inspect project usage.
 
-不要用 `du`、API 写入检查或容器 overlay 大小冒充硬配额。Metadata token-required/hardened 模式是 ECS 控制面设置的第二层；即使无法确认其状态，也不能省略宿主机网络 deny。
+不要用 `du`、API 写入检查或容器 overlay 大小冒充硬配额。Metadata token-required/hardened 模式属于云服务商控制面的第二层；查明当前服务商前，不要假设其存在或可配置。无论控制面设置如何，都不能省略宿主机网络 deny。
 
 如果 Workspace 配额挂载不可用，不要启动 Runner 接受 Workspace 工作负载。先确认旧目录和新挂载数据，再恢复 `.env.server.local` 中的 `WORKSPACE_ROOT` 到备份路径，重启服务并检查 Workspace runtime；确认恢复后再处理 quota image，禁止直接删除 `.ext4` 文件。
 
