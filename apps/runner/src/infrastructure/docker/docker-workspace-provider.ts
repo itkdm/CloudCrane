@@ -280,7 +280,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
         command: 'sqlite3',
         args: [
           `/workspace/.cloudcrane/production-refresh-${input.refreshId}/incoming/pbootcms.db`,
-          'DROP TABLE IF EXISTS cloudcrane_cms_content_create_ops; DROP TABLE IF EXISTS cloudcrane_cms_media_upload_ops;',
+          'DROP TABLE IF EXISTS cloudcrane_cms_content_create_ops; DROP TABLE IF EXISTS cloudcrane_cms_category_create_ops; DROP TABLE IF EXISTS cloudcrane_cms_media_upload_ops;',
         ],
         cwd: '/workspace',
         env: {},

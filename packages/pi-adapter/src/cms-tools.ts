@@ -17,6 +17,15 @@ const listContentParameters = Type.Object({
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   cursor: Type.Optional(contentId),
 });
+const createCategoryParameters = Type.Object({
+  parentCode: categoryCode,
+  name: Type.String({ minLength: 1, maxLength: 100 }),
+  filename: Type.Optional(
+    Type.String({ maxLength: 30, pattern: '^(?:[a-zA-Z0-9-]+(?:/[a-zA-Z0-9-]+)*)?$' }),
+  ),
+  status: Type.Optional(Type.Union([Type.Literal('0'), Type.Literal('1')])),
+  idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
+});
 const contentPatch = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 100 })),
   subtitle: Type.Optional(Type.String({ maxLength: 100 })),
@@ -97,6 +106,27 @@ export function createCmsTools(
       'Read one content item and its current version from the live Production CMS before editing it.',
       Type.Object({ contentId }),
       (input) => client.getContent(input),
+    ),
+    cms_category_create: tool(
+      'cms_category_create',
+      'Create one hidden-by-default list subcategory under an existing active list category in the live Production CMS. Read categories first and use a parentCode from that list; the new category inherits its model and templates. Set status to 1 only when explicitly requested. This does not create or change a CMS model. On UNKNOWN_RESULT, retry the identical payload with the returned idempotencyKey.',
+      createCategoryParameters,
+      async ({ idempotencyKey: suppliedKey, ...payload }, toolCallId) => {
+        const idempotencyKey = suppliedKey ?? operationKey('category', toolCallId);
+        try {
+          return await client.createCategory(payload, { idempotencyKey });
+        } catch (error) {
+          if (error instanceof ProductionClientError && error.code === 'UNKNOWN_RESULT') {
+            return {
+              status: 'unknown',
+              code: error.code,
+              idempotencyKey,
+              retry: 'Repeat the identical cms_category_create payload and this idempotencyKey.',
+            };
+          }
+          throw error;
+        }
+      },
     ),
     cms_content_create: tool(
       'cms_content_create',

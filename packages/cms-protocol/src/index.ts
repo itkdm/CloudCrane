@@ -35,6 +35,18 @@ export const cmsActionSchemas = {
     cursor: contentIdSchema.optional(),
   }),
   'cms.content.get': z.object({ contentId: contentIdSchema }),
+  'cms.category.create': z
+    .object({
+      parentCode: pbootCodeSchema,
+      name: z.string().trim().min(1).max(100),
+      filename: z
+        .string()
+        .max(30)
+        .regex(/^(?:[a-zA-Z0-9-]+(?:\/[a-zA-Z0-9-]+)*)?$/)
+        .optional(),
+      status: z.enum(['0', '1']).default('0'),
+    })
+    .strict(),
   'cms.media.upload': z
     .object({
       attachmentId: z.string().uuid(),
@@ -109,6 +121,10 @@ export const cmsOperationSchema = z.discriminatedUnion('operation', [
     payload: cmsActionSchemas['cms.content.get'],
   }),
   z.object({
+    operation: z.literal('cms.category.create'),
+    payload: cmsActionSchemas['cms.category.create'],
+  }),
+  z.object({
     operation: z.literal('cms.media.upload'),
     payload: cmsActionSchemas['cms.media.upload'],
   }),
@@ -145,6 +161,12 @@ export const cmsCategorySchema = z.object({
   modelType: z.enum(['list', 'single']),
   status: z.enum(['0', '1']),
   filename: z.string(),
+});
+
+export const cmsCategoryCreateResultSchema = z.object({
+  item: cmsCategorySchema,
+  workspaceContentStale: z.literal(true),
+  replayed: z.boolean(),
 });
 
 export const cmsContentSummarySchema = z.object({
@@ -202,6 +224,7 @@ export const cmsOperationResultSchemas = {
     nextCursor: contentIdSchema.nullable(),
   }),
   'cms.content.get': cmsContentSchema,
+  'cms.category.create': cmsCategoryCreateResultSchema,
   'cms.media.upload': z.object({
     path: z
       .string()

@@ -126,6 +126,13 @@ export class ProductionClient {
     return this.call('cms.content.get', payload, options);
   }
 
+  cmsCreateCategory(
+    payload: { parentCode: string; name: string; filename?: string; status?: '0' | '1' },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.call('cms.category.create', payload, options);
+  }
+
   cmsUploadMedia(
     payload: {
       attachmentId: string;

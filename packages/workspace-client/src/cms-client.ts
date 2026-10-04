@@ -24,6 +24,13 @@ export class CmsClient {
     return this.production.cmsGetContent(input, options);
   }
 
+  createCategory(
+    input: { parentCode: string; name: string; filename?: string; status?: '0' | '1' },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.production.cmsCreateCategory(input, options);
+  }
+
   uploadMedia(
     input: {
       attachmentId: string;

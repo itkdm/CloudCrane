@@ -88,6 +88,39 @@ describe('CMS semantic protocol', () => {
     ).toBe(false);
   });
 
+  it('accepts bounded hidden-by-default list subcategory creation', () => {
+    expect(
+      cmsOperationSchema.parse({
+        operation: 'cms.category.create',
+        payload: { parentCode: 'news_01', name: 'Industry News' },
+      }),
+    ).toEqual({
+      operation: 'cms.category.create',
+      payload: { parentCode: 'news_01', name: 'Industry News', status: '0' },
+    });
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.category.create',
+        payload: { parentCode: 'news_01', name: 'Invalid', filename: '../admin' },
+      }).success,
+    ).toBe(false);
+    expect(
+      cmsOperationResultSchemas['cms.category.create'].safeParse({
+        item: {
+          scode: 'cc000001',
+          name: 'Industry News',
+          parentCode: 'news_01',
+          modelCode: 'M01',
+          modelType: 'list',
+          status: '0',
+          filename: '',
+        },
+        workspaceContentStale: true,
+        replayed: false,
+      }).success,
+    ).toBe(true);
+  });
+
   it('accepts only bounded raster image uploads and safe Production paths', () => {
     const payload = {
       attachmentId: '00000000-0000-4000-8000-000000000001',

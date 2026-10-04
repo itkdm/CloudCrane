@@ -40,6 +40,7 @@ export type CmsOperationInput = {
     | 'cms.categories.list'
     | 'cms.content.list'
     | 'cms.content.get'
+    | 'cms.category.create'
     | 'cms.media.upload'
     | 'cms.content.create'
     | 'cms.content.update'

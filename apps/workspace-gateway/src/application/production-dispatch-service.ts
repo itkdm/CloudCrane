@@ -150,6 +150,7 @@ function cmsAuditSummary(
   }
   if (
     operation.operation !== 'cms.content.create' &&
+    operation.operation !== 'cms.category.create' &&
     operation.operation !== 'cms.content.update' &&
     operation.operation !== 'cms.company.update'
   )
@@ -158,11 +159,19 @@ function cmsAuditSummary(
     patch: Record<string, unknown>;
     contentId?: string;
     categoryCode?: string;
+    parentCode?: string;
   };
-  const fields = operation.operation === 'cms.content.create' ? payload : payload.patch;
+  const fields =
+    operation.operation === 'cms.content.create' || operation.operation === 'cms.category.create'
+      ? payload
+      : payload.patch;
   const changedFields = Object.entries(fields)
     .filter(
-      ([field]) => field !== 'categoryCode' && field !== 'contentId' && field !== 'expectedVersion',
+      ([field]) =>
+        field !== 'categoryCode' &&
+        field !== 'parentCode' &&
+        field !== 'contentId' &&
+        field !== 'expectedVersion',
     )
     .flatMap(([field, value]) =>
       field === 'extensionFields' && value && typeof value === 'object'
@@ -185,7 +194,22 @@ function cmsAuditSummary(
               ? result.item.id
               : undefined,
         }
-      : { recordId: operation.operation === 'cms.content.update' ? payload.contentId : 'company' }),
+      : operation.operation === 'cms.category.create'
+        ? {
+            parentCode: payload.parentCode,
+            recordCode:
+              typeof result === 'object' &&
+              result &&
+              'item' in result &&
+              typeof result.item === 'object' &&
+              result.item &&
+              'scode' in result.item
+                ? result.item.scode
+                : undefined,
+          }
+        : {
+            recordId: operation.operation === 'cms.content.update' ? payload.contentId : 'company',
+          }),
     changedFields,
   };
 }

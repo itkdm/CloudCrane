@@ -314,6 +314,127 @@ function createContent(PDO $pdo, array $input, string $idempotencyKey): array {
         return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => false];
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
 }
+function logicalCategory(PDO $pdo, string $code): array {
+    pbootFunctions();
+    requireColumns($pdo, 'ay_content_sort', ['acode','mcode','pcode','scode','name','listtpl','contenttpl','status','filename']);
+    requireColumns($pdo, 'ay_model', ['mcode','type']);
+    $query = $pdo->prepare('SELECT s.scode,s.name,s.pcode,s.mcode,m.type,s.status,s.filename FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.scode=:scode AND s.acode=:acode LIMIT 1');
+    $query->execute([':scode' => $code, ':acode' => defaultAcode($pdo)]);
+    $row = $query->fetch();
+    if (!$row) failCms('CMS_CATEGORY_CREATE_RESULT_UNAVAILABLE', 'The CMS category create was committed, but its category is no longer available');
+    return [
+        'scode' => (string)$row['scode'],
+        'name' => decode_string((string)$row['name']),
+        'parentCode' => (string)$row['pcode'],
+        'modelCode' => (string)$row['mcode'],
+        'modelType' => (string)$row['type'] === '1' ? 'single' : 'list',
+        'status' => (string)$row['status'],
+        'filename' => (string)$row['filename'],
+    ];
+}
+function createCategory(PDO $pdo, array $input, string $idempotencyKey): array {
+    pbootFunctions();
+    if ($idempotencyKey === '' || strlen($idempotencyKey) > 255)
+        failCms('CMS_INVALID_VALUE', 'Category create idempotency key is invalid');
+    if (array_diff(array_keys($input), ['parentCode', 'name', 'filename', 'status']))
+        failCms('CMS_INVALID_FIELD', 'Category create contains a field outside the allowlist');
+    $parentCode = (string)($input['parentCode'] ?? '');
+    $name = trim((string)($input['name'] ?? ''));
+    $filename = (string)($input['filename'] ?? '');
+    $status = (string)($input['status'] ?? '0');
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,20}$/', $parentCode) || $name === '' || mb_strlen($name, 'UTF-8') > 100)
+        failCms('CMS_INVALID_VALUE', 'PbootCMS category parent and name are invalid');
+    if (!in_array($status, ['0', '1'], true)) failCms('CMS_INVALID_VALUE', 'PbootCMS category status is invalid');
+    if (strlen($filename) > 30 || ($filename !== '' && !preg_match('/^[a-zA-Z0-9-]+(?:\/[a-zA-Z0-9-]+)*$/', $filename)))
+        failCms('CMS_INVALID_VALUE', 'PbootCMS category URL name contains unsupported characters');
+
+    requireColumns($pdo, 'ay_content_sort', ['acode','mcode','pcode','scode','name','listtpl','contenttpl','status','filename','sorting','create_user','update_user','outlink']);
+    requireColumns($pdo, 'ay_model', ['mcode','type','urlname']);
+    $parentQuery = $pdo->prepare('SELECT s.scode,s.status,s.mcode,s.listtpl,s.contenttpl,m.type,s.outlink FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.scode=:scode AND s.acode=:acode LIMIT 1');
+    $parentQuery->execute([':scode' => $parentCode, ':acode' => defaultAcode($pdo)]);
+    $parent = $parentQuery->fetch();
+    if (!$parent || (string)$parent['status'] !== '1' || (string)$parent['type'] !== '2' || (string)($parent['outlink'] ?? '') !== '')
+        failCms('CMS_INVALID_VALUE', 'CMS category parent must be an active list category');
+
+    $pdo->exec('CREATE TABLE IF NOT EXISTS cloudcrane_cms_category_create_ops (
+        idempotency_key_hash TEXT PRIMARY KEY,
+        request_hash TEXT NOT NULL,
+        category_code TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )');
+    $keyHash = hash('sha256', $idempotencyKey);
+    $normalizedInput = ['parentCode' => $parentCode, 'name' => $name, 'filename' => $filename, 'status' => $status];
+    $requestHash = hash('sha256', json_encode(canonicalize($normalizedInput), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $prior = $pdo->prepare('SELECT request_hash,category_code FROM cloudcrane_cms_category_create_ops WHERE idempotency_key_hash=:key');
+        $prior->execute([':key' => $keyHash]);
+        $existing = $prior->fetch();
+        if ($existing) {
+            if (!hash_equals((string)$existing['request_hash'], $requestHash))
+                failCms('IDEMPOTENCY_KEY_REUSED', 'This CMS category idempotency key was already used with different input');
+            $item = logicalCategory($pdo, (string)$existing['category_code']);
+            $pdo->commit();
+            return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => true];
+        }
+
+        $encodedName = encodePboot($name);
+        $duplicate = $pdo->prepare('SELECT 1 FROM ay_content_sort WHERE acode=:acode AND pcode=:parent AND name=:name LIMIT 1');
+        $duplicate->execute([':acode' => defaultAcode($pdo), ':parent' => $parentCode, ':name' => $encodedName]);
+        if ($duplicate->fetch()) failCms('CMS_INVALID_VALUE', 'A category with this name already exists under the selected parent');
+        if ($filename !== '') {
+            $filenameCheck = $pdo->prepare('SELECT 1 FROM ay_content_sort WHERE filename=:filename LIMIT 1');
+            $filenameCheck->execute([':filename' => $filename]);
+            $modelFilenameCheck = $pdo->prepare('SELECT 1 FROM ay_model WHERE urlname=:filename LIMIT 1');
+            $modelFilenameCheck->execute([':filename' => $filename]);
+            if ($filenameCheck->fetch() || $modelFilenameCheck->fetch())
+                failCms('CMS_INVALID_VALUE', 'PbootCMS category URL name is already in use');
+        }
+
+        $codes = $pdo->query("SELECT scode FROM ay_content_sort WHERE lower(scode) GLOB 'cc[0-9]*'")->fetchAll(PDO::FETCH_COLUMN);
+        $next = 1;
+        foreach ($codes as $code) {
+            if (preg_match('/^cc([0-9]+)$/', (string)$code, $match)) {
+                $sequence = (int)$match[1];
+                if ($sequence >= $next) {
+                    if ($sequence >= PHP_INT_MAX) failCms('CMS_SCHEMA_UNSUPPORTED', 'PbootCMS category code sequence is exhausted');
+                    $next = $sequence + 1;
+                }
+            }
+        }
+        $categoryCode = 'cc' . str_pad((string)$next, 6, '0', STR_PAD_LEFT);
+        $codeCheck = $pdo->prepare('SELECT 1 FROM ay_content_sort WHERE scode=:scode LIMIT 1');
+        while (true) {
+            $codeCheck->execute([':scode' => $categoryCode]);
+            if (!$codeCheck->fetch()) break;
+            $next++;
+            if ($next >= PHP_INT_MAX) failCms('CMS_SCHEMA_UNSUPPORTED', 'PbootCMS category code sequence is exhausted');
+            $categoryCode = 'cc' . str_pad((string)$next, 6, '0', STR_PAD_LEFT);
+        }
+        $now = date('Y-m-d H:i:s');
+        $values = [
+            'acode' => defaultAcode($pdo), 'pcode' => $parentCode, 'scode' => $categoryCode,
+            'name' => $encodedName, 'mcode' => (string)$parent['mcode'],
+            'listtpl' => (string)$parent['listtpl'], 'contenttpl' => (string)$parent['contenttpl'],
+            'status' => $status, 'gid' => '0', 'gtype' => '4', 'gnote' => '',
+            'subname' => '', 'def1' => '', 'def2' => '', 'def3' => '', 'filename' => $filename,
+            'outlink' => '', 'ico' => '', 'pic' => '', 'title' => '', 'keywords' => '', 'description' => '',
+            'sorting' => 255, 'create_user' => 'cloudcrane-agent', 'update_user' => 'cloudcrane-agent',
+            'create_time' => $now, 'update_time' => $now,
+        ];
+        $columns = tableColumns($pdo, 'ay_content_sort');
+        $insertValues = array_filter($values, static fn($value, $field) => isset($columns[$field]), ARRAY_FILTER_USE_BOTH);
+        $names = array_map(static fn($field) => '"' . $field . '"', array_keys($insertValues));
+        $params = array_map(static fn($field) => ':' . $field, array_keys($insertValues));
+        $insert = $pdo->prepare('INSERT INTO ay_content_sort (' . implode(',', $names) . ') VALUES (' . implode(',', $params) . ')');
+        $insert->execute(array_combine($params, array_values($insertValues)));
+        $save = $pdo->prepare('INSERT INTO cloudcrane_cms_category_create_ops (idempotency_key_hash,request_hash,category_code,created_at) VALUES (:key,:request,:code,:at)');
+        $save->execute([':key' => $keyHash, ':request' => $requestHash, ':code' => $categoryCode, ':at' => $now]);
+        $item = logicalCategory($pdo, $categoryCode);
+        $pdo->commit();
+        return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => false];
+    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+}
 function uploadCmsMedia(PDO $pdo, array $input, string $idempotencyKey): array {
     if ($idempotencyKey === '' || strlen($idempotencyKey) > 255)
         failCms('CMS_INVALID_VALUE', 'Media upload idempotency key is invalid');
@@ -505,6 +626,7 @@ function matchesPatch(array $current, array $patch, bool $content): bool {
     return true;
 }
 function handleCms(PDO $pdo, string $operation, array $input, string $idempotencyKey = ''): mixed {
+    if ($operation === 'cms.category.create') return createCategory($pdo, $input, $idempotencyKey);
     if ($operation === 'cms.content.create') return createContent($pdo, $input, $idempotencyKey);
     if ($operation === 'cms.media.upload') return uploadCmsMedia($pdo, $input, $idempotencyKey);
     if ($operation === 'cms.categories.list') {

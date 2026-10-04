@@ -893,7 +893,7 @@ Real-time Dev/Prod DB Sync
 
 ## Implementation Status (2026-10-04): CMS Content Create V2
 
-- Production CMS 新增内容只允许选择已存在且启用的列表模型栏目；单页模型和栏目创建不在此能力范围内。默认 `status=0`（未发布），只有用户明确要求立即发布时才允许 `status=1`。
+- Production CMS 新增内容只允许选择已存在且启用的列表模型栏目；单页模型仍不支持内容创建。栏目创建由下方独立的 CMS Category Create V1 提供。默认 `status=0`（未发布），只有用户明确要求立即发布时才允许 `status=1`。
 - Create 的请求幂等键必填，并与规范化业务请求哈希绑定。Runner 内存缓存拒绝同 key 不同请求；受信 Pboot adapter 在同一个 SQLite `BEGIN IMMEDIATE` 事务里提交内容行、扩展字段和幂等结果指针，因此 Runner/容器重启或响应丢失后仍能安全重试。
 - SQLite 只保存幂等 key 的 SHA-256、请求哈希、创建出的内容 ID 和时间，不保存原 key 或文章正文。相同 key/相同请求返回既有内容；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；内容后来被删除时返回 `CMS_CREATE_RESULT_UNAVAILABLE`，避免误建第二条。
 - `cloudcrane_cms_content_create_ops` 是 Production 专用操作账本，不属于 PbootCMS 内容 Schema。Refresh 只在待导入的快照副本中删除该表，再执行 Schema 比对；Production 原库不变，幂等记录也不会进入 Workspace。
@@ -902,10 +902,18 @@ Real-time Dev/Prod DB Sync
 ## Implementation Status (2026-10-04): CMS Media Upload V1
 
 - `cms_media_upload` 仅接收当前用户消息附带、且用户明确要求用于正式站的图片；Agent 按当前消息中的图片序号解析，服务端再次按 Website、Session、Owner 授权读取附件。后台直接上传的 Production 图片仍由用户提供现有路径后引用，不会重复上传。
-- 第一版只接受 JPEG、PNG、WebP，原图和规范化结果均不超过 5 MiB，图像最多 8 MP。受信 Production adapter 验证 MIME、文件头、SHA-256 与尺寸，用 GD 解码并重新编码，再写入共享 `upload` 下内容寻址路径。GIF、SVG 与其他格式拒绝。
+- 第一版只接受 JPEG、PNG、WebP，原图不超过 5 MiB、单边不超过 10000 像素、总像素不超过 16 MP；超过 8 MP 时等比缩小到不超过 8 MP。受信 Production adapter 验证 MIME、文件头、SHA-256 与尺寸，用 GD 解码并重新编码，再写入共享 `upload` 下内容寻址路径。GIF、SVG 与其他格式拒绝。
 - Production SQLite 只保存 key 哈希、请求哈希、相对公开路径、结果摘要与时间；图片文件原子写入。超时后使用同一 idempotency key 和同一 MIME/内容可重放；冲突 key 拒绝，文件丢失或摘要不符返回 `CMS_MEDIA_RESULT_UNAVAILABLE`。Refresh 清除副本中的 CMS 操作账本，但将上传文件正常回流 Workspace。
 - 图片上传不清 Pboot 页面缓存；它只是把未引用文件加入共享媒体目录。生产端容器集成覆盖规范化、持久重放、冲突 key 和 Refresh 不导入 Production 操作账本；审计只保留 MIME、摘要和大小，不保存图片字节或附件 ID。
-- 目前实现及本地检查已加入；PHP 与 Docker 集成以 GitHub CI 为准。线上 Agent 媒体上传尚未执行，不能据此宣称线上 E2E 通过。
+- 本机格式、lint、类型、单测和构建检查通过；本机未安装 PHP/Docker，容器集成由 GitHub CI 验证。CI #535 和 Deploy #134 通过后，指定线上 Production E2E 网站已用当前消息附件完成 Agent 上传与公网图片渲染；完整证据和 Network 面板未取得的限制见 `docs/operations/cloudcrane-development-lifecycle.md`。
+
+## Implementation Status (2026-10-04): CMS Category Create V1
+
+- Agent 可在一个已存在、启用且属于列表模型的父栏目下创建子栏目。新栏目继承父栏目的模型、列表模板和详情模板；单页父栏目、停用父栏目、外链栏目和模型定义变更均拒绝。第一版默认隐藏 `status=0`；只有用户明确要求立即启用时才允许 `status=1`。
+- 只允许提交父栏目编码、栏目名、可选安全 URL 名称和状态。Adapter 生成新的 Pboot 逻辑编码，不接受 Agent 指定编码、模型、模板或 Pboot 表字段；栏目名在同一父栏目下不允许重复。
+- 创建操作使用 Production SQLite 持久化幂等账本。相同 key/相同规范化请求重放同一个栏目；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；已创建栏目后来删除时返回 `CMS_CATEGORY_CREATE_RESULT_UNAVAILABLE`。超时或页面缓存清理失败时保留同一个幂等键重试。
+- 成功后清理 Pboot 页面缓存并刷新 PHP runtime state；失败返回 `UNKNOWN_RESULT`，客户端使用相同 key 安全恢复。Production-only 幂等账本不会进入 Workspace Refresh 快照。
+- PbootCMS 3.2.24/3.2.26 Docker integration 覆盖首次创建、默认隐藏状态、父栏目模型/模板继承、缓存清理失败后的容器重启重放、冲突 key 和 Refresh 账本剔除。公网测试站的真实栏目创建尚未执行；线上验证需在创建一次性隐藏测试栏目并确认其可见数据后进行。
 
 ## Implementation Status (2026-10-04): CMS Content Create 与线上 E2E
 

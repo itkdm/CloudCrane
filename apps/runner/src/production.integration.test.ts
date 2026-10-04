@@ -845,6 +845,81 @@ if (!$db->exec('COMMIT')) exit(26);`,
         }),
       ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
 
+      const categoryKey = `cms-category-${realWebsiteId}`;
+      const categoryPayload = {
+        parentCode: createPayload.categoryCode,
+        name: 'CloudCrane CMS category durable create integration',
+      };
+      const categoryCacheProbe =
+        '/site/shared/runtime/cache/cloudcrane-cms-category-create-invalidation-probe';
+      expect(
+        await runProductionContainerCommand(
+          container,
+          `mkdir -p /site/shared/runtime/cache && printf 'stale-category-page' > '${categoryCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
+        ),
+      ).toBe(0);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.category.create',
+          payload: categoryPayload,
+          idempotencyKey: categoryKey,
+        }),
+      ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
+      expect(
+        await runProductionContainerCommand(container, 'chmod 0700 /site/shared/runtime/cache'),
+      ).toBe(0);
+      await container.restart({ t: 10 });
+      await waitForProductionHealth(origin);
+      const categoryReplay = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.category.create',
+        payload: categoryPayload,
+        idempotencyKey: categoryKey,
+      })) as {
+        item: {
+          scode: string;
+          name: string;
+          parentCode: string;
+          modelType: string;
+          status: string;
+        };
+        replayed: boolean;
+      };
+      expect(categoryReplay).toMatchObject({
+        item: {
+          name: categoryPayload.name,
+          parentCode: categoryPayload.parentCode,
+          modelType: 'list',
+          status: '0',
+        },
+        replayed: true,
+      });
+      expect(categoryReplay.item.scode).toMatch(/^cc[0-9]{6,}$/);
+      expect(
+        await runProductionContainerCommand(container, `test ! -e '${categoryCacheProbe}'`),
+      ).toBe(0);
+      const categoriesAfterCreate = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.categories.list',
+        payload: { limit: 100 },
+      })) as { items: Array<{ scode: string; name: string; parentCode: string; status: string }> };
+      expect(
+        categoriesAfterCreate.items.filter(
+          (category) => category.scode === categoryReplay.item.scode,
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          name: categoryPayload.name,
+          parentCode: categoryPayload.parentCode,
+          status: '0',
+        }),
+      ]);
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.category.create',
+          payload: { ...categoryPayload, name: `${categoryPayload.name} changed` },
+          idempotencyKey: categoryKey,
+        }),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+
       const mediaBytes = pngPixel(10, 20, 30);
       const mediaPayload = {
         attachmentId: '00000000-0000-4000-8000-000000000091',
@@ -1062,6 +1137,19 @@ if (!$db->exec('COMMIT')) exit(26);`,
         executionId: '00000000-0000-4000-8000-000000000097',
       });
       expect(refreshedMediaLedger.stdout.trim()).toBe('0');
+      const refreshedCategoryLedger = await refreshedDaemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cloudcrane_cms_category_create_ops';",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000100',
+      });
+      expect(refreshedCategoryLedger.stdout.trim()).toBe('0');
       const previewAuthorizationAfterRefresh = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [

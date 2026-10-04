@@ -142,6 +142,29 @@ describe('workspace envelope', () => {
     ).toBe(true);
   });
 
+  it('requires a durable idempotency key for Production CMS category creation', () => {
+    const operation = {
+      operation: 'cms.category.create' as const,
+      requestId: '00000000-0000-4000-8000-000000000031',
+      traceId: '00000000-0000-4000-8000-000000000032',
+      websiteId: '00000000-0000-4000-8000-000000000033',
+      workspaceId: '00000000-0000-4000-8000-000000000034',
+      deadlineMs: 120_000,
+      payload: { parentCode: 'news01', name: 'Industry News' },
+    };
+    expect(productionClientOperationSchema.safeParse(operation).success).toBe(false);
+    const withKey = { ...operation, idempotencyKey: 'cms-category-operation-1' };
+    expect(productionClientOperationSchema.parse(withKey).idempotencyKey).toBe(
+      'cms-category-operation-1',
+    );
+    expect(
+      productionRunnerOperationSchema.safeParse({
+        ...withKey,
+        type: 'production.operation',
+      }).success,
+    ).toBe(true);
+  });
+
   it('validates operation envelopes and central mutation classification', () => {
     const operation = {
       type: 'workspace.operation' as const,

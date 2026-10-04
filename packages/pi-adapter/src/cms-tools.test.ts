@@ -8,6 +8,7 @@ describe('CMS Agent tools', () => {
       listCategories: vi.fn().mockResolvedValue({ items: [] }),
       listContent: vi.fn().mockResolvedValue({ items: [] }),
       getContent: vi.fn().mockResolvedValue({ id: '4', version: 'a'.repeat(64) }),
+      createCategory: vi.fn().mockResolvedValue({ workspaceContentStale: true, replayed: false }),
       updateContent: vi.fn().mockResolvedValue({ workspaceContentStale: true }),
       createContent: vi.fn().mockResolvedValue({ workspaceContentStale: true, replayed: false }),
       getCompany: vi.fn().mockResolvedValue({ version: 'b'.repeat(64) }),
@@ -18,6 +19,7 @@ describe('CMS Agent tools', () => {
       'cms_list_categories',
       'cms_list_content',
       'cms_get_content',
+      'cms_category_create',
       'cms_content_create',
       'cms_update_content',
       'cms_get_company',
@@ -59,6 +61,29 @@ describe('CMS Agent tools', () => {
     expect(result.details).toMatchObject({ status: 'unknown', code: 'UNKNOWN_RESULT' });
     expect(client.createContent).toHaveBeenCalledWith(
       { categoryCode: 'news01', title: 'New item' },
+      { idempotencyKey },
+    );
+  });
+
+  it('returns a stable category idempotency key when the result is unknown', async () => {
+    const client = {
+      createCategory: vi
+        .fn()
+        .mockRejectedValue(new ProductionClientError('UNKNOWN_RESULT', 'unknown')),
+    };
+    const create = createCmsTools(client as never).cms_category_create;
+    const result = await create.execute(
+      'call-category-1',
+      { parentCode: 'news_01', name: 'Industry News' } as never,
+      undefined,
+      undefined,
+      undefined as never,
+    );
+    const idempotencyKey = (result.details as { idempotencyKey: string }).idempotencyKey;
+    expect(idempotencyKey).toMatch(/^cms-category-/);
+    expect(result.details).toMatchObject({ status: 'unknown', code: 'UNKNOWN_RESULT' });
+    expect(client.createCategory).toHaveBeenCalledWith(
+      { parentCode: 'news_01', name: 'Industry News' },
       { idempotencyKey },
     );
   });

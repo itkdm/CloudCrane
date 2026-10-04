@@ -27,6 +27,7 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.category.create',
       'cms.media.upload',
       'cms.content.create',
       'cms.content.update',
@@ -119,6 +120,7 @@ export class ProductionReleaseOperationExecutor implements ProductionOperationEx
       case 'cms.categories.list':
       case 'cms.content.list':
       case 'cms.content.get':
+      case 'cms.category.create':
       case 'cms.media.upload':
       case 'cms.content.create':
       case 'cms.content.update':

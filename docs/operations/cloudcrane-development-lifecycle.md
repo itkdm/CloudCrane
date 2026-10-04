@@ -203,3 +203,11 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 本机 `pnpm format:check`、`pnpm lint`、`pnpm typecheck`、`pnpm test` 与 `git diff --check` 通过；本机没有 Docker/PHP，因此本地 Runner 集成测试显示 skipped，不能用它证明容器内 PHP、共享挂载或公网静态文件可用。本次 GitHub Actions [CI #532](https://github.com/itkdm/CloudCrane/actions/runs/37179636491) 的 Docker 集成正是发现上述 403 的地方；修复后的 [CI #533](https://github.com/itkdm/CloudCrane/actions/runs/37180233523) quality 与 docker-integration 均通过，覆盖 Production 图片经 HTTP 读取及容器重启后的同 key 幂等重放。随后 [Production Deploy #132](https://github.com/itkdm/CloudCrane/actions/runs/37180704537) 成功部署 `fb24ca9`，公网 `/api/auth/get-session` 与 `/agent/health` 检查通过。**今后涉及 Docker、PHP 扩展、bind mount、Nginx 静态路径或运行时权限时，即使本机纯单元测试通过，也必须等 GitHub Docker integration 和部署后的线上健康检查；不要把本机 skipped 写成验证通过。**
 
 在线 Agent 附件验收期间，第一次调用发现专用网站的 Production 容器仍运行旧镜像，尚不认识 `cms.media.upload`；在专用 E2E 网站执行 Republish 后，容器升级至当前 Production 镜像。随后用户提供的 JPEG 为 2924×2775（8.1141 MP），被旧的未文档化 8 MP 拒绝阈值拦截，尚未写入文件或账本。修复将输入上限定为 16 MP，超过 8 MP 时等比缩小。GitHub Actions [CI #535](https://github.com/itkdm/CloudCrane/actions/runs/37183707680) 的 quality 和 docker-integration 均通过，Docker 集成使用 2924×2775 PNG 验证缩放后不超过 8 MP 且公开静态路径返回 200；[Production Deploy #134](https://github.com/itkdm/CloudCrane/actions/runs/37184183564) 部署 `f66ecdb` 并通过公网健康检查。部署后再次在专用 `CloudCrane Production E2E` 网站执行 Republish，并在新的 Agent 对话中附上同一 JPEG。Agent 的 `cms_media_upload` 工具返回 `image/jpeg`、1,079,802 字节、`replayed: false`；随后通过内置浏览器打开其 Production 公网路径，图片成功渲染，浏览器报告尺寸 2903×2755。Agent 工具后最终文字回复在当时仍处于生成状态；工具卡片已明确显示完成且返回成功，未再次提交上传。截图在内置浏览器中截取并目视检查，DEVTOOLS MCP 不可用，因此没有 Network 面板证据。
+
+### 2026-10-04 CMS Category Create V1 实现
+
+沿用产品定义中已有的 `cms.category.create` 能力，补上受信任 Production CMS adapter 和 Agent 工具。第一版只在已启用列表栏目下创建子栏目，继承父栏目的模型和模板，不开放单页、模型配置、任意 Pboot 字段或 SQL。默认状态为隐藏；操作持久化幂等，缓存清理失败返回可重试的 `UNKNOWN_RESULT`，Refresh 不把生产幂等账本带回 Workspace。GitHub Docker integration 尚待本轮提交后执行；真实线上栏目 E2E 也尚未执行，需在专用测试站创建隐藏测试栏目后验收。
+
+### 2026-10-04 Metadata hardened mode 未验证
+
+Workspace 容器到 ECS Metadata 的 host-level deny、规则重启恢复和公网 HTTPS 连通性已在早前部署记录中验证。ECS 控制面是否启用 Metadata token-required/hardened mode 仍未核实；本机没有阿里云 CLI 或可用云控制面连接，本轮从服务器探测 Metadata endpoint 返回 HTTP `000`（超时/不可达），不能据此判断该开关状态。Issue #6 中 token-required 部分继续保持未完成；不要用 host firewall 的拦截结果代替 ECS 控制面配置证据。

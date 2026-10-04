@@ -727,6 +727,7 @@ export class DockerProductionProvider implements ProductionProvider {
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.category.create',
       'cms.media.upload',
       'cms.content.create',
       'cms.content.update',
@@ -852,6 +853,7 @@ export class DockerProductionProvider implements ProductionProvider {
         'CMS_PRODUCTION_NOT_ACTIVE',
         'CMS_AUTHORIZATION_REQUIRED',
         'CMS_CONTENT_NOT_FOUND',
+        'CMS_CATEGORY_CREATE_RESULT_UNAVAILABLE',
         'CMS_CONTENT_CHANGED',
         'IDEMPOTENCY_KEY_REUSED',
         'CMS_CREATE_RESULT_UNAVAILABLE',
@@ -888,6 +890,7 @@ export class DockerProductionProvider implements ProductionProvider {
   private isCmsMutation(operation: CmsOperationInput['operation']): boolean {
     return (
       operation === 'cms.content.create' ||
+      operation === 'cms.category.create' ||
       operation === 'cms.media.upload' ||
       operation === 'cms.content.update' ||
       operation === 'cms.company.update'
@@ -897,6 +900,7 @@ export class DockerProductionProvider implements ProductionProvider {
   private requiresCmsRuntimeRefresh(operation: CmsOperationInput['operation']): boolean {
     return (
       operation === 'cms.content.create' ||
+      operation === 'cms.category.create' ||
       operation === 'cms.content.update' ||
       operation === 'cms.company.update'
     );

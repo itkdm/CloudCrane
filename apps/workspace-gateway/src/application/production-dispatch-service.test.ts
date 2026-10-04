@@ -164,4 +164,55 @@ describe('ProductionDispatchService CMS audit', () => {
     expect(JSON.stringify(audit)).not.toContain('private image bytes');
     expect(JSON.stringify(audit)).not.toContain(operation.payload.attachmentId);
   });
+
+  it('audits CMS category creation without recording category name values', async () => {
+    const store = {
+      createAuditEvent: vi.fn().mockResolvedValue('audit-category'),
+      finishAuditEvent: vi.fn().mockResolvedValue(undefined),
+      findWorkspace: vi.fn().mockResolvedValue({ runnerId: 'runner-1' }),
+      findAvailableRunner: vi.fn().mockResolvedValue({
+        runnerId: 'runner-1',
+        capabilities: ['cms.category.create'],
+      }),
+    };
+    const registry = {
+      get: vi.fn(),
+      online: vi.fn().mockReturnValue(true),
+      dispatch: vi.fn().mockResolvedValue({
+        type: 'runner.completed',
+        requestId: '00000000-0000-4000-8000-000000000051',
+        traceId: '00000000-0000-4000-8000-000000000052',
+        result: {
+          item: { scode: 'cc000001', name: 'Private category name' },
+          workspaceContentStale: true,
+          replayed: false,
+        },
+        durationMs: 5,
+      }),
+    };
+    const service = new ProductionDispatchService(store as never, registry as never);
+    const operation = {
+      operation: 'cms.category.create' as const,
+      payload: { parentCode: 'news01', name: 'Private category name', status: '0' as const },
+      idempotencyKey: 'category-key-1',
+      requestId: '00000000-0000-4000-8000-000000000051',
+      traceId: '00000000-0000-4000-8000-000000000052',
+      websiteId: '00000000-0000-4000-8000-000000000053',
+      workspaceId: '00000000-0000-4000-8000-000000000054',
+      deadlineMs: 120_000,
+    };
+
+    await service.execute(operation);
+    const [, audit] = store.finishAuditEvent.mock.calls[0]!;
+    expect(audit).toMatchObject({
+      status: 'SUCCESS',
+      resultSummary: {
+        action: 'cms.category.create',
+        parentCode: 'news01',
+        recordCode: 'cc000001',
+        changedFields: 'name,status',
+      },
+    });
+    expect(JSON.stringify(audit)).not.toContain('Private category name');
+  });
 });
