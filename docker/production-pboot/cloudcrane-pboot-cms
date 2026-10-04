@@ -379,12 +379,36 @@ function uploadCmsMedia(PDO $pdo, array $input, string $idempotencyKey): array {
             throwCms('CMS_INVALID_VALUE', 'CMS media bytes do not match a supported image format');
         $width = (int)$imageInfo[0];
         $height = (int)$imageInfo[1];
-        if ($width < 1 || $height < 1 || $width > 10000 || $height > 10000 || $width * $height > 8000000)
+        $sourcePixels = $width * $height;
+        if ($width < 1 || $height < 1 || $width > 10000 || $height > 10000 || $sourcePixels > 16000000)
             throwCms('CMS_INVALID_VALUE', 'CMS media image dimensions exceed the supported limit');
         if (!function_exists('imagecreatefromstring'))
             throwCms('CMS_SCHEMA_UNSUPPORTED', 'Production image processing is unavailable');
         $image = @imagecreatefromstring($source);
         if ($image === false) throwCms('CMS_INVALID_VALUE', 'CMS media is not a decodable raster image');
+        if ($sourcePixels > 8000000) {
+            $scale = sqrt(8000000 / $sourcePixels);
+            $scaledWidth = max(1, (int)floor($width * $scale));
+            $scaledHeight = max(1, (int)floor($height * $scale));
+            while ($scaledWidth * $scaledHeight > 8000000) {
+                if ($scaledWidth >= $scaledHeight) $scaledWidth--;
+                else $scaledHeight--;
+            }
+            $scaled = imagecreatetruecolor($scaledWidth, $scaledHeight);
+            if ($scaled === false) throwCms('CMS_OPERATION_FAILED', 'CMS media image could not be resized');
+            if ($mimeType !== 'image/jpeg') {
+                imagealphablending($scaled, false);
+                imagesavealpha($scaled, true);
+            }
+            if (!imagecopyresampled($scaled, $image, 0, 0, 0, 0, $scaledWidth, $scaledHeight, $width, $height)) {
+                imagedestroy($scaled);
+                throwCms('CMS_OPERATION_FAILED', 'CMS media image could not be resized');
+            }
+            imagedestroy($image);
+            $image = $scaled;
+            $width = $scaledWidth;
+            $height = $scaledHeight;
+        }
         $encodedTemp = tempnam('/tmp', 'cloudcrane-cms-media-output-');
         if ($encodedTemp === false)
             throwCms('CMS_OPERATION_FAILED', 'CMS media could not be staged safely');

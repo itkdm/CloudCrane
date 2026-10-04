@@ -124,7 +124,7 @@ export function createCmsTools(
       ? {
           cms_media_upload: tool(
             'cms_media_upload',
-            'Upload one image explicitly attached to the current user message into the live Production CMS. Use the 1-based attachmentIndex shown in the current user message; only upload an image the user asked to publish or use. Supports PNG, JPEG, and WebP up to 5 MiB. The returned /static/upload path can be placed in CMS content. On UNKNOWN_RESULT, retry with the same attachmentIndex and returned idempotencyKey; never make a new key for that attempt.',
+            'Upload one image explicitly attached to the current user message into the live Production CMS. Use the 1-based attachmentIndex shown in the current user message; only upload an image the user asked to publish or use. Supports PNG, JPEG, and WebP up to 5 MiB with dimensions up to 10000 pixels per side and 16 megapixels total; images larger than 8 megapixels are proportionally downscaled before storage. The returned /static/upload path can be placed in CMS content. On UNKNOWN_RESULT, retry with the same attachmentIndex and returned idempotencyKey; never make a new key for that attempt.',
             uploadMediaParameters,
             async ({ attachmentIndex, idempotencyKey: suppliedKey }, toolCallId) => {
               const media = await options.resolveMediaAttachment!(attachmentIndex);

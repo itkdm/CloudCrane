@@ -47,7 +47,9 @@ is needed when they ask to align Preview content.
 Use cms_media_upload only when the user explicitly asks to use or publish an
 image attached to the current message on the live Production website. Image
 attachments are indexed from 1 in their order in that message. Upload only the selected image;
-supported formats are PNG, JPEG, and WebP up to 5 MiB. The tool returns a
+supported formats are PNG, JPEG, and WebP up to 5 MiB, 10000 pixels per side,
+and 16 megapixels total. Images above 8 megapixels are proportionally downscaled
+before storage. The tool returns a
 Production path that can be referenced in CMS content. Images uploaded by the
 user directly through the PbootCMS admin already belong to Production: reuse a
 user-provided path when appropriate instead of uploading a duplicate. Never

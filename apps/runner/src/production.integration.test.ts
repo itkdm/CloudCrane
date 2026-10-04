@@ -78,6 +78,30 @@ function pngPixel(red: number, green: number, blue: number): Buffer {
   ]);
 }
 
+function pngSolid(width: number, height: number, red: number, green: number, blue: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const row = Buffer.alloc(1 + width * 4);
+  for (let x = 0; x < width; x++) {
+    const offset = 1 + x * 4;
+    row[offset] = red;
+    row[offset + 1] = green;
+    row[offset + 2] = blue;
+    row[offset + 3] = 255;
+  }
+  const pixels = Buffer.alloc(row.length * height);
+  for (let y = 0; y < height; y++) row.copy(pixels, y * row.length);
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(pixels)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
 describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
   it('refreshes only Workspace content from a validated Production snapshot', async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-production-refresh-'));
@@ -863,6 +887,28 @@ if (!$db->exec('COMMIT')) exit(26);`,
           `test -s '/site/shared/upload${mediaUpload.path.replace('/static/upload', '')}'`,
         ),
       ).toBe(0);
+      const largeMediaBytes = pngSolid(2924, 2775, 80, 120, 160);
+      const largeMediaPayload = {
+        attachmentId: '00000000-0000-4000-8000-000000000092',
+        mimeType: 'image/png',
+        contentSha256: createHash('sha256').update(largeMediaBytes).digest('hex'),
+        contentBase64: largeMediaBytes.toString('base64'),
+      };
+      const largeMediaUpload = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.media.upload',
+        payload: largeMediaPayload,
+        idempotencyKey: `cms-media-large-${realWebsiteId}`,
+      })) as typeof mediaUpload;
+      expect(largeMediaUpload).toMatchObject({ mimeType: 'image/png', replayed: false });
+      expect(
+        await runProductionContainerCommand(
+          container,
+          `php -r '$i=getimagesize("/site/shared/upload${largeMediaUpload.path.replace('/static/upload', '')}"); if (!$i || $i[0]*$i[1] > 8000000 || $i[0] >= 2924 || $i[1] >= 2775) exit(1);'`,
+        ),
+      ).toBe(0);
+      const servedLargeMedia = await fetch(`${origin}${largeMediaUpload.path}`);
+      expect(servedLargeMedia.status).toBe(200);
+      expect(servedLargeMedia.headers.get('content-type')).toContain('image/png');
       const servedMedia = await fetch(`${origin}${mediaUpload.path}`);
       expect(servedMedia.status).toBe(200);
       expect(servedMedia.headers.get('content-type')).toContain('image/png');
