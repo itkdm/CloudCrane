@@ -352,7 +352,12 @@ function uploadCmsMedia(PDO $pdo, array $input, string $idempotencyKey): array {
         if ($existing) {
             if (!hash_equals((string)$existing['request_hash'], $requestHash))
                 throwCms('IDEMPOTENCY_KEY_REUSED', 'This CMS media idempotency key was already used with different image data');
-            $diskPath = '/site/shared/upload' . (string)$existing['public_path'];
+            $existingPath = (string)$existing['public_path'];
+            if (!preg_match('#^/static/upload/image/cloudcrane/([a-f0-9]{2})/([a-f0-9]{64})\\.(jpg|png|webp)$#', $existingPath, $matches) ||
+                !str_starts_with($matches[2], $matches[1]))
+                throwCms('CMS_MEDIA_RESULT_UNAVAILABLE', 'The CMS media upload result is no longer available');
+            $existingDirectory = ensureCmsUploadDirectory('/site/shared/upload', ['image', 'cloudcrane', $matches[1]]);
+            $diskPath = $existingDirectory . '/' . $matches[2] . '.' . $matches[3];
             if (!is_file($diskPath) || is_link($diskPath) ||
                 !hash_equals((string)$existing['content_sha256'], (string)hash_file('sha256', $diskPath)))
                 throwCms('CMS_MEDIA_RESULT_UNAVAILABLE', 'The CMS media upload result is no longer available');
@@ -412,10 +417,10 @@ function uploadCmsMedia(PDO $pdo, array $input, string $idempotencyKey): array {
         $storedHash = hash_file('sha256', $encodedTemp);
         if (!is_string($storedHash)) throwCms('CMS_OPERATION_FAILED', 'Normalized CMS media checksum is unavailable');
         $publicPath = '/static/upload/image/cloudcrane/' . substr($storedHash, 0, 2) . '/' . $storedHash . '.' . $extension;
-        $diskPath = '/site/shared/upload' . $publicPath;
         $directory = ensureCmsUploadDirectory('/site/shared/upload', [
-            'static', 'upload', 'image', 'cloudcrane', substr($storedHash, 0, 2),
+            'image', 'cloudcrane', substr($storedHash, 0, 2),
         ]);
+        $diskPath = $directory . '/' . $storedHash . '.' . $extension;
         if (is_link($diskPath)) throwCms('CMS_OPERATION_FAILED', 'CMS media destination is invalid');
         if (is_file($diskPath)) {
             if (!hash_equals($storedHash, (string)hash_file('sha256', $diskPath)))

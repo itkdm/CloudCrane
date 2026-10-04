@@ -860,7 +860,7 @@ if (!$db->exec('COMMIT')) exit(26);`,
       expect(
         await runProductionContainerCommand(
           container,
-          `test -s '/site/shared/upload${mediaUpload.path}'`,
+          `test -s '/site/shared/upload${mediaUpload.path.replace('/static/upload', '')}'`,
         ),
       ).toBe(0);
       const servedMedia = await fetch(`${origin}${mediaUpload.path}`);
