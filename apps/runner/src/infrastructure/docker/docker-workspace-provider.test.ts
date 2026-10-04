@@ -63,9 +63,63 @@ describe('DockerWorkspaceProvider orchestration', () => {
         '00000000-0000-4000-8000-000000000001',
       ),
     ).rejects.toThrow('start failed');
+    expect(fakeDocker.createContainer).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        HostConfig: expect.objectContaining({ RestartPolicy: { Name: 'unless-stopped' } }),
+      }),
+    );
     expect(containerRemove).toHaveBeenCalledWith({ force: true });
     expect(ownerRemove).toHaveBeenCalledWith({ force: true });
     expect(networkRemove).toHaveBeenCalledOnce();
+  });
+
+  it('upgrades an existing compatible runtime to restart after host reboot', async () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    let restartPolicy = 'no';
+    const container = {
+      id: 'container-1',
+      inspect: vi.fn().mockImplementation(async () => ({
+        Config: { Image: config.workspaceImage },
+        HostConfig: {
+          NetworkMode: `cloudcrane-workspace-${workspaceId}`,
+          Privileged: false,
+          PidMode: '',
+          IpcMode: 'private',
+          SecurityOpt: ['no-new-privileges:true'],
+          RestartPolicy: { Name: restartPolicy },
+        },
+        Mounts: [
+          {
+            Source: `${config.workspaceRoot}/${workspaceId}/workspace`,
+            Destination: '/workspace',
+            RW: true,
+          },
+        ],
+        State: { Running: true },
+        NetworkSettings: {
+          Ports: {
+            '7070/tcp': [{ HostPort: '37070' }],
+            '8080/tcp': [{ HostPort: '38080' }],
+          },
+        },
+      })),
+      update: vi.fn(async (options: { RestartPolicy?: { Name?: string } }) => {
+        restartPolicy = options.RestartPolicy?.Name ?? 'no';
+        return { Warnings: [] };
+      }),
+    };
+    const docker = {
+      getContainer: vi.fn(() => container),
+      getNetwork: vi.fn(() => ({
+        inspect: vi.fn().mockResolvedValue({ Name: `cloudcrane-workspace-${workspaceId}` }),
+      })),
+    } as unknown as Docker;
+    const provider = new DockerWorkspaceProvider(config, docker);
+
+    await provider.getStatus(workspaceId);
+
+    expect(container.update).toHaveBeenCalledWith({ RestartPolicy: { Name: 'unless-stopped' } });
   });
 
   it('recreates an old runtime when the reference bind is missing', async () => {
@@ -99,6 +153,7 @@ describe('DockerWorkspaceProvider orchestration', () => {
           Privileged: false,
           PidMode: '',
           IpcMode: 'private',
+          RestartPolicy: { Name: 'unless-stopped' },
           SecurityOpt: ['no-new-privileges:true'],
         },
         Mounts: [

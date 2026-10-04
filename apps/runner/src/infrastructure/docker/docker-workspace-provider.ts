@@ -78,6 +78,7 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
           Privileged: false,
           PidMode: '',
           IpcMode: 'private',
+          RestartPolicy: { Name: 'unless-stopped' },
           SecurityOpt: ['no-new-privileges:true'],
           NanoCpus: this.config.cpuLimit,
           Memory: this.config.memoryLimitBytes,
@@ -679,7 +680,12 @@ export class DockerWorkspaceProvider implements WorkspaceProvider {
     const container = await this.container(workspaceId);
     const info = await container.inspect();
     const referencePath = await this.referencePath(workspaceId);
-    if (this.matchesRuntimeSpec(workspaceId, info, referencePath)) return container;
+    if (this.matchesRuntimeSpec(workspaceId, info, referencePath)) {
+      if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
+        await container.update({ RestartPolicy: { Name: 'unless-stopped' } });
+      }
+      return container;
+    }
 
     const networkMode = info.HostConfig?.NetworkMode;
     const network = networkMode ? this.docker.getNetwork(networkMode) : undefined;
