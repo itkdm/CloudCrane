@@ -476,28 +476,8 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await fetch(`${origin}/core/database/Sqlite.php`)).status).toBe(403);
       expect((await fetch(`${origin}/cloudcrane-rewrite-probe`)).status).toBeLessThan(500);
 
-      const writeAuthorizationMarker = await container.exec({
-        Cmd: [
-          '/bin/sh',
-          '-ec',
-          "printf 'v1\\n' > /site/shared/runtime/.cloudcrane-authorization-v1",
-        ],
-        User: '1000:1000',
-        AttachStdout: true,
-        AttachStderr: true,
-        Tty: false,
-      });
-      const authorizationMarkerStream = await writeAuthorizationMarker.start({
-        hijack: true,
-        stdin: false,
-      });
-      await new Promise<void>((resolve, reject) => {
-        authorizationMarkerStream.once('end', resolve);
-        authorizationMarkerStream.once('close', resolve);
-        authorizationMarkerStream.once('error', reject);
-        authorizationMarkerStream.resume();
-      });
-      expect((await writeAuthorizationMarker.inspect()).ExitCode).toBe(0);
+      const publicHost = 'real-pboot-integration.sites.example.com';
+      await provider.authorize(realWebsiteId, 'real-pboot-integration', publicHost);
       const lockedStatus = await provider.getStatus(realWebsiteId, 'real-pboot-integration');
       expect(lockedStatus).toMatchObject({ status: 'active', authorized: true });
       await expect(
@@ -510,7 +490,6 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.company.get',
         payload: {},
       })) as { phone: string; version: string };
-      const publicHost = 'real-pboot-integration.sites.example.com';
       const publicHeaders = {
         host: publicHost,
         'x-forwarded-host': publicHost,
