@@ -1361,6 +1361,8 @@ ECS Metadata：
 
 阿里 ACS Agent Sandbox 官方同样把 Metadata 服务访问列为必须重点阻断的风险。
 
+**当前实现状态（2026-10-04）**：生产 Workspace Docker bridge 的 host firewall 已拒绝 `100.100.100.200/32` 和 IPv4 link-local `169.254.0.0/16`，保留普通公网 HTTPS；真实 Workspace 容器探测、规则重启恢复和 Docker/主机重启恢复均已验证。持久 Workspace 根目录使用单独的 ext4 project-quota 文件系统，默认每个 Workspace 1 GiB 硬块限制和 100,000 inode 限制；配额缺失时 Runner 拒绝创建或恢复 Workspace。当前主机的实际 VPS 产品和云控制面尚未确认，因此这只证明宿主机网络隔离，不代表已配置任何特定云厂商的 token-required Metadata 模式。安装、故障恢复及验收细节见[生产部署说明](../operations/cloudcrane-production-deploy.md)和[工程生命周期记录](../operations/cloudcrane-development-lifecycle.md#2026-10-04-metadata-控制面适用性仍待确认)。
+
 公网访问第一版可以按需允许，后续增加：
 
 ```text
