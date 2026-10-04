@@ -521,7 +521,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(
         await runProductionContainerCommand(
           container,
-          `mkdir -p /site/shared/runtime/cache && printf 'stale-public-page' > '${pageCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
+          `mkdir -p /site/shared/runtime/cache && chmod 0700 /site/shared/runtime/cache && printf 'stale-public-page' > '${pageCacheProbe}' && chmod 0500 /site/shared/runtime/cache`,
         ),
       ).toBe(0);
       await expect(
