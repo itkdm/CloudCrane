@@ -174,13 +174,17 @@ CI #497（commit `5490c09`）的质量和 Docker 集成作业均通过。Docker 
 
 ### 2026-10-04 CMS Content Create 线上 E2E 复验
 
-当前仓库基线为 `0a45493b`。GitHub [CI #513](https://github.com/itkdm/CloudCrane/actions/runs/37149400191) 的 quality 和 docker-integration 均通过；[Deploy production #112](https://github.com/itkdm/CloudCrane/actions/runs/37149972133) 成功。CI Docker 集成覆盖 PbootCMS 3.2.24/3.2.26；这只能证明临时容器集成，不替代目标线上站的 Agent E2E。
+首轮排查时仓库基线为 `0a45493b`。GitHub [CI #513](https://github.com/itkdm/CloudCrane/actions/runs/37149400191) 和 [Deploy production #112](https://github.com/itkdm/CloudCrane/actions/runs/37149972133) 均成功；CI Docker 集成覆盖 PbootCMS 3.2.24/3.2.26，但尚未证明目标线上站的 Agent E2E。
 
 对目标 `CloudCrane Production E2E` 的 UI 操作到 CMS 只读工具后，类别、内容和公司信息查询均返回 `CMS_OPERATION_FAILED`。Runner 与 Production Gateway 健康检查正常；脱敏结构化日志确认 Runner 执行 CMS helper 失败。Agent 没有调用 Create，没有写入或更改线上 CMS 内容。
 
 只读服务器检查确认目标容器仍基于旧镜像 ID `f4004062…`，而服务器当前镜像 tag 已指向 `8afbf096…`；旧容器内缺少 `cloudcrane-pboot-cms`，当前镜像包含该 helper。根因是 CI/CD 更新服务器镜像 tag 不会自动替换既有 Website Production 容器。该问题与 PbootCMS 3.2.24 版本无关；不需要重建 Website、升级 PbootCMS 或替换数据库。
 
-代码已补充按单站显式 `production.ensure` 执行的镜像漂移替换：只发生在该 Website 的 Publish 流程，不会因平台 CD 或 Runner 启动批量替换现有站点；替换复用原 loopback port 与持久挂载，检查 CMS helper 和健康探针，失败时恢复旧容器，Runner 启动时也能恢复被中断的替换。该实现还需等待 CI/CD 验证。目标站仍需一次显式 Publish/ensure 才会从旧镜像切换到新镜像；期间可能短暂中断访问。执行该线上动作仍需项目负责人授权，成功后继续完成 CMS 只读、隐藏草稿创建、刷新保留和 Release 流程 E2E。
+提交 `de9511d` 为单站显式 `production.ensure` 加入镜像漂移替换和中断恢复。替换只发生在该 Website 的 Publish 流程，不会因平台 CD 或 Runner 启动批量替换现有站点；它复用原 loopback port 与持久挂载，检查 CMS helper 和健康探针，失败时恢复旧容器。GitHub [CI #515](https://github.com/itkdm/CloudCrane/actions/runs/37153680975) 的 quality 与 docker-integration 均通过，[Deploy production #114](https://github.com/itkdm/CloudCrane/actions/runs/37154170756) 成功。负责人授权后通过内置浏览器对目标站执行一次 Republish；ECS 只读核实新旧 image ID 一致、容器 running 且 CMS helper 存在。Settings 显示 `Website is live`，Production 公网首页正常呈现 PbootCMS 页面。不需要重建 Website 或替换数据库。
+
+随后从 Production 实时读取 11 个栏目，并在已启用列表栏目 `scode=3` 创建状态 `0` 草稿：内容 ID `18`，标题 `CloudCrane CMS Create E2E 0a45493`。首次调用返回 `replayed=false`；`cms_get_content` 复核的 ID、标题、正文、栏目、状态和版本与 Create 响应一致。`workspaceContentStale=true`，符合 Production 是内容源、Workspace 需显式 Refresh 的单向数据流。未使用 Bash 或直接 SQL，也未改动既有内容、代码、模板、授权或 Release。浏览器刷新后验收消息仍保留；Console 0 条 warning/error。内置浏览器未提供本次所需的 Network 证据，未使用 DEVTOOLS MCP，因此 Network 面板未验证。
+
+CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已提交但响应为 `UNKNOWN_RESULT`，重启容器后用原 idempotency key 和完全相同 payload 重试，结果 replay 且只存在一条草稿；同一 key 换 payload 返回 `IDEMPOTENCY_KEY_REUSED`。CMS 更新缓存测试验证更新提交后清理失败返回 `UNKNOWN_RESULT`，同 version/patch 重试会 replay 并再次清缓存。该测试现在还在真实 Pboot HTTP 首页路径上暖缓存、确认失败后仍读到旧值、retry 后读到新值并恢复原值。线上 Create 这一次是首次响应成功，没有在线模拟响应丢失；持久幂等/丢响应证据来自 CI Docker integration。视觉证据截图保存在本机 `C:\Users\33174\.codex\visualizations\2026\10\04`，不加入仓库。
 
 ### 2026-10-04 Workspace Host 隔离状态复核
 

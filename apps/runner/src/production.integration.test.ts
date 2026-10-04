@@ -510,6 +510,18 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         operation: 'cms.company.get',
         payload: {},
       })) as { phone: string; version: string };
+      const publicHost = 'preview.example';
+      const publicHeaders = { host: publicHost };
+      const cachedHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
+      expect(cachedHomepage.status).toBe(200);
+      expect(await cachedHomepage.text()).toContain(company.phone);
+      expect(
+        await runProductionContainerCommand(
+          container,
+          'test -n "$(find /site/shared/runtime/cache -type f -print -quit)"',
+        ),
+      ).toBe(0);
+
       const pageCacheProbe = '/site/shared/runtime/cache/cloudcrane-cms-invalidation-probe';
       expect(
         await runProductionContainerCommand(
@@ -523,6 +535,11 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           payload: { expectedVersion: company.version, patch: { phone: '13800000000' } },
         }),
       ).rejects.toMatchObject({ code: 'UNKNOWN_RESULT' });
+      const staleHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
+      expect(staleHomepage.status).toBe(200);
+      const staleHomepageBody = await staleHomepage.text();
+      expect(staleHomepageBody).toContain(company.phone);
+      expect(staleHomepageBody).not.toContain('13800000000');
       const committedCompany = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.get',
         payload: {},
@@ -547,10 +564,26 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect(await runProductionContainerCommand(container, `test ! -e '${pageCacheProbe}'`)).toBe(
         0,
       );
+      expect(
+        await runProductionContainerCommand(
+          container,
+          'test -z "$(find /site/shared/runtime/cache -type f -print -quit)"',
+        ),
+      ).toBe(0);
+      const refreshedHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
+      expect(refreshedHomepage.status).toBe(200);
+      const refreshedHomepageBody = await refreshedHomepage.text();
+      expect(refreshedHomepageBody).toContain('13800000000');
+      expect(refreshedHomepageBody).not.toContain(company.phone);
       await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.company.update',
         payload: { expectedVersion: companyUpdated.item.version, patch: { phone: company.phone } },
       });
+      const restoredHomepage = await fetch(`${origin}/`, { headers: publicHeaders });
+      expect(restoredHomepage.status).toBe(200);
+      const restoredHomepageBody = await restoredHomepage.text();
+      expect(restoredHomepageBody).toContain(company.phone);
+      expect(restoredHomepageBody).not.toContain('13800000000');
 
       const contentList = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.list',
