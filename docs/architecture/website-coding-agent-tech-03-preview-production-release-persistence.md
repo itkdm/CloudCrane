@@ -7,8 +7,10 @@
 > - `website-coding-agent-tech-01-workspace.md`
 > - `website-coding-agent-tech-02-remote-execution-gateway.md`
 >
-> 当前 V1：阿里云 ECS + Docker + PbootCMS + SQLite  
+> 设计时 V1 部署偏好：阿里云 ECS + Docker + PbootCMS + SQLite
 > 当前部署目标：优先跑通完整产品闭环，不提前实现复杂集群能力
+
+> **实现状态说明（2026-10-04）**：本文前半部分保留设计阶段的 ADR、目标流程和历史方案文字；其中“尚未实现/未来实现”等时态描述只代表相应设计记录的时间点。当前代码状态以本文“当前实现状态”小节和[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)为准。当前已部署主机为 Docker Runner，云厂商/控制面未核实；不得将设计时的阿里云偏好写成当前主机事实。
 
 ---
 
@@ -693,7 +695,9 @@ A → 47.xx.xx.xx
 
 本节的 Gateway 指用户 Website Production Runtime 的入口，不是 CloudCrane 平台自身的 `app.itkdm.com` / Preview 公网入口。当前 CloudCrane 平台入口已选择 Nginx。
 
-Website Production Runtime 尚未实现。V1 选择 Nginx 作为生产入口，Gateway 需处理：
+原始方案编写时 Website Production Runtime 尚未实现。本方案选择 Nginx 作为生产入口；当前 Runtime、Gateway 与 Nginx 入口已进入实现，实际当前状态见本文末尾的“当前实现状态”。
+
+入口需处理：
 
 ```text
 80
@@ -849,7 +853,21 @@ Real-time Dev/Prod DB Sync
 - ADR-054：Production Release V1 使用流式 ZIP 与 `manifest.json`；选择依据是仓库已依赖的 `fflate` 支持流式 ZIP，且可在不新增外部压缩运行时的情况下实现 SHA-256 和路径校验。制品格式与 Template Snapshot 相互独立。
 - ADR-055：首次 Publish 可初始化 `data/**`、`static/upload/**` 和 `config/config.php`；后续普通 Release 永不覆盖这三类 Production 状态。
 
-## Implementation Status (2026-10-01)
+## 当前实现状态（截至 2026-10-04）
+
+本节给出代码与已完成验收的当前摘要。下方按日期记录的实现/排障内容是历史过程证据；其中“尚未实现”“等待线上验收”等文字只代表记录当时状态，若与本节冲突，以本节和[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)为准。
+
+- **Workspace / Production**：Runner 使用独立 Docker Workspace 与 Production Runtime。Production 有独立 Release、持久化 DB/uploads、健康探针、原子激活与 Gateway/Nginx 入口；正式域名格式为 `{productionSlug}.site.itkdm.com`。发布代码只从 Workspace 向 Production，Production DB/uploads 是生产内容源。
+- **Publish / Refresh**：Production Publish 与单站 `production.ensure` 已实现；Release 操作具备幂等和状态恢复。Production → Workspace Refresh 只回流 SQLite 与 uploads，替换前备份并校验，不覆盖 Workspace 代码。真实测试站完成过发布、刷新/响应丢失恢复与内容保持验证。
+- **CMS 操作**：Agent 可读取栏目/内容/公司信息，更新内容/公司信息，新增草稿、上传当前消息附件图片、在受限列表栏目下创建隐藏子栏目。PbootCMS 3.2.24 和 3.2.26 有 Docker 集成覆盖；缓存刷新、幂等、公开页面/图片等线上证据见生命周期文档。
+- **Workspace 边界**：当前 Runner 主机的 ext4 project quota 和 Metadata host-level deny 已部署并验证；host policy 在服务、Docker 与整机重启场景恢复。当前主机云销售商/控制面未核实，provider-specific token 模式不是此网络隔离结论的前提。
+- **实现证据边界**：平台 CI 包括 quality、Docker/Pboot 和远程执行集成；每次提交是否通过以 GitHub Actions 对应 SHA 的记录为准。运维模板或架构目标不单独证明生产环境已配置。
+
+### 历史实现与验收记录
+
+以下条目按发生时间保留关键实现过程，用于追溯问题根因；不要将早期状态或待验证结论当作当前状态。
+
+### Implementation notes (2026-10-01)
 
 - 已部署 Production runtime/release schema，已实现流式 Release ZIP builder、SHA-256/manifest 校验及受限 ZIP 解压器。
 - Runner 已增加独立 `DockerProductionProvider` 和 PHP 8.4 + Nginx production image。Provider 为每个 Website 创建独立网络/容器，runtime 代码只读、rootfs 只读、无额外 Linux capability，随机 HTTP 端口仅绑定 `127.0.0.1`；`current` 通过同目录临时 symlink + rename 原子切换。First publish 初始化共享数据，后续 Release 不从 Artifact 解出持久路径。
@@ -867,7 +885,7 @@ Real-time Dev/Prod DB Sync
 
 > 更新（2026-10-02）：后续 E2E 已完成正式域名授权；发布中刷新与丢失 Web 响应两种场景均恢复到正确 Release，Production SQLite 与上传文件数量保持不变。端口元数据复用和状态 API 端口同步提交 `399d8764` 已通过 CI #466、Deploy #65。部署后容器映射从 `32799` 变为 `32800`，控制库仍记旧端口导致公网暂时 502；只同步该 E2E Runtime 的端口后公网恢复 200、探针 204。干净内置浏览器标签中的目标 Settings 正常；此前长驻标签显示旧测试站 Settings，是旧页面状态，不能据此判断站点 ID 映射有缺陷。正常 Republish 激活 Release #13（`c3907824-fca3-4aa6-81ed-32571e7fa54e`），Runner 在 Production root 写入 `.production-port=32800`；公网首页仍显示 `Release 2 验收`，SQLite 哈希与上传数未变。随后将 E2E Runtime 数据库端口短暂设回 `32799` 并再次通过干净 UI Republish；界面回到 `Website is live`，公网首页 200、探针 204。Gateway 每次请求均重新查询数据库，目标容器只监听 `32800`，故公网恢复说明自动流程已把流量重新指向正确端口；SSH 连续超时使数据库行与最终 Release ID 未能独立读取。容器重建复用元数据、独立 Runner 重启故障注入仍未完成。容器镜像滚动升级/回滚和 TLS 自动续期仍未实现。
 
-## Implementation Status (2026-10-03): Production → Workspace Refresh
+### Implementation notes (2026-10-03): Production → Workspace Refresh
 
 - Website Settings 增加手动刷新入口和覆盖确认。该操作只回流 `Production SQLite + uploads`，不回流 Release 代码、授权或 Runtime 私有状态。
 - Web API 使用 website lifecycle advisory lock、持久化 operation、幂等键与审计；在刷新期间拒绝新的 Agent run 和 Publish，并拒绝已有 Agent run、发布或 Release 切换。
@@ -878,7 +896,7 @@ Real-time Dev/Prod DB Sync
 - Refresh 的完整操作步骤、覆盖范围和 schema 兼容限制见 [Production 内容刷新到 Workspace](../operations/cloudcrane-production-content-refresh.md)。
 - GitHub-hosted Docker integration 覆盖 Production image 构建、锁定的真实 PbootCMS 3.2.26 Workspace 初始化、Production 首发、后台资源/验证码、数据库路径、敏感路径阻断、伪静态入口和第二次 Release 的 Production DB 保留；另有纯 PHP fixture 检查 Runner 的容器边界与失败恢复。CI 的 Docker integration 是该链路的真实容器验收；本机 Docker 不是开发依赖。
 
-## Implementation Status (2026-10-03): Production CMS Semantic Capability V1
+### Implementation notes (2026-10-03): Production CMS Semantic Capability V1
 
 - Agent 新增 `cms_list_categories`、`cms_list_content`、`cms_get_content`、`cms_update_content`、`cms_get_company`、`cms_update_company`。通用协议位于 `@cloudcrane/cms-protocol`；Pboot 表名、数据库和规范化规则只存在于镜像内受信任 adapter。
 - CMS 读取和写入通过 Workspace Gateway → Runner 的 allowlisted production operation。Production adapter 只启动固定 `cloudcrane-pboot-cms` 可执行文件并经 JSON stdin/stdout 交换数据；Agent 不获得 Production SQL、shell、任意文件或 Docker 能力。
@@ -891,7 +909,7 @@ Real-time Dev/Prod DB Sync
 
 ---
 
-## Implementation Status (2026-10-04): CMS Content Create V2
+### Implementation notes (2026-10-04): CMS Content Create V2
 
 - Production CMS 新增内容只允许选择已存在且启用的列表模型栏目；单页模型仍不支持内容创建。栏目创建由下方独立的 CMS Category Create V1 提供。默认 `status=0`（未发布），只有用户明确要求立即发布时才允许 `status=1`。
 - Create 的请求幂等键必填，并与规范化业务请求哈希绑定。Runner 内存缓存拒绝同 key 不同请求；受信 Pboot adapter 在同一个 SQLite `BEGIN IMMEDIATE` 事务里提交内容行、扩展字段和幂等结果指针，因此 Runner/容器重启或响应丢失后仍能安全重试。
@@ -899,7 +917,7 @@ Real-time Dev/Prod DB Sync
 - `cloudcrane_cms_content_create_ops` 是 Production 专用操作账本，不属于 PbootCMS 内容 Schema。Refresh 只在待导入的快照副本中删除该表，再执行 Schema 比对；Production 原库不变，幂等记录也不会进入 Workspace。
 - PbootCMS 3.2.24 与 3.2.26 均由 GitHub Docker integration 覆盖；CI #504 验证了 3.2.24 的 Publish、CMS 读写、Refresh 和第二次 Publish。Production 容器镜像更新由单站 `production.ensure` 显式触发：比较 immutable image ID，健康检查通过前保留旧容器，复用 loopback port 与持久挂载，并检查 CMS helper；Runner 启动时只恢复中断的替换，不批量升级网站。该路径于 CI #515 / Deploy #114 后在指定线上测试站成功执行；详细证据见下方线上 E2E 记录。
 
-## Implementation Status (2026-10-04): CMS Media Upload V1
+### Implementation notes (2026-10-04): CMS Media Upload V1
 
 - `cms_media_upload` 仅接收当前用户消息附带、且用户明确要求用于正式站的图片；Agent 按当前消息中的图片序号解析，服务端再次按 Website、Session、Owner 授权读取附件。后台直接上传的 Production 图片仍由用户提供现有路径后引用，不会重复上传。
 - 第一版只接受 JPEG、PNG、WebP，原图不超过 5 MiB、单边不超过 10000 像素、总像素不超过 16 MP；超过 8 MP 时等比缩小到不超过 8 MP。受信 Production adapter 验证 MIME、文件头、SHA-256 与尺寸，用 GD 解码并重新编码，再写入共享 `upload` 下内容寻址路径。GIF、SVG 与其他格式拒绝。
@@ -907,7 +925,7 @@ Real-time Dev/Prod DB Sync
 - 图片上传不清 Pboot 页面缓存；它只是把未引用文件加入共享媒体目录。生产端容器集成覆盖规范化、持久重放、冲突 key 和 Refresh 不导入 Production 操作账本；审计只保留 MIME、摘要和大小，不保存图片字节或附件 ID。
 - 本机格式、lint、类型、单测和构建检查通过；本机未安装 PHP/Docker，容器集成由 GitHub CI 验证。CI #535 和 Deploy #134 通过后，指定线上 Production E2E 网站已用当前消息附件完成 Agent 上传与公网图片渲染；完整证据和 Network 面板未取得的限制见 `docs/operations/cloudcrane-development-lifecycle.md`。
 
-## Implementation Status (2026-10-04): CMS Category Create V1
+### Implementation notes (2026-10-04): CMS Category Create V1
 
 - Agent 可在一个已存在、启用且属于列表模型的父栏目下创建子栏目。新栏目继承父栏目的模型、列表模板和详情模板；单页父栏目、停用父栏目、外链栏目和模型定义变更均拒绝。第一版默认隐藏 `status=0`；只有用户明确要求立即启用时才允许 `status=1`。
 - 只允许提交父栏目编码、栏目名、可选安全 URL 名称和状态。Adapter 生成新的 Pboot 逻辑编码，不接受 Agent 指定编码、模型、模板或 Pboot 表字段；栏目名在同一父栏目下不允许重复。
@@ -915,7 +933,7 @@ Real-time Dev/Prod DB Sync
 - 成功后清理 Pboot 页面缓存并刷新 PHP runtime state；失败返回 `UNKNOWN_RESULT`，客户端使用相同 key 安全恢复。Production-only 幂等账本不会进入 Workspace Refresh 快照。
 - PbootCMS 3.2.24/3.2.26 Docker integration 覆盖首次创建、默认隐藏状态、父栏目模型/模板继承、缓存清理失败后的容器重启重放、冲突 key 和 Refresh 账本剔除。GitHub CI #37186937287 与 Production Deploy #37187354588 均通过。专用线上 Production E2E 已创建隐藏栏目 `cc000001`（名称 `CloudCrane Category E2E 0069b41`、父编码 `2`、列表模型、状态 `0`）；栏目列表读回工具调用完成。因内置浏览器工具详情视图截断了完整栏目 JSON，截图中可直接复核创建响应的字段，Network 面板未验证。操作前该站容器仍运行旧 Production 镜像，返回 `Unsupported CMS operation`；Republish 后容器 image ID 与当前镜像一致，重跑创建成功。详情见 `docs/operations/cloudcrane-development-lifecycle.md`。
 
-## Implementation Status (2026-10-04): CMS Content Create 与线上 E2E
+### Historical E2E details (2026-10-04): CMS Content Create
 
 - 当前基线 `de9511d` 的 CI #515 quality、Docker integration 均通过；Deploy production #114 成功。CI 覆盖 PbootCMS 3.2.24/3.2.26 的容器集成，目标站 Publish 和 CMS Create 也完成线上 E2E。
 - 首次 UI 尝试中，对线上 `CloudCrane Production E2E`（Website `0d173aae-2ae4-422d-87de-930d63d3c775`）发起的只读 CMS 类别/内容查询均返回 `CMS_OPERATION_FAILED`。Runner 和 Production Gateway 健康检查正常；Runner 结构化日志确认 CMS operation 失败。当时没有执行 CMS Create，也没有修改线上 CMS 内容。
@@ -957,6 +975,6 @@ Real-time Dev/Prod DB Sync
 
 ---
 
-# 32. 下一步
+# 32. 后续产品方向
 
-Production → Workspace Refresh 完成并通过线上 E2E 后，下一阶段按产品优先级进入 Release History / 用户主动 Rollback、Production Backup / Restore、自定义域名和支付接入。Agent 架构的原始编写顺序已被当前已落地实现取代；不再将 Tech-04 中的历史“下一步”段落视为当前排期。
+本节是设计文档中的方向记录，不是已承诺排期。Release History / 用户主动 Rollback、Production Backup / Restore、自定义域名和支付接入仍需单独立项；当前功能清单与运行验证以[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)为准。Tech-04 等早期架构文档的“下一步”段落同样不代表当前排期。

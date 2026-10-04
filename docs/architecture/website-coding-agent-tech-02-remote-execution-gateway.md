@@ -3,10 +3,12 @@
 > 文档版本：V0.1  
 > 状态：已确认 / Architecture Baseline  
 > 前置文档：`Website Coding Agent 技术架构基线 01：Website Workspace`  
-> 当前基础设施：阿里云 ECS + Docker  
+> 设计时基础设施偏好：阿里云 ECS + Docker
 > 当前 CMS Runtime：PbootCMS  
 > 长期演进方向：Agent Sandbox / MicroVM Sandbox  
 > 本文范围：Agent 如何远程、安全、稳定地操作 Website Workspace
+
+> **实现状态说明（2026-10-04）**：文中的 ECS 是最初方案和组件职责称呼，不证明当前 Runner 主机使用阿里云产品。当前生产环境运行 Docker Runner；Guest OS 显示 KVM，云销售商/控制面未核实。当前安全策略与线上验收状态见本文“当前实现状态”和[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)。
 
 ---
 

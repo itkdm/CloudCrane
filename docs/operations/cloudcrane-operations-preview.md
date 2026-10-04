@@ -1,8 +1,8 @@
 # CloudCrane（筑云鹤）Preview 运维手册
 
-> **状态记录（最后更新：2026-09-18）**：原阿里云 ECS 已废弃。此前记录的新加坡服务器 SSH 别名为 `xunmao-sg219`，公网 IPv4 为 `186.244.238.219`；本仓库无法证明该服务器、DNS、TLS 或公网 Preview 路由目前仍有效。执行操作前应独立核实当前服务器和 DNS 状态。
+> **状态（2026-10-04）**：Preview 使用 `*.preview.itkdm.com`，Production 使用 `*.site.itkdm.com`；两个入口均经仓库 Nginx 配置和对应 Gateway。运维记录曾核实远程主机地址为 `186.244.238.219`，Guest OS 报告 KVM；云销售商/控制面未核实。此处记录的是已配置的路由模型，不是实时 DNS/证书检查；任何变更前仍须检查主机、DNS、TLS 和线上 vhost。
 
-本文记录当前 CloudCrane MVP 的公网 Preview 运维配置。它只适用于 Preview，不代表 Production、模板导入、发布或域名绑定已经实现。
+本文只说明公网 Preview 入口的运维配置。Production 发布及其入口由[生产部署手册](cloudcrane-production-deploy.md)和 Tech-03 说明；不要把本手册的 Preview 检查当作 Production 发布验收。
 
 ## 1. 域名边界
 
@@ -22,9 +22,9 @@ https://{previewSlug}.preview.itkdm.com/
 
 | 类型 | 名称 | 内容 | TTL | 代理 |
 | --- | --- | --- | --- | --- |
-| A | `*.preview` | 当前 Preview Gateway ECS 公网 IPv4 | Auto | DNS only（灰云） |
+| A | `*.preview` | 当前 Preview Gateway 远程主机公网 IPv4 | Auto | DNS only（灰云） |
 
-历史记录中的阿里云 ECS 公网 IPv4 `39.97.34.189` 已废弃。若仍使用此前记录的新加坡服务器，公网 IPv4 为 `186.244.238.219`；先核实服务器当前地址，再决定是否更新 DNS。
+历史记录中的阿里云 ECS 公网 IPv4 `39.97.34.189` 已废弃。远程主机地址记录为 `186.244.238.219`；先核实服务器当前地址，再决定是否更新 DNS。
 
 不要修改以下记录：
 
@@ -34,10 +34,11 @@ https://{previewSlug}.preview.itkdm.com/
 检查：
 
 ```bash
-dig +short A site-<websiteId>.preview.itkdm.com
+PREVIEW_SLUG='<12-character-preview-slug>'
+dig +short A "${PREVIEW_SLUG}.preview.itkdm.com"
 ```
 
-应返回 Preview Gateway 所在 ECS 的公网 IP。Wildcard 记录只在没有更具体的同名记录时生效；Cloudflare 的 DNS 页面中 wildcard 名称使用 `*` 前缀。[Cloudflare wildcard DNS 文档](https://developers.cloudflare.com/dns/manage-dns-records/reference/wildcard-dns-records/)
+应返回 Preview Gateway 所在远程主机的公网 IP。Wildcard 记录只在没有更具体的同名记录时生效；Cloudflare 的 DNS 页面中 wildcard 名称使用 `*` 前缀。[Cloudflare wildcard DNS 文档](https://developers.cloudflare.com/dns/manage-dns-records/reference/wildcard-dns-records/)
 
 ## 3. TLS 证书
 
@@ -86,7 +87,7 @@ deploy/nginx/cloudcrane-production.conf
 `deploy/nginx/cloudcrane-preview.conf`；该文件已标记为 deprecated，仅作为独立 Preview 部署替代模板，
 与生产模板二选一，否则会产生重复的 `*.preview.itkdm.com` server_name 和证书命中不确定性。
 
-ECS 安装位置：
+服务器安装位置：
 
 ```text
 /etc/nginx/sites-available/cloudcrane-production.conf
@@ -120,7 +121,7 @@ sudo systemctl reload nginx
 
 ## 5. CloudCrane 私密环境变量
 
-ECS 的 `/opt/cloudcrane/.env.server.local` 应包含以下非 Secret 配置：
+远程主机的 `/opt/cloudcrane/.env.server.local` 应包含以下非 Secret 配置：
 
 ```dotenv
 PREVIEW_GATEWAY_ORIGIN_TEMPLATE=https://{previewSlug}.preview.itkdm.com/
@@ -142,9 +143,9 @@ PREVIEW_COOKIE_SECURE=true
 
 其中 `PREVIEW_COOKIE_SECURE=true` 会让 Preview 授权 Cookie 使用 `SameSite=None; Secure; HttpOnly`，用于 HTTPS iframe 场景。
 
-## 6. ECS 服务重启
+## 6. 远程服务检查与恢复
 
-仓库的 `scripts/server-acceptance-start.sh` 以 tmux 启动验收服务，默认会话名为 `cloudcrane-acceptance`。部署新代码或修改私密环境后，先确认服务器实际使用 tmux 还是 systemd；仓库的 systemd unit 仅为模板，说明见 [`systemd README`](../../deploy/systemd/README.md)。若确认使用该 tmux 脚本，在 `/opt/cloudcrane` 执行：
+仓库的 `scripts/server-acceptance-start.sh` 以 tmux 启动验收服务，默认会话名为 `cloudcrane-acceptance`。当前生产主机使用 tmux 管理平台进程；脚本启动前会 fail closed 核验 Metadata 隔离策略。仓库的 systemd unit 仅为模板，说明见 [`systemd README`](../../deploy/systemd/README.md)。先核对服务现状，不要与 GitHub Actions 部署并发重启：
 
 ```bash
 tmux ls
@@ -195,7 +196,7 @@ Web → Workspace Gateway → Runner → Workspace Daemon → Workspace Containe
 
 ## 8. Preview 验收清单
 
-使用真实 ECS、真实 Workspace 和真实 Preview：
+使用远程完整服务栈、真实 Workspace 和正式 Preview 域名：
 
 1. 首次打开 `https://{previewSlug}.preview.itkdm.com/`，不人工刷新、不打开新窗口。
 2. 确认 TLS 有效、iframe 返回 200、Preview Bridge READY。

@@ -19,7 +19,7 @@ Pi ResourceLoader
 Website Agent
 ```
 
-Skill 只能提供 SOP、references 和 Remote Bash helper；权限仍由 System Prompt、Tool Policy、Workspace Gateway、Runner sandbox 和生产策略决定。Skill 不能访问其他 Website、Docker Socket、Agent Service 主机、ECS secret 或公网生产控制面。
+Skill 只能提供 SOP、references 和 Remote Bash helper；权限仍由 System Prompt、Tool Policy、Workspace Gateway、Runner sandbox 和生产策略决定。Skill 不能访问其他 Website、Docker Socket、Agent Service 主机、Runner 主机 Secret 或公网生产控制面。
 
 ## 已实现 / 本轮补齐
 

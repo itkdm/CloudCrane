@@ -2,15 +2,15 @@
 
 CloudCrane（筑云鹤）是一个面向个人与企业用户的自助式 Website Coding Agent 平台：每个网站拥有长期存在的独立 Workspace，Agent 可以持续参与网站的开发、修改、验证、预览和维护。
 
-项目目前处于早期开发阶段，核心架构已基本确定，正在进入 MVP 实现。文档分类与阅读顺序见 [文档索引](docs/README.md)。
+项目已实现 Website Workspace、Agent 编码与 Preview、Production 发布和一组 PbootCMS 内容管理操作，并在受控测试站完成了多条真实用户流程验收。目前仍处于开发中的受控测试阶段；本说明不代表多节点扩展、完整灾备或商业计费已交付。当前实现、验证证据与已知边界见[工程生命周期说明](docs/operations/cloudcrane-development-lifecycle.md)，方案文档与运维手册入口见[文档索引](docs/README.md)。
 
-Preview 子域、TLS、Nginx、ECS 环境与日常部署操作请参阅 [CloudCrane Preview 运维手册](docs/operations/cloudcrane-operations-preview.md)。
+Preview 子域、TLS、Nginx 与远程验收环境操作请参阅 [CloudCrane Preview 运维手册](docs/operations/cloudcrane-operations-preview.md)。
 
-日常修改、提交、CI 和生产发布的完整状态见[工程生命周期说明](docs/operations/cloudcrane-development-lifecycle.md)。
+日常修改、提交、CI/CD、测试和部署流程见[工程生命周期说明](docs/operations/cloudcrane-development-lifecycle.md)。
 
-## 可选：本机全栈开发
+## 本地代码开发与可选全栈环境
 
-日常工作默认在本机编辑和做不依赖服务的质量检查，真实 CloudCrane 服务运行与功能验收走线上远程环境。只有明确需要本机全栈时才使用下面的 Docker/PostgreSQL 步骤；不要为了遵循此可选流程而先在本机重建缺失的服务。
+通常在本机编辑代码并运行适用的质量检查；真实服务联调和用户流程验收使用远程完整服务栈。下面的 Docker/PostgreSQL 步骤只用于明确选择本机全栈开发时，不是发布或默认验收前置条件，也不要求为此在本地补齐服务器环境。
 
 - Node.js 22+
 - pnpm 10+

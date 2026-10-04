@@ -2,10 +2,11 @@
 
 > 文档版本：V0.1  
 > 状态：已确认 / Architecture Baseline  
-> 当前阶段：MVP  
-> 首选云厂商：阿里云  
-> 当前 Workspace 实现：ECS + Docker  
+> 设计时首选云厂商：阿里云
+> 当前部署实现：Linux Runner 主机 + Docker；主机销售商/控制面未核实
 > 后续重点演进方向：Agent Sandbox
+
+> **实现状态说明（2026-10-04）**：本文记录最初选择阿里云 ECS + Docker 的架构决策背景，不是当前生产主机的厂商证明。现行实现以 Docker Runner 和独立 Workspace 为基础；当前主机只确认是 KVM Guest，provider 未确认。当前能力及验收状态见[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)。
 
 ---
 
@@ -15,7 +16,7 @@
 
 > **Website Workspace 在第一阶段采用“阿里云 ECS + Docker”实现。**
 
-同时明确 Workspace 的边界、基本组成、Agent 与 Workspace 的关系，以及后续向 Agent Sandbox 演进时需要提前保留的架构抽象。
+同时明确 Workspace 的边界、基本组成、Agent 与 Workspace 的关系，以及后续向 Agent Sandbox 演进时需要提前保留的架构抽象。原始设计将阿里云 ECS 作为首选部署环境；该供应商偏好不等于当前运行主机的供应商身份。
 
 本文暂不详细确定：
 

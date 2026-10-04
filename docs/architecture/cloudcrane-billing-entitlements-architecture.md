@@ -1,10 +1,10 @@
 # CloudCrane 权限、套餐、权益与可替换支付架构方案
 
-状态：架构方案；实现状态按 2026-09-27 仓库代码核对
+状态：架构方案；代码状态最近核对于 2026-10-04
 
 范围：第一阶段的设计与落地边界，以及本轮已落地的数据库/Core 原型；不包含支付账户配置或商业价格最终确认。
 
-> 实施状态（2026-09-27）：当前代码已包含 `packages/billing` 的权益解析与配额决策能力、Billing Account/Plan/Entitlement/Operation/Usage/Provider Connection/Provider Event Inbox schema、Workspace-Website 唯一约束、Website 到个人 Billing Account 的绑定、Provider-neutral adapter 接口、Website 创建/删除 operation 幂等流程，以及附件存储的 `Quota Reservation + commit/release` 接入。仍未完成通用 Website 配额准入、Provider Webhook 验签与 Inbox worker、Waffo adapter、付费套餐初始化和管理后台；这些原型与基础设施不代表完整生产计费能力。
+> 实施状态（2026-10-04）：当前代码包含 `packages/billing` 的权益解析/配额决策能力、Billing Account/Plan/Entitlement/Operation/Usage/Provider Connection/Provider Event Inbox schema、Website-Workspace 唯一约束、个人 Billing Account 绑定、Provider-neutral adapter、Website 创建/删除操作流程、附件配额预留，以及 Production Runtime/Release schema 和 Publish 流程。基础结构不等于完整商业计费：实际套餐定价、通用资源准入、支付 Webhook 消费和收费流程仍未交付。
 
 ## 1. 最终结论
 
@@ -65,7 +65,7 @@ Waffo 可以作为第一阶段支付供应商，但只能是 `PaymentProviderAda
 - Website 创建/删除 API 要求业务 `Idempotency-Key`，并使用持久化 Operation 处理并发和重复请求；`audit_event.idempotency_key` 本身仍不是业务幂等机制。
 - Website 删除已接入持久化 Operation；外部 Runtime 与数据库之间仍不存在分布式事务，必须把结果不确定和恢复路径作为运行边界处理。
 - 附件当前有本地/OSS 存储适配器；生产路径已通过账户级 `Quota Reservation` 串行化附件存储准入，并在对象写入后按实际大小 commit、失败/删除/过期时 release。未注入配额服务的单元测试仍保留旧 Session 限制作为测试替身，不能作为生产授权逻辑。
-- Production Runtime、Release、Domain 和正式站点计量实体尚未落地。因此“正式网站数”不能直接等价于当前 Workspace 数。
+- `production_runtime` 和 `website_release` 已进入当前 schema，并有 Production Publish/Gateway 实现；不能再写成 Runtime/Release 未落地。当前仍没有完整的生产网站计量/付费准入，因此“正式网站数”不能直接等价于 Workspace 数或已收费订阅数。
 
 相关代码位置：
 

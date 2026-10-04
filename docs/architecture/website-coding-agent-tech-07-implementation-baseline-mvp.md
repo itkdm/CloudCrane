@@ -19,6 +19,8 @@
 >
 > **不再继续横向设计未来所有能力，只冻结第一阶段实现真正需要的技术决策。**
 
+> **阶段说明（2026-10-04）**：本文记录 2026-08-30 从架构设计转入 MVP 实现时的基线，不是当前项目状态。现已落地多条 Workspace、Agent、Production Publish/Refresh 和 PbootCMS 内容管理 vertical slice；当前实现与验收证据见[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)。本文后续“第一阶段”描述仍可作为原始设计目标参考。
+
 ---
 
 # 1. 当前阶段判断

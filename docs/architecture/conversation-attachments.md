@@ -6,7 +6,7 @@
 
 - 图片：PNG、JPEG、GIF、WebP；上传时检查扩展名、MIME 和文件头；
 - 文档：TXT、Markdown；服务端读取后作为不可信文本上下文传给 Agent；
-- 存储：ECS 私有持久化目录；前端和预览域名不会得到附件公开 URL；
+- 存储：Runner 主机私有持久化目录；前端和预览域名不会得到附件公开 URL；
 - Pi：图片通过 `session.prompt(text, { images })` 传入，文档限制为文本内容；
 - 生命周期：附件默认保存 7 天，由 Agent Service 定时清理。
 
@@ -35,7 +35,7 @@ ATTACHMENT_OSS_TIMEOUT_MS=60000
 
 生产环境必须先创建 Bucket，再配置地域、私有读写权限和生命周期规则（建议 `attachments/` 前缀超过 7 天自动删除）。RAM 身份只授予该 Bucket 下 `PutObject`、`GetObject`、`DeleteObject`，禁止使用主账号 AccessKey；密钥只放在服务器私有环境文件中，不写入仓库、日志或浏览器。当前实现支持长期 RAM AK 和 STS Token，后续可在不改附件协议的前提下增加自动 AssumeRole。
 
-未配置 `ATTACHMENT_STORAGE_ROOT` 时，开发环境使用 `AGENT_DATA_ROOT/attachments`。生产 ECS 应显式配置绝对路径，并确保运行用户拥有该目录的 `0700` 目录和 `0600` 文件权限；该目录不能位于公开站点根目录或 Workspace 网站目录。
+未配置 `ATTACHMENT_STORAGE_ROOT` 时，开发环境使用 `AGENT_DATA_ROOT/attachments`。生产 Runner 主机应显式配置绝对路径，并确保运行用户拥有该目录的 `0700` 目录和 `0600` 文件权限；该目录不能位于公开站点根目录或 Workspace 网站目录。
 
 浏览器先通过 multipart 上传附件，再通过 `agent.prompt` 发送附件元数据引用。Agent Service 每次读取都会重新校验附件属于当前 Website 和 Session；未来切换阿里云 OSS 时，只替换 `AttachmentStorage` 适配器，不改变 WebSocket 协议和数据库元数据。
 

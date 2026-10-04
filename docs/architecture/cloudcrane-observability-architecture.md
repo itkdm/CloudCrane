@@ -31,7 +31,7 @@ CloudCrane 的可观测性分成四类信号：
 
 审计终态写回必须遵循 commit-point 语义：业务 mutation 尚未完成时失败可记为 `FAILED`；业务 mutation 已完成但审计终态写回失败时只能保留为 `UNKNOWN` 并记录告警，不能把已成功的业务结果改写为 `FAILED`。只读 Workspace operation 不创建 mutation audit。
 
-当前已接入审计的高价值变更包括：Website 创建、Pboot 授权、AgentRun 生命周期、Agent Session 创建/重命名/置顶/克隆/删除、Template Publish、Workspace Gateway 的运行时和 Snapshot 操作，以及独立 Production Gateway 路由中的生产 mutation dispatch。生产 dispatch 当前只覆盖远程操作请求的审计生命周期；Publish API、生产运行时及发布/回滚业务尚未闭环，不应据此宣称 Production Publish 已上线。会改变外部状态的操作在执行前创建 `PENDING`；审计创建失败时不执行变更，终态写回失败时对调用方报告结果不确定。
+当前已接入审计的高价值变更包括：Website 创建/删除、Pboot 授权、AgentRun 生命周期、Agent Session 管理、Template Publish、Workspace Gateway 的运行时和 Snapshot 操作，以及 Production Publish、Refresh、授权和远程 mutation dispatch。Production Publish/Gateway 已实现并有线上测试站验收记录；审计接入不能替代对每条用户流程的单独验收。会改变外部状态的操作在执行前创建 `PENDING`；审计创建失败时不执行变更，业务提交后审计终态失败不得改写已经成功的业务结果。
 
 ## 部署与采集
 
@@ -41,15 +41,13 @@ Node 服务默认输出 JSON stdout；当前 tmux 启动脚本同时通过 `tmux
 
 ## 当前实现状态与接入顺序
 
-基础包、Pino 脱敏、AsyncLocalStorage Context、W3C traceparent 解析、OTel 可选启动、Workspace Gateway
-operation audit、Runner/Daemon 的 correlation 传播、`audit_event` schema 和 systemd/Alloy 模板已经建立。
-OTel 没有配置 endpoint 时不会阻塞业务启动，也不会替代 Pino。
+基础包、Pino 脱敏、AsyncLocalStorage Context、W3C traceparent 解析、OTel 可选启动、Runner/Daemon
+correlation 传播、`audit_event` schema 和 systemd/Alloy 模板已建立。审计已覆盖 Website mutation、AgentRun、Workspace
+operation、Template Publish、Production Publish/Refresh/授权等高价值操作。systemd/Alloy 是可审查模板，当前生产进程由 tmux 管理；OTel 未配置 Collector endpoint 时只保证不阻塞业务，不宣称后端已接收 Trace。
 
 Drizzle journal 在早期版本存在历史时间戳倒序（已执行历史不可重写）。`db:migration:check` 将这段历史视为固定基线，校验索引、SQL 文件与 tag 一一对应，并要求基线之后的新 migration 时间戳严格递增；新增 migration 必须使用大于当前最大值的时间戳，不能重新整理已执行历史。`0011_audit_schema_baseline` 用当前 `schema.ts` 生成前向快照基线，并以 `IF EXISTS` 方式重申审计外键拆除，防止旧 snapshot 与现行 schema 再次漂移。
 
-当前接入顺序仍为：Workspace Gateway operation → AgentRun 生命周期 → Website/template mutation →
-Pboot 授权 → Template publish → Runner/Daemon → Production Gateway dispatch。已有测试覆盖基础包、脱敏、审计摘要、AgentRun、Workspace 运行路径，以及 Production dispatch 的授权/绑定边界；Docker/远程集成用例需要完整环境，不能用本地跳过结果替代通过。未配置 OTel
-Collector 时只能验证应用保持可用和日志字段，不宣称后端 Trace 已接收。
+历史“接入顺序”记录的是该文档建立时的计划，已由上面的当前接入清单取代。已有测试覆盖日志脱敏、审计摘要、AgentRun、Workspace 运行路径和 Production 授权/绑定边界；涉及 Docker/远程服务的测试以 CI 和线上验收记录为准，不把本机跳过的用例说成通过。
 
 ## 运维查询建议
 
