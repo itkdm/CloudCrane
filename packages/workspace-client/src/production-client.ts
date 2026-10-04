@@ -126,6 +126,18 @@ export class ProductionClient {
     return this.call('cms.content.get', payload, options);
   }
 
+  cmsUploadMedia(
+    payload: {
+      attachmentId: string;
+      mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+      contentSha256: string;
+      contentBase64: string;
+    },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.call('cms.media.upload', payload, options);
+  }
+
   cmsCreateContent(
     payload: Record<string, unknown> & { categoryCode: string; title: string },
     options: ProductionRequestOptions & { idempotencyKey: string },

@@ -11,6 +11,8 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -43,6 +45,38 @@ const pbootIntegrationTarget =
         sourceCoreCommit: coreCommit,
         workspaceImage: 'website-workspace-pboot:v1',
       };
+
+function pngCrc32(value: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of value) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type);
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(data.length);
+  const checksum = Buffer.alloc(4);
+  checksum.writeUInt32BE(pngCrc32(Buffer.concat([name, data])));
+  return Buffer.concat([header, name, data, checksum]);
+}
+
+function pngPixel(red: number, green: number, blue: number): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(1, 0);
+  header.writeUInt32BE(1, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(Buffer.from([0, red, green, blue, 255]))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
   it('refreshes only Workspace content from a validated Production snapshot', async () => {
@@ -787,6 +821,81 @@ if (!$db->exec('COMMIT')) exit(26);`,
         }),
       ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
 
+      const mediaBytes = pngPixel(10, 20, 30);
+      const mediaPayload = {
+        attachmentId: '00000000-0000-4000-8000-000000000091',
+        mimeType: 'image/png',
+        contentSha256: createHash('sha256').update(mediaBytes).digest('hex'),
+        contentBase64: mediaBytes.toString('base64'),
+      };
+      const mediaKey = `cms-media-${realWebsiteId}`;
+      const mediaCacheProbe =
+        '/site/shared/runtime/cache/cloudcrane-cms-media-no-invalidation-probe';
+      expect(
+        await runProductionContainerCommand(
+          container,
+          `mkdir -p /site/shared/runtime/cache && printf 'keep-media-probe' > '${mediaCacheProbe}'`,
+        ),
+      ).toBe(0);
+      const mediaUpload = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.media.upload',
+        payload: mediaPayload,
+        idempotencyKey: mediaKey,
+      })) as {
+        path: string;
+        mimeType: string;
+        size: number;
+        contentSha256: string;
+        replayed: boolean;
+      };
+      expect(mediaUpload).toMatchObject({
+        path: expect.stringMatching(
+          /^\/static\/upload\/image\/cloudcrane\/[a-f0-9]{2}\/[a-f0-9]{64}\.png$/,
+        ),
+        mimeType: 'image/png',
+        replayed: false,
+      });
+      expect(mediaUpload.size).toBeGreaterThan(0);
+      expect(mediaUpload.contentSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(
+        await runProductionContainerCommand(
+          container,
+          `test -s '/site/shared/upload${mediaUpload.path}'`,
+        ),
+      ).toBe(0);
+      const servedMedia = await fetch(`${origin}${mediaUpload.path}`);
+      expect(servedMedia.status).toBe(200);
+      expect(servedMedia.headers.get('content-type')).toContain('image/png');
+      expect(
+        createHash('sha256')
+          .update(Buffer.from(await servedMedia.arrayBuffer()))
+          .digest('hex'),
+      ).toBe(mediaUpload.contentSha256);
+      expect(await runProductionContainerCommand(container, `test -e '${mediaCacheProbe}'`)).toBe(
+        0,
+      );
+      await container.restart({ t: 10 });
+      await waitForProductionHealth(origin);
+      const mediaReplay = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.media.upload',
+        payload: mediaPayload,
+        idempotencyKey: mediaKey,
+      })) as typeof mediaUpload;
+      expect(mediaReplay).toMatchObject({ ...mediaUpload, replayed: true });
+      await expect(
+        provider.cmsOperation(realWebsiteId, {
+          operation: 'cms.media.upload',
+          payload: {
+            ...mediaPayload,
+            contentBase64: pngPixel(30, 20, 10).toString('base64'),
+            contentSha256: createHash('sha256')
+              .update(pngPixel(30, 20, 10))
+              .digest('hex'),
+          },
+          idempotencyKey: mediaKey,
+        }),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+
       const externalTitle = 'Manual Pboot Admin edit';
       const externalUpdate = await container.exec({
         Cmd: [
@@ -894,6 +1003,19 @@ if (!$db->exec('COMMIT')) exit(26);`,
         executionId: '00000000-0000-4000-8000-000000000099',
       });
       expect(refreshedOperationLedger.stdout.trim()).toBe('0');
+      const refreshedMediaLedger = await refreshedDaemon.exec({
+        command: 'sqlite3',
+        args: [
+          '/workspace/data/pbootcms.db',
+          "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cloudcrane_cms_media_upload_ops';",
+        ],
+        cwd: '/workspace',
+        env: {},
+        timeoutMs: 10_000,
+        maxOutputBytes: 16_384,
+        executionId: '00000000-0000-4000-8000-000000000097',
+      });
+      expect(refreshedMediaLedger.stdout.trim()).toBe('0');
       const previewAuthorizationAfterRefresh = await refreshedDaemon.exec({
         command: 'sqlite3',
         args: [
@@ -992,6 +1114,7 @@ if (!$db->exec('COMMIT')) exit(26);`,
       if (failInitialHealthCheck) return new Response('unavailable', { status: 503 });
       return fetch(input, init);
     };
+
     const provider = new DockerProductionProvider(config, docker, fetcher);
     const firstReleaseId = '00000000-0000-4000-8000-000000000072';
     const secondReleaseId = '00000000-0000-4000-8000-000000000073';

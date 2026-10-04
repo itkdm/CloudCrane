@@ -137,6 +137,17 @@ function cmsAuditSummary(
   operation: ProductionClientOperation,
   result?: unknown,
 ): Record<string, unknown> | undefined {
+  if (operation.operation === 'cms.media.upload') {
+    const payload = operation.payload as { mimeType: string; contentSha256: string };
+    return {
+      action: operation.operation,
+      mimeType: payload.mimeType,
+      contentSha256: payload.contentSha256,
+      ...(result && typeof result === 'object' && 'size' in result
+        ? { size: (result as { size: unknown }).size }
+        : {}),
+    };
+  }
   if (
     operation.operation !== 'cms.content.create' &&
     operation.operation !== 'cms.content.update' &&

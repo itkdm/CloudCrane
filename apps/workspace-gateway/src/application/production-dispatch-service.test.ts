@@ -104,4 +104,64 @@ describe('ProductionDispatchService CMS audit', () => {
     expect(JSON.stringify(audit)).not.toContain('Private title');
     expect(JSON.stringify(audit)).not.toContain('Private body');
   });
+
+  it('audits media upload metadata without recording attachment bytes or identity', async () => {
+    const store = {
+      createAuditEvent: vi.fn().mockResolvedValue('audit-media'),
+      finishAuditEvent: vi.fn().mockResolvedValue(undefined),
+      findWorkspace: vi.fn().mockResolvedValue({ runnerId: 'runner-1' }),
+      findAvailableRunner: vi.fn().mockResolvedValue({
+        runnerId: 'runner-1',
+        capabilities: ['cms.media.upload'],
+      }),
+    };
+    const registry = {
+      get: vi.fn(),
+      online: vi.fn().mockReturnValue(true),
+      dispatch: vi.fn().mockResolvedValue({
+        type: 'runner.completed',
+        requestId: '00000000-0000-4000-8000-000000000041',
+        traceId: '00000000-0000-4000-8000-000000000042',
+        result: {
+          path: '/static/upload/image/cloudcrane/aa/file.png',
+          size: 512,
+          mimeType: 'image/png',
+          contentSha256: 'b'.repeat(64),
+          workspaceContentStale: true,
+          replayed: false,
+        },
+        durationMs: 5,
+      }),
+    };
+    const service = new ProductionDispatchService(store as never, registry as never);
+    const operation = {
+      operation: 'cms.media.upload' as const,
+      payload: {
+        attachmentId: '00000000-0000-4000-8000-000000000043',
+        mimeType: 'image/png' as const,
+        contentSha256: 'c'.repeat(64),
+        contentBase64: 'private image bytes',
+      },
+      idempotencyKey: 'media-key-1',
+      requestId: '00000000-0000-4000-8000-000000000041',
+      traceId: '00000000-0000-4000-8000-000000000042',
+      websiteId: '00000000-0000-4000-8000-000000000044',
+      workspaceId: '00000000-0000-4000-8000-000000000045',
+      deadlineMs: 120_000,
+    };
+
+    await service.execute(operation);
+    const [, audit] = store.finishAuditEvent.mock.calls[0]!;
+    expect(audit).toMatchObject({
+      status: 'SUCCESS',
+      resultSummary: {
+        action: 'cms.media.upload',
+        mimeType: 'image/png',
+        contentSha256: 'c'.repeat(64),
+        size: 512,
+      },
+    });
+    expect(JSON.stringify(audit)).not.toContain('private image bytes');
+    expect(JSON.stringify(audit)).not.toContain(operation.payload.attachmentId);
+  });
 });

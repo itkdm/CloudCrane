@@ -39,4 +39,6 @@ ATTACHMENT_OSS_TIMEOUT_MS=60000
 
 浏览器先通过 multipart 上传附件，再通过 `agent.prompt` 发送附件元数据引用。Agent Service 每次读取都会重新校验附件属于当前 Website 和 Session；未来切换阿里云 OSS 时，只替换 `AttachmentStorage` 适配器，不改变 WebSocket 协议和数据库元数据。
 
+CMS Media Upload 只会再次解析当前 Agent 消息中的图片附件，并重新检查 Owner、Website、Session、MIME 和大小。仅 PNG、JPEG、WebP 且不超过 5 MiB 的图片可以由 Agent 上传到正式站；正式站会校验和重新编码。用户直接在 PbootCMS 后台上传的图片已经属于 Production，可按现有路径引用；完成 Production → Workspace Refresh 后，附件文件会随 uploads 同步。
+
 PDF、DOCX、XLSX、SVG、HTML、脚本和可执行文件暂不支持。需要扩展时必须先增加独立解析器、资源限制和安全测试，不能把原文件直接交给 Pi 或 Workspace。

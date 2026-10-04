@@ -195,3 +195,9 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 ### 2026-10-04 Workspace Host 隔离状态复核
 
 早期“尚无 Metadata deny”记录反映 2026-10-01 当时状态，已被后续部署修复取代。按 [生产部署手册](cloudcrane-production-deploy.md) 的后续记录，`9117c351` 已在 ECS 安装 Metadata host-level deny，并将 Workspace 持久目录迁至带 ext4 project quota 的独立文件系统；真实容器验证了 Metadata GET/Token PUT 被拒绝、普通 HTTPS 可访问及每个 Workspace 的硬配额限制。这些当前状态不要再从本节前面的 2026-10-01 历史记录推断。
+
+### 2026-10-04 CMS Media Upload V1（待远程 CI/部署）
+
+基于 `92ec3089` 实现 Agent 当前消息图片附件到 Production CMS 的单向上传。后台直接上传的 Production 图片沿用现有路径；对话附件只有在用户明确要求用于正式站时才上传。第一版仅接受不超过 5 MiB、8 MP 的 JPEG/PNG/WebP，Production 端校验并重新编码后保存到共享 uploads；数据库只留幂等摘要和结果路径，不保存图片字节，Refresh 时剔除操作账本但正常回流文件。上传未引用的媒体不触发页面缓存失效。
+
+本机 `pnpm format:check`、`pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm db:migration:check` 与 `git diff --check` 均通过。build 需对单个进程设置未监听回环地址的 `DATABASE_URL` 和非生产 `BETTER_AUTH_SECRET`；不会连接数据库。全仓单测中 Docker/PHP integration 因开发机未安装 Docker/PHP 而跳过；镜像构建、Pboot 处理、容器重启后的幂等重试与 3.2.24/3.2.26 覆盖待 GitHub Docker integration。推送后的 CI/CD 与线上 Agent E2E 也尚未验证；完成前不可记录为已上线或线上验收通过。

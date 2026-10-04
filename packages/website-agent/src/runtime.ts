@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -313,6 +313,8 @@ type RunContext = {
   traceId: string;
   previewClientId?: string;
   promptRequestId?: string;
+  ownerId?: string;
+  imageAttachments?: AttachmentRef[];
 };
 type ActiveRun = RunContext & { aborted: boolean };
 type PrimaryOperation = 'run' | 'manual-compaction';
@@ -742,6 +744,8 @@ export class WebsiteAgentRuntime {
         traceId,
         previewClientId,
         promptRequestId,
+        ...(ownerId ? { ownerId } : {}),
+        imageAttachments: attachments.filter((attachment) => attachment.kind === 'image'),
         aborted: false,
       };
       managed.activeRun = activeRun;
@@ -1198,6 +1202,57 @@ export class WebsiteAgentRuntime {
         ),
       ),
       cwd: LOGICAL_CWD,
+      resolveCmsMediaAttachment: async (attachmentIndex) => {
+        const run = this.runContext.getStore();
+        if (!run || !run.ownerId || !this.options.attachmentResolver)
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'image attachment is unavailable',
+          );
+        const reference = run.imageAttachments?.[attachmentIndex - 1];
+        if (!reference || attachmentIndex < 1 || attachmentIndex > 8)
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'image attachment index is invalid',
+          );
+        if (
+          reference.kind !== 'image' ||
+          !['image/jpeg', 'image/png', 'image/webp'].includes(reference.mimeType) ||
+          reference.size > 5 * 1024 * 1024
+        )
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'image format or size is unsupported',
+          );
+        const [resolved] = await this.options.attachmentResolver({
+          ownerId: run.ownerId,
+          websiteId: this.options.websiteId,
+          sessionId: record.id,
+          attachments: [reference],
+        });
+        if (
+          !resolved ||
+          resolved.id !== reference.id ||
+          resolved.kind !== 'image' ||
+          resolved.contentType !== reference.mimeType
+        )
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'image attachment could not be validated',
+          );
+        const bytes = await streamToBuffer(resolved.stream, 5 * 1024 * 1024);
+        if (bytes.length !== reference.size)
+          throw new WebsiteAgentRuntimeError(
+            'ATTACHMENT_INVALID',
+            'image attachment size does not match',
+          );
+        return {
+          attachmentId: reference.id,
+          mimeType: resolved.contentType as 'image/jpeg' | 'image/png' | 'image/webp',
+          contentSha256: createHash('sha256').update(bytes).digest('hex'),
+          contentBase64: bytes.toString('base64'),
+        };
+      },
     });
     const previewTools = this.options.previewObservationProvider
       ? createPreviewTools(this.options.previewObservationProvider, () =>
@@ -1226,6 +1281,15 @@ export class WebsiteAgentRuntime {
         ? {
             cms_content_create: wrapMutationTool(
               rawTools.cms_content_create as unknown as ToolDefinition,
+              this.options.websiteId,
+              () => this.runContext.getStore(),
+            ),
+          }
+        : {}),
+      ...(rawTools.cms_media_upload
+        ? {
+            cms_media_upload: wrapMutationTool(
+              rawTools.cms_media_upload as unknown as ToolDefinition,
               this.options.websiteId,
               () => this.runContext.getStore(),
             ),
@@ -2080,6 +2144,19 @@ async function streamToBase64(stream: NodeJS.ReadableStream): Promise<string> {
   for await (const chunk of stream as AsyncIterable<Buffer | string>)
     chunks.push(Buffer.from(chunk));
   return Buffer.concat(chunks).toString('base64');
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+    const buffer = Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maxBytes)
+      throw new WebsiteAgentRuntimeError('ATTACHMENT_INVALID', 'image attachment is too large');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function streamToUtf8(stream: NodeJS.ReadableStream, maxBytes: number): Promise<string> {

@@ -5,6 +5,32 @@ declare(strict_types=1);
 const DB_PATH = '/site/current/data/cloudcrane.db';
 const LIST_CONTENT_FIELDS = ['title', 'subtitle', 'content', 'tags', 'keywords', 'description', 'status', 'author', 'source', 'date', 'outlink', 'filename'];
 const COMPANY_FIELDS = ['name', 'address', 'postcode', 'contact', 'mobile', 'phone', 'fax', 'email', 'qq', 'weixin', 'blicense', 'other'];
+class CmsOperationException extends RuntimeException {
+    public function __construct(public readonly string $errorCode, string $message) { parent::__construct($message); }
+}
+function throwCms(string $code, string $message): never { throw new CmsOperationException($code, $message); }
+
+function ensureCmsUploadDirectory(string $root, array $segments): string {
+    $path = $root;
+    $rootStat = @lstat($path);
+    if (!is_array($rootStat) || (($rootStat['mode'] & 0170000) !== 0040000))
+        throwCms('CMS_OPERATION_FAILED', 'CMS media destination is unavailable');
+    foreach ($segments as $segment) {
+        if (!in_array($segment, ['static', 'upload', 'image', 'cloudcrane'], true) &&
+            !preg_match('/^[a-f0-9]{2,64}$/', $segment))
+            throwCms('CMS_OPERATION_FAILED', 'CMS media destination is invalid');
+        $path .= '/' . $segment;
+        $stat = @lstat($path);
+        if ($stat === false) {
+            if (!@mkdir($path, 0755) && !is_dir($path))
+                throwCms('CMS_OPERATION_FAILED', 'CMS media destination is unavailable');
+            $stat = @lstat($path);
+        }
+        if (!is_array($stat) || (($stat['mode'] & 0170000) !== 0040000))
+            throwCms('CMS_OPERATION_FAILED', 'CMS media destination is invalid');
+    }
+    return $path;
+}
 
 function failCms(string $code, string $message): never {
     echo json_encode(['error' => ['code' => $code, 'message' => $message]], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
@@ -288,6 +314,142 @@ function createContent(PDO $pdo, array $input, string $idempotencyKey): array {
         return ['item' => $item, 'workspaceContentStale' => true, 'replayed' => false];
     } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
 }
+function uploadCmsMedia(PDO $pdo, array $input, string $idempotencyKey): array {
+    if ($idempotencyKey === '' || strlen($idempotencyKey) > 255)
+        failCms('CMS_INVALID_VALUE', 'Media upload idempotency key is invalid');
+    $mimeType = (string)($input['mimeType'] ?? '');
+    $declaredHash = strtolower((string)($input['contentSha256'] ?? ''));
+    $encoded = (string)($input['contentBase64'] ?? '');
+    if (!in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true) ||
+        !preg_match('/^[a-f0-9]{64}$/', $declaredHash) || strlen($encoded) > 6990508)
+        failCms('CMS_INVALID_VALUE', 'CMS media upload metadata is invalid');
+    $source = base64_decode($encoded, true);
+    if (!is_string($source) || $source === '' || strlen($source) > 5242880 ||
+        !hash_equals($declaredHash, hash('sha256', $source)))
+        failCms('CMS_INVALID_VALUE', 'CMS media upload checksum or size is invalid');
+    $requestHash = hash('sha256', json_encode([
+        'mimeType' => $mimeType,
+        'contentSha256' => $declaredHash,
+    ], JSON_UNESCAPED_SLASHES));
+    $keyHash = hash('sha256', $idempotencyKey);
+    $pdo->exec('CREATE TABLE IF NOT EXISTS cloudcrane_cms_media_upload_ops (
+        idempotency_key_hash TEXT PRIMARY KEY,
+        request_hash TEXT NOT NULL,
+        public_path TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    )');
+    $pdo->exec('BEGIN IMMEDIATE');
+    $encodedTemp = null;
+    $targetTemp = null;
+    $image = false;
+    try {
+        $prior = $pdo->prepare('SELECT request_hash,public_path,content_type,content_sha256,size_bytes FROM cloudcrane_cms_media_upload_ops WHERE idempotency_key_hash=:key');
+        $prior->execute([':key' => $keyHash]);
+        $existing = $prior->fetch();
+        if ($existing) {
+            if (!hash_equals((string)$existing['request_hash'], $requestHash))
+                throwCms('IDEMPOTENCY_KEY_REUSED', 'This CMS media idempotency key was already used with different image data');
+            $diskPath = '/site/shared/upload' . (string)$existing['public_path'];
+            if (!is_file($diskPath) || is_link($diskPath) ||
+                !hash_equals((string)$existing['content_sha256'], (string)hash_file('sha256', $diskPath)))
+                throwCms('CMS_MEDIA_RESULT_UNAVAILABLE', 'The CMS media upload result is no longer available');
+            $result = [
+                'path' => (string)$existing['public_path'],
+                'mimeType' => (string)$existing['content_type'],
+                'size' => (int)$existing['size_bytes'],
+                'contentSha256' => (string)$existing['content_sha256'],
+                'workspaceContentStale' => true,
+                'replayed' => true,
+            ];
+            $pdo->commit();
+            return $result;
+        }
+
+        $imageInfo = @getimagesizefromstring($source);
+        $expectedTypes = ['image/jpeg' => IMAGETYPE_JPEG, 'image/png' => IMAGETYPE_PNG, 'image/webp' => IMAGETYPE_WEBP];
+        if (!$imageInfo || ($imageInfo['mime'] ?? '') !== $mimeType || ($imageInfo[2] ?? null) !== $expectedTypes[$mimeType])
+            throwCms('CMS_INVALID_VALUE', 'CMS media bytes do not match a supported image format');
+        $width = (int)$imageInfo[0];
+        $height = (int)$imageInfo[1];
+        if ($width < 1 || $height < 1 || $width > 10000 || $height > 10000 || $width * $height > 8000000)
+            throwCms('CMS_INVALID_VALUE', 'CMS media image dimensions exceed the supported limit');
+        if (!function_exists('imagecreatefromstring'))
+            throwCms('CMS_SCHEMA_UNSUPPORTED', 'Production image processing is unavailable');
+        $image = @imagecreatefromstring($source);
+        if ($image === false) throwCms('CMS_INVALID_VALUE', 'CMS media is not a decodable raster image');
+        $encodedTemp = tempnam('/tmp', 'cloudcrane-cms-media-output-');
+        if ($encodedTemp === false)
+            throwCms('CMS_OPERATION_FAILED', 'CMS media could not be staged safely');
+        if ($mimeType === 'image/jpeg') {
+            $canvas = imagecreatetruecolor($width, $height);
+            if ($canvas === false) throwCms('CMS_OPERATION_FAILED', 'CMS media image could not be normalized');
+            $white = imagecolorallocate($canvas, 255, 255, 255);
+            imagefilledrectangle($canvas, 0, 0, $width, $height, $white);
+            imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
+            imagedestroy($image);
+            $image = $canvas;
+            $written = @imagejpeg($image, $encodedTemp, 88);
+            $extension = 'jpg';
+        } elseif ($mimeType === 'image/png') {
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+            $written = @imagepng($image, $encodedTemp, 6);
+            $extension = 'png';
+        } else {
+            if (!function_exists('imagewebp')) throwCms('CMS_SCHEMA_UNSUPPORTED', 'Production WebP image processing is unavailable');
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+            $written = @imagewebp($image, $encodedTemp, 88);
+            $extension = 'webp';
+        }
+        if (!$written) throwCms('CMS_INVALID_VALUE', 'CMS media image could not be safely re-encoded');
+        $storedSize = filesize($encodedTemp);
+        if (!is_int($storedSize) || $storedSize < 1 || $storedSize > 5242880)
+            throwCms('CMS_INVALID_VALUE', 'Normalized CMS media exceeds the 5 MiB limit');
+        $storedHash = hash_file('sha256', $encodedTemp);
+        if (!is_string($storedHash)) throwCms('CMS_OPERATION_FAILED', 'Normalized CMS media checksum is unavailable');
+        $publicPath = '/static/upload/image/cloudcrane/' . substr($storedHash, 0, 2) . '/' . $storedHash . '.' . $extension;
+        $diskPath = '/site/shared/upload' . $publicPath;
+        $directory = ensureCmsUploadDirectory('/site/shared/upload', [
+            'static', 'upload', 'image', 'cloudcrane', substr($storedHash, 0, 2),
+        ]);
+        if (is_link($diskPath)) throwCms('CMS_OPERATION_FAILED', 'CMS media destination is invalid');
+        if (is_file($diskPath)) {
+            if (!hash_equals($storedHash, (string)hash_file('sha256', $diskPath)))
+                throwCms('CMS_OPERATION_FAILED', 'CMS media destination checksum does not match');
+        } else {
+            $targetTemp = tempnam($directory, '.cloudcrane-upload-');
+            if ($targetTemp === false || !copy($encodedTemp, $targetTemp) || !chmod($targetTemp, 0644) || !rename($targetTemp, $diskPath))
+                throwCms('CMS_OPERATION_FAILED', 'CMS media could not be stored');
+            $targetTemp = null;
+        }
+        $save = $pdo->prepare('INSERT INTO cloudcrane_cms_media_upload_ops (idempotency_key_hash,request_hash,public_path,content_type,content_sha256,size_bytes,created_at) VALUES (:key,:request,:path,:type,:hash,:size,:at)');
+        $save->execute([
+            ':key' => $keyHash, ':request' => $requestHash, ':path' => $publicPath,
+            ':type' => $mimeType, ':hash' => $storedHash, ':size' => $storedSize,
+            ':at' => date('Y-m-d H:i:s'),
+        ]);
+        $pdo->commit();
+        return [
+            'path' => $publicPath,
+            'mimeType' => $mimeType,
+            'size' => $storedSize,
+            'contentSha256' => $storedHash,
+            'workspaceContentStale' => true,
+            'replayed' => false,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    } finally {
+        if ($image !== false) imagedestroy($image);
+        if (is_string($encodedTemp)) @unlink($encodedTemp);
+        if (is_string($targetTemp)) @unlink($targetTemp);
+    }
+}
 function normalizedContentValue(string $field, mixed $value): string {
     pbootFunctions();
     $value = (string)$value;
@@ -315,6 +477,7 @@ function matchesPatch(array $current, array $patch, bool $content): bool {
 }
 function handleCms(PDO $pdo, string $operation, array $input, string $idempotencyKey = ''): mixed {
     if ($operation === 'cms.content.create') return createContent($pdo, $input, $idempotencyKey);
+    if ($operation === 'cms.media.upload') return uploadCmsMedia($pdo, $input, $idempotencyKey);
     if ($operation === 'cms.categories.list') {
         pbootFunctions();
         requireColumns($pdo, 'ay_content_sort', ['id', 'acode', 'mcode', 'pcode', 'scode', 'name', 'status', 'filename']);
@@ -374,11 +537,12 @@ function handleCms(PDO $pdo, string $operation, array $input, string $idempotenc
     }
     failCms('CMS_INVALID_FIELD','Unsupported CMS operation');
 }
-$raw = file_get_contents('php://stdin', false, null, 0, 5_000_000);
-if (!is_string($raw) || strlen($raw) >= 5_000_000) failCms('CMS_INVALID_VALUE','CMS operation request is too large');
+$raw = file_get_contents('php://stdin', false, null, 0, 8_000_000);
+if (!is_string($raw) || strlen($raw) >= 8_000_000) failCms('CMS_INVALID_VALUE','CMS operation request is too large');
 $request = json_decode($raw, true);
 if (!is_array($request) || !isset($request['operation']) || !is_array($request['payload'] ?? null)) failCms('CMS_INVALID_VALUE','CMS operation request is invalid');
 try {
     okCms(handleCms(db(), (string)$request['operation'], $request['payload'], (string)($request['idempotencyKey'] ?? '')));
 }
+catch (CmsOperationException $e) { failCms($e->errorCode, $e->getMessage()); }
 catch (Throwable) { failCms('CMS_OPERATION_FAILED','Production CMS operation failed'); }

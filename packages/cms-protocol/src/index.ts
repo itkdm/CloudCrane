@@ -18,6 +18,9 @@ const fields = {
   filename: z.string().max(50).optional(),
 };
 const extensionFieldName = /^ext_[\w-]+$/;
+const cmsImageMimeSchema = z.enum(['image/jpeg', 'image/png', 'image/webp']);
+const maxCmsImageBytes = 5 * 1024 * 1024;
+const maxCmsImageBase64Length = Math.ceil(maxCmsImageBytes / 3) * 4;
 
 export const cmsActionSchemas = {
   'cms.categories.list': z.object({
@@ -32,6 +35,14 @@ export const cmsActionSchemas = {
     cursor: contentIdSchema.optional(),
   }),
   'cms.content.get': z.object({ contentId: contentIdSchema }),
+  'cms.media.upload': z
+    .object({
+      attachmentId: z.string().uuid(),
+      mimeType: cmsImageMimeSchema,
+      contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+      contentBase64: z.string().min(1).max(maxCmsImageBase64Length),
+    })
+    .strict(),
   'cms.content.create': z
     .object({
       categoryCode: pbootCodeSchema,
@@ -96,6 +107,10 @@ export const cmsOperationSchema = z.discriminatedUnion('operation', [
   z.object({
     operation: z.literal('cms.content.get'),
     payload: cmsActionSchemas['cms.content.get'],
+  }),
+  z.object({
+    operation: z.literal('cms.media.upload'),
+    payload: cmsActionSchemas['cms.media.upload'],
   }),
   z.object({
     operation: z.literal('cms.content.create'),
@@ -187,6 +202,16 @@ export const cmsOperationResultSchemas = {
     nextCursor: contentIdSchema.nullable(),
   }),
   'cms.content.get': cmsContentSchema,
+  'cms.media.upload': z.object({
+    path: z
+      .string()
+      .regex(/^\/static\/upload\/image\/cloudcrane\/[a-f0-9]{2}\/[a-f0-9]{64}\.(?:jpg|png|webp)$/),
+    mimeType: cmsImageMimeSchema,
+    size: z.number().int().positive().max(maxCmsImageBytes),
+    contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    workspaceContentStale: z.literal(true),
+    replayed: z.boolean(),
+  }),
   'cms.content.update': z.object({
     item: cmsContentSchema,
     workspaceContentStale: z.literal(true),

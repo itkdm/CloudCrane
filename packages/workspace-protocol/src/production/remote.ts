@@ -5,6 +5,7 @@ const cmsOperationNames = [
   'cms.categories.list',
   'cms.content.list',
   'cms.content.get',
+  'cms.media.upload',
   'cms.content.create',
   'cms.content.update',
   'cms.company.get',
@@ -57,7 +58,7 @@ export const productionClientOperationSchema = z.discriminatedUnion('operation',
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
   ...cmsOperationNames.map((operation) =>
-    (operation === 'cms.content.create'
+    (operation === 'cms.content.create' || operation === 'cms.media.upload'
       ? productionClientOperationCommonSchema.extend({
           idempotencyKey: z.string().min(1).max(255),
         })
@@ -99,7 +100,7 @@ export const productionRunnerOperationSchema = z.discriminatedUnion('operation',
     payload: productionOperationPayloadSchemas['production.refresh'],
   }),
   ...cmsOperationNames.map((operation) =>
-    (operation === 'cms.content.create'
+    (operation === 'cms.content.create' || operation === 'cms.media.upload'
       ? productionRunnerOperationCommonSchema.extend({
           idempotencyKey: z.string().min(1).max(255),
         })

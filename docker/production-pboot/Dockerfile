@@ -1,8 +1,8 @@
 FROM php:8.4-fpm-alpine
 
-RUN apk add --no-cache nginx curl oniguruma freetype libjpeg-turbo libpng sqlite-libs \
-    && apk add --no-cache --virtual .php-build-deps $PHPIZE_DEPS curl-dev freetype-dev libjpeg-turbo-dev libpng-dev oniguruma-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+RUN apk add --no-cache nginx curl oniguruma freetype libjpeg-turbo libpng libwebp sqlite-libs \
+    && apk add --no-cache --virtual .php-build-deps $PHPIZE_DEPS curl-dev freetype-dev libjpeg-turbo-dev libpng-dev libwebp-dev oniguruma-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" curl gd mbstring \
     && php -r 'if (!extension_loaded("SQLite3") || !extension_loaded("pdo_sqlite")) { fwrite(STDERR, "SQLite3 and pdo_sqlite are required\\n"); exit(1); }' \
     && apk del .php-build-deps \

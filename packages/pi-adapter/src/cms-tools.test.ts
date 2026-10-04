@@ -63,6 +63,36 @@ describe('CMS Agent tools', () => {
     );
   });
 
+  it('uploads only the resolved current-message image and returns a stable retry key', async () => {
+    const media = {
+      attachmentId: '00000000-0000-4000-8000-000000000031',
+      mimeType: 'image/png' as const,
+      contentSha256: 'a'.repeat(64),
+      contentBase64: 'aGVsbG8=',
+    };
+    const client = {
+      uploadMedia: vi
+        .fn()
+        .mockRejectedValue(new ProductionClientError('UNKNOWN_RESULT', 'unknown')),
+    };
+    const resolveMediaAttachment = vi.fn().mockResolvedValue(media);
+    const upload = createCmsTools(client as never, { resolveMediaAttachment }).cms_media_upload!;
+    const result = await upload.execute(
+      'call-media-1',
+      { attachmentIndex: 1 } as never,
+      undefined,
+      undefined,
+      undefined as never,
+    );
+    const details = result.details as { idempotencyKey: string; attachmentIndex: number };
+    expect(resolveMediaAttachment).toHaveBeenCalledWith(1);
+    expect(details).toMatchObject({ attachmentIndex: 1, status: 'unknown' });
+    expect(details.idempotencyKey).toMatch(/^cms-media-/);
+    expect(client.uploadMedia).toHaveBeenCalledWith(media, {
+      idempotencyKey: details.idempotencyKey,
+    });
+  });
+
   it('accepts Pboot logical category codes in list tools', () => {
     const tools = createCmsTools({} as never);
     const cursor = tools.cms_list_categories.parameters.properties.cursor as unknown as {

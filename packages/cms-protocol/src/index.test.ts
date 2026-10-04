@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cmsCategorySchema, cmsOperationSchema } from './index.js';
+import { cmsCategorySchema, cmsOperationResultSchemas, cmsOperationSchema } from './index.js';
 
 const version = 'a'.repeat(64);
 
@@ -84,6 +84,34 @@ describe('CMS semantic protocol', () => {
       cmsOperationSchema.safeParse({
         operation: 'cms.content.create',
         payload: { categoryCode: 'news_01', title: 'A new article', status: 'published' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only bounded raster image uploads and safe Production paths', () => {
+    const payload = {
+      attachmentId: '00000000-0000-4000-8000-000000000001',
+      mimeType: 'image/png',
+      contentSha256: version,
+      contentBase64: 'aGVsbG8=',
+    };
+    expect(cmsOperationSchema.parse({ operation: 'cms.media.upload', payload }).operation).toBe(
+      'cms.media.upload',
+    );
+    expect(
+      cmsOperationSchema.safeParse({
+        operation: 'cms.media.upload',
+        payload: { ...payload, mimeType: 'image/svg+xml' },
+      }).success,
+    ).toBe(false);
+    expect(
+      cmsOperationResultSchemas['cms.media.upload'].safeParse({
+        path: `/static/upload/image/cloudcrane/aa/${'a'.repeat(64)}.png`,
+        mimeType: 'image/png',
+        size: 5 * 1024 * 1024 + 1,
+        contentSha256: version,
+        workspaceContentStale: true,
+        replayed: false,
       }).success,
     ).toBe(false);
   });

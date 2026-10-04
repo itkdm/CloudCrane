@@ -24,6 +24,18 @@ export class CmsClient {
     return this.production.cmsGetContent(input, options);
   }
 
+  uploadMedia(
+    input: {
+      attachmentId: string;
+      mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+      contentSha256: string;
+      contentBase64: string;
+    },
+    options: ProductionRequestOptions & { idempotencyKey: string },
+  ) {
+    return this.production.cmsUploadMedia(input, options);
+  }
+
   createContent(
     input: Record<string, unknown> & { categoryCode: string; title: string },
     options: ProductionRequestOptions & { idempotencyKey: string },

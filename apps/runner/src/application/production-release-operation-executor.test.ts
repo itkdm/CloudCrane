@@ -43,6 +43,7 @@ describe('ProductionReleaseOperationExecutor', () => {
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.media.upload',
       'cms.content.create',
       'cms.content.update',
       'cms.company.get',

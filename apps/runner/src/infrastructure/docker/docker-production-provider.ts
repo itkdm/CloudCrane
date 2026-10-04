@@ -727,6 +727,7 @@ export class DockerProductionProvider implements ProductionProvider {
       'cms.categories.list',
       'cms.content.list',
       'cms.content.get',
+      'cms.media.upload',
       'cms.content.create',
       'cms.content.update',
       'cms.company.get',
@@ -854,6 +855,7 @@ export class DockerProductionProvider implements ProductionProvider {
         'CMS_CONTENT_CHANGED',
         'IDEMPOTENCY_KEY_REUSED',
         'CMS_CREATE_RESULT_UNAVAILABLE',
+        'CMS_MEDIA_RESULT_UNAVAILABLE',
         'CMS_INVALID_FIELD',
         'CMS_INVALID_VALUE',
         'CMS_SCHEMA_UNSUPPORTED',
@@ -870,7 +872,7 @@ export class DockerProductionProvider implements ProductionProvider {
         envelope.error.message ?? 'Production CMS operation failed',
       );
     }
-    if (this.isCmsMutation(input.operation)) {
+    if (this.requiresCmsRuntimeRefresh(input.operation)) {
       try {
         await this.refreshPbootRuntimeState(websiteId, this.root(websiteId));
       } catch {
@@ -884,6 +886,15 @@ export class DockerProductionProvider implements ProductionProvider {
   }
 
   private isCmsMutation(operation: CmsOperationInput['operation']): boolean {
+    return (
+      operation === 'cms.content.create' ||
+      operation === 'cms.media.upload' ||
+      operation === 'cms.content.update' ||
+      operation === 'cms.company.update'
+    );
+  }
+
+  private requiresCmsRuntimeRefresh(operation: CmsOperationInput['operation']): boolean {
     return (
       operation === 'cms.content.create' ||
       operation === 'cms.content.update' ||

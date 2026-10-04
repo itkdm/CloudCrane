@@ -120,6 +120,28 @@ describe('workspace envelope', () => {
     ).toBe(true);
   });
 
+  it('requires a durable idempotency key for Production CMS media upload', () => {
+    const operation = {
+      operation: 'cms.media.upload' as const,
+      requestId: '00000000-0000-4000-8000-000000000025',
+      traceId: '00000000-0000-4000-8000-000000000026',
+      websiteId: '00000000-0000-4000-8000-000000000027',
+      workspaceId: '00000000-0000-4000-8000-000000000028',
+      deadlineMs: 120_000,
+      payload: {
+        attachmentId: '00000000-0000-4000-8000-000000000029',
+        mimeType: 'image/png',
+        contentSha256: 'a'.repeat(64),
+        contentBase64: 'aGVsbG8=',
+      },
+    };
+    expect(productionClientOperationSchema.safeParse(operation).success).toBe(false);
+    expect(
+      productionClientOperationSchema.safeParse({ ...operation, idempotencyKey: 'media-key-1' })
+        .success,
+    ).toBe(true);
+  });
+
   it('validates operation envelopes and central mutation classification', () => {
     const operation = {
       type: 'workspace.operation' as const,

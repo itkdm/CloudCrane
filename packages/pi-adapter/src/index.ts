@@ -15,7 +15,7 @@ import {
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
 import { CmsClient, WorkspaceClient, WorkspaceClientError } from '@cloudcrane/workspace-client';
-import { createCmsTools } from './cms-tools.js';
+import { createCmsTools, type CmsMediaAttachment } from './cms-tools.js';
 
 const REMOTE_ROOT = '/workspace';
 const DEFAULT_PROCESS_OUTPUT_BYTES = 10_485_760;
@@ -257,10 +257,12 @@ export type CloudCraneCodingTools = {
 export function createCloudCraneCodingTools({
   workspaceClient,
   cmsClient,
+  resolveCmsMediaAttachment,
   cwd = REMOTE_ROOT,
 }: {
   workspaceClient: WorkspaceClient;
   cmsClient?: CmsClient;
+  resolveCmsMediaAttachment?: (attachmentIndex: number) => Promise<CmsMediaAttachment>;
   cwd?: string;
 }): CloudCraneCodingTools {
   const operations = new RemoteToolOperations(workspaceClient);
@@ -274,6 +276,8 @@ export function createCloudCraneCodingTools({
     }),
     ls: createLsToolDefinition(cwd, { operations: operations.ls }),
     find: createFindToolDefinition(cwd, { operations: operations.find }),
-    ...(cmsClient ? createCmsTools(cmsClient) : {}),
+    ...(cmsClient
+      ? createCmsTools(cmsClient, { resolveMediaAttachment: resolveCmsMediaAttachment })
+      : {}),
   };
 }

@@ -61,8 +61,24 @@ const createContentParameters = Type.Object({
   title: Type.String({ minLength: 1, maxLength: 100 }),
   idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
 });
+const uploadMediaParameters = Type.Object({
+  attachmentIndex: Type.Integer({ minimum: 1, maximum: 8 }),
+  idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 255 })),
+});
 
-export function createCmsTools(client: CmsClient) {
+export type CmsMediaAttachment = {
+  attachmentId: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  contentSha256: string;
+  contentBase64: string;
+};
+
+export function createCmsTools(
+  client: CmsClient,
+  options: {
+    resolveMediaAttachment?: (attachmentIndex: number) => Promise<CmsMediaAttachment>;
+  } = {},
+) {
   return {
     cms_list_categories: tool(
       'cms_list_categories',
@@ -104,6 +120,34 @@ export function createCmsTools(client: CmsClient) {
         }
       },
     ),
+    ...(options.resolveMediaAttachment
+      ? {
+          cms_media_upload: tool(
+            'cms_media_upload',
+            'Upload one image explicitly attached to the current user message into the live Production CMS. Use the 1-based attachmentIndex shown in the current user message; only upload an image the user asked to publish or use. Supports PNG, JPEG, and WebP up to 5 MiB. The returned /static/upload path can be placed in CMS content. On UNKNOWN_RESULT, retry with the same attachmentIndex and returned idempotencyKey; never make a new key for that attempt.',
+            uploadMediaParameters,
+            async ({ attachmentIndex, idempotencyKey: suppliedKey }, toolCallId) => {
+              const media = await options.resolveMediaAttachment!(attachmentIndex);
+              const idempotencyKey = suppliedKey ?? operationKey('media', toolCallId);
+              try {
+                return await client.uploadMedia(media, { idempotencyKey });
+              } catch (error) {
+                if (error instanceof ProductionClientError && error.code === 'UNKNOWN_RESULT') {
+                  return {
+                    status: 'unknown',
+                    code: error.code,
+                    attachmentIndex,
+                    idempotencyKey,
+                    retry:
+                      'Repeat cms_media_upload with the same attachmentIndex and this idempotencyKey.',
+                  };
+                }
+                throw error;
+              }
+            },
+          ),
+        }
+      : {}),
     cms_update_content: tool(
       'cms_update_content',
       'Update allowlisted fields on an existing item in the live Production CMS. First call cms_get_content and use its version. On CMS_CONTENT_CHANGED, fetch again and reconsider. On UNKNOWN_RESULT, retry the same patch with the same expectedVersion; the CMS safely replays it if the earlier write committed. Never edit Workspace SQLite to change live content. Production updates can leave Preview content stale until Production → Workspace Refresh.',
