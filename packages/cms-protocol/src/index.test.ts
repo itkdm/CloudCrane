@@ -47,13 +47,24 @@ describe('CMS semantic protocol', () => {
       cmsCategorySchema.safeParse({
         scode: 'news01',
         name: 'News',
-        parentCode: '0',
+        parentCode: 'parent-01',
         modelCode: 'M01',
         modelType: 'list',
         status: '1',
         filename: 'news',
       }).success,
     ).toBe(true);
+    expect(
+      cmsCategorySchema.safeParse({
+        scode: 'a'.repeat(21),
+        name: 'News',
+        parentCode: '0',
+        modelCode: 'M01',
+        modelType: 'list',
+        status: '1',
+        filename: 'news',
+      }).success,
+    ).toBe(false);
   });
 
   it('accepts content creation only with a category and non-empty title', () => {

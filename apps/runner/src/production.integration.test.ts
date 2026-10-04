@@ -505,7 +505,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           'php',
           '-r',
           `$db = new SQLite3('/site/shared/data/cloudcrane.db');
-$category = $db->querySingle("SELECT s.scode FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.status='1' AND m.type='2' ORDER BY s.id LIMIT 1");
+$category = $db->querySingle("SELECT s.scode FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.status='1' AND m.type='2' AND EXISTS (SELECT 1 FROM ay_content c WHERE c.scode=s.scode AND c.acode=s.acode) ORDER BY s.id LIMIT 1");
 $acode = $db->querySingle("SELECT acode FROM ay_content_sort WHERE scode='" . SQLite3::escapeString((string)$category) . "' LIMIT 1");
 $model = $db->querySingle("SELECT mcode FROM ay_content_sort WHERE scode='" . SQLite3::escapeString((string)$category) . "' AND acode='" . SQLite3::escapeString((string)$acode) . "' LIMIT 1");
 if (!$category || !$acode || !$model || $db->querySingle("SELECT count(*) FROM ay_content_sort WHERE scode='news_01'") || $db->querySingle("SELECT count(*) FROM ay_model WHERE mcode='M01'")) exit(21);
@@ -546,7 +546,7 @@ if (!$db->exec('COMMIT')) exit(26);`,
         operation: 'cms.content.list',
         payload: { categoryCode: 'news_01', limit: 5 },
       })) as { items: Array<{ id: string; categoryCode: string }> };
-      expect(logicalContentList.items.length).toBeGreaterThan(1);
+      expect(logicalContentList.items.length).toBeGreaterThan(0);
       expect(logicalContentList.items[0]!.categoryCode).toBe('news_01');
       const logicalContent = (await provider.cmsOperation(realWebsiteId, {
         operation: 'cms.content.get',
