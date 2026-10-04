@@ -130,6 +130,8 @@ Docker systemd drop-in 和 Metadata oneshot service 已安装并检查生效；�
 
 2026-10-04 复核：重启 `cloudcrane-metadata-deny.service` 后，真实 Workspace 容器和一个新建的 Workspace 镜像容器都无法完成 Metadata GET / token PUT；iptables REJECT 计数各增加 2，普通 HTTPS 仍成功。`scripts/verify-workspace-disk-quota.sh` 在生产主机实际运行通过：16 MiB 配额容器写入超限返回 `ENOSPC`，64 MiB 配额容器写入成功，Runner 与 Production Gateway 健康检查通过，临时目录与 project quota 已清理。`repquota -P -a` 复核现存 Workspace 的 1 GiB 块硬限制和 100,000 inode 限制。此次未重启 Docker daemon 或整台主机。主机 KVM/Red Hat/NoCloud 与 USCloud IP 分配证据，以及 Metadata 控制面仍待服务商身份确认，详见[工程生命周期复核](cloudcrane-development-lifecycle.md#2026-10-04-metadata-控制面适用性仍待确认)。
 
+提交 `64cb3c2169f2d70d9c81763b7d0dd975938058fe` 已通过 CI #542、Production Deploy #141。部署后运行更新版 `scripts/verify-cloudcrane-metadata-policy.sh`：Alibaba Metadata GET、Token PUT 和通用 `169.254.169.254` GET 均失败，三次拒绝均被 iptables 规则计数；绕过代理的 `https://example.com` 请求成功。当前 `cloudcrane-metadata-deny.service` 为 active，DOCKER-USER 的 `br+` hook 与两条 REJECT 规则存在。此次未重启 Docker daemon 或整台主机进行故障注入。
+
 - Workspace Docker bridge 出口在 `DOCKER-USER` 链前段拒绝 `100.100.100.200/32` 和通用 IPv4 link-local `169.254.0.0/16`，覆盖 Alibaba Metadata 与常见 IPv4 Metadata 地址；其它公网 HTTPS egress 保持可用。`cloudcrane-metadata-deny.service` 在 Docker 启动后应用规则，Docker systemd drop-in 也会在每次 Docker 启动后重放规则。
 - 真实 Workspace 核验脚本同时探测 Alibaba Metadata GET、Token PUT、`169.254.169.254` GET，并确认三次拒绝都计入 host firewall 规则；同时检查不经代理的公网 HTTPS 连通性。当前生产 Workspace Docker network 的 `EnableIPv6` 为 `false`；若以后启用 IPv6，必须为 IPv6 Metadata 路径补充 host-level deny 和真实容器验证。此策略不代表已确认未知服务商的控制面 token-required 设置；服务商及实例控制面确认后还需按其官方地址与控制项补充验证。
 - 规则安装和存在性检查由 `scripts/install-cloudcrane-metadata-policy.sh` 执行。用真实 Workspace 容器验证 Alibaba GET、Token PUT 和通用 link-local GET 均被 host firewall 计数并拒绝，同时检查 `https://example.com` 仍可访问：
