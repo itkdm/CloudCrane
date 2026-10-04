@@ -14,7 +14,7 @@
 - 日常工作直接在 `main` 上进行，不另建功能分支或要求 Pull Request。
 - 一个明确功能点或约定的提交点完成，且适用的本地检查通过后，Codex 自动创建 Conventional Commit 并推送 `main`。有未完成改动、检查失败或基线/远端状态不明时，不把它包装成完成点。
 - 推送会触发 GitHub Actions CI。当前 CI 检查格式、lint、类型、单测、构建、数据库迁移，并运行 Docker/远程执行集成任务。
-- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 会对比上次成功部署的 SHA。若其间只改了 `docs/**`、仓库级 README/AGENTS/CHANGELOG/CONTRIBUTING 文档，则跳过平台重启；其他改动部署同一个已验证 commit 并检查线上健康入口。此保护避免文档更新中断正在运行的 Agent Run。2026-10-04，`dab3aaa` 的 CI `#548` 和 Deploy production `#147` 均成功；该提交修改部署 workflow，因此正确进入了部署分支。紧随其后的纯文档提交用于实测跳过部署分支。首次功能提交已端到端验证：CI `#404` 和 Deploy production `#1` 均成功，部署的 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
+- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 会对比上次成功部署的 SHA。若其间只改了 `docs/**`、仓库级 README/AGENTS/CHANGELOG/CONTRIBUTING 文档，则跳过平台重启；其他改动部署同一个已验证 commit 并检查线上健康入口。此保护避免文档更新中断正在运行的 Agent Run。2026-10-04，`dab3aaa` 的 CI `#548` 和 Deploy production `#147` 均成功；该提交修改部署 workflow，因此正确进入了部署分支。纯文档提交 `58740f0` 的 CI `#549` 全绿；Deploy production `#148` 成功结束，实际 SSH 部署和线上健康检查步骤均为 `skipped`，验证了文档变更不会重启平台。首次功能提交已端到端验证：CI `#404` 和 Deploy production `#1` 均成功，部署的 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
 
 ## 运行环境边界
 
