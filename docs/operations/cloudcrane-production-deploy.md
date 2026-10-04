@@ -143,9 +143,11 @@ Docker systemd drop-in 和 Metadata oneshot service 已安装并检查生效；�
   ```bash
   findmnt -T /var/lib/cloudcrane/workspaces-quota -no FSTYPE,OPTIONS
   sudo quotaon -P -p /var/lib/cloudcrane/workspaces-quota
-  sudo quota -P <project-id> -f /var/lib/cloudcrane/workspaces-quota
+  sudo repquota -P -a
   sudo bash ./scripts/verify-workspace-disk-quota.sh
   ```
+
+`repquota -P -a` reports project usage, block limits and inode limits. The `quota -P <project-id> -f <mount>` form is not supported by the deployed quota tools and must not be used to inspect project usage.
 
 不要用 `du`、API 写入检查或容器 overlay 大小冒充硬配额。Metadata token-required/hardened 模式是 ECS 控制面设置的第二层；即使无法确认其状态，也不能省略宿主机网络 deny。
 
