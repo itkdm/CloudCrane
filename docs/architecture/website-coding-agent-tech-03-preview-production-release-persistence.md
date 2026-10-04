@@ -932,7 +932,7 @@ Real-time Dev/Prod DB Sync
                             │
                           EIP
                             │
-             Nginx Website Production Gateway (not enabled)
+             Nginx Website Production Gateway
                             │
             ┌───────────────┴───────────────┐
             │                               │

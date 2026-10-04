@@ -212,6 +212,8 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 
 随后通过内置浏览器 Agent 对已启用列表栏目 `scode=2`（新闻中心）创建隐藏子栏目 `cc000001`，名称 `CloudCrane Category E2E 0069b41`、父编码 `2`、模型 `list`、状态 `0`、filename 未设置；创建后的栏目列表读取工具也已完成。浏览器截图目视确认创建响应字段与页面布局。DEVTOOLS MCP 未用于本轮验证，因此没有 Network 面板证据。第一次失败未产生写入；没有修改既有内容、启用栏目、使用 Bash 或直接 SQL。
 
-### 2026-10-04 Metadata hardened mode 未验证
+### 2026-10-04 Metadata 控制面适用性仍待确认
 
-Workspace 容器到 ECS Metadata 的 host-level deny、规则重启恢复和公网 HTTPS 连通性已在早前部署记录中验证。ECS 控制面是否启用 Metadata token-required/hardened mode 仍未核实；本机没有阿里云 CLI 或可用云控制面连接，本轮从服务器探测 Metadata endpoint 返回 HTTP `000`（超时/不可达），不能据此判断该开关状态。Issue #6 中 token-required 部分继续保持未完成；不要用 host firewall 的拦截结果代替 ECS 控制面配置证据。
+Workspace 容器到 `100.100.100.200/32` 的宿主机 deny、规则服务重启恢复和公网 HTTPS 连通性已有实测记录。进一步只读检查发现当前生产主机报告 `KVM`、DMI vendor `Red Hat`、cloud-init datasource `NoCloud`；公网地址段的 ARIN RDAP 登记组织为 `USCLOUD-INC`。这些证据与 Tech-03 文档中的“阿里云 ECS”假设不一致，但不能单独确定实际 VPS 产品、上游云控制面或其 Metadata 配置能力。宿主机和 Workspace 对 Alibaba `100.100.100.200` 及通用 `169.254.169.254` 的请求均未建立连接（HTTP `000`），这只说明探测路径不可达，不能证明控制面 token-required 状态。
+
+因此，Issue #6 的宿主机网络隔离部分已有验证；云厂商控制面是否存在、以及是否支持等价的 token-required/hardened 模式，仍需先确认服务商/实例控制台身份，再按该服务商的权威设置核验。不要把当前主机称作已核实的阿里云 ECS，也不要把 Alibaba `HttpTokens` 设置描述为已配置或已确认缺失。继续保留对 Workspace bridge 的 host-level deny，直到查明此主机实际提供的 Metadata 服务和控制面边界。
