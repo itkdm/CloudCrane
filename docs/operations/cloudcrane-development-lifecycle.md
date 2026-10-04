@@ -190,7 +190,7 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 
 在专用 `CloudCrane Production E2E` 网站上预热公开内容详情页 `/?company/4.html`，页面标题为 `PbootCMSV1.0.0正式发布`。通过 Production CMS 语义工具确认内容 ID `4`、状态 `1`，只将标题改为唯一临时标记 `CloudCrane Cache E2E 20261004 408a675`。紧接着用内置浏览器刷新同一公网 URL，页面标题立即显示新标记，证明 CMS 内容更新后 Pboot 公网页面缓存已失效。之后用 Production CMS 语义工具以当前版本作为 `expectedVersion` 恢复原标题；CMS 读回确认状态仍为 `1`，版本指纹恢复为更新前相同值，公网刷新也恢复原标题且不再包含测试标记。其他内容字段未修改；未写 Workspace、未使用 Bash/SQLite/文件工具、未更改代码/模板/Release/授权。内置浏览器验证了可见页面和刷新结果；Network 面板证据未取得。临时写入和恢复均成功，没有发生 `UNKNOWN_RESULT`；CMS 更新语义没有暴露自定义 `idempotencyKey` 参数，本次使用版本校验。
 
-随后补充 Docker 回归断言：CMS cache invalidation 清掉过期页面缓存哨兵后，仍保留 `runtime/session`、`runtime/image`、共享 `data` 与 `upload` 下的哨兵文件。此项等待包含新断言的后续 CI Docker integration 通过后再标记完成。
+随后补充 Docker 回归断言：CMS cache invalidation 清掉过期页面缓存哨兵后，仍保留 `runtime/session`、`runtime/image`、共享 `data` 与 `upload` 下的哨兵文件。[CI #530](https://github.com/itkdm/CloudCrane/actions/runs/37176910119) 的 quality 与 docker-integration 均通过，新断言实际运行成功；至此 CMS 更新缓存逻辑、失败后幂等重试、真实 Pboot 页面缓存与持久数据保留都有 CI 和专用线上 E2E 证据。Issue #3 已关闭。线上复验工具为 Codex 内置浏览器；DEVTOOLS MCP 不可用，因此没有 Network 面板证据。
 
 ### 2026-10-04 Workspace Host 隔离状态复核
 
