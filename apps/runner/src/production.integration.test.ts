@@ -500,6 +500,59 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
       expect((await writeAuthorizationMarker.inspect()).ExitCode).toBe(0);
       const lockedStatus = await provider.getStatus(realWebsiteId, 'real-pboot-integration');
       expect(lockedStatus).toMatchObject({ status: 'active', authorized: true });
+      const logicalCodeFixture = await container.exec({
+        Cmd: [
+          'php',
+          '-r',
+          `$db = new SQLite3('/site/shared/data/cloudcrane.db');
+$category = $db->querySingle("SELECT s.scode FROM ay_content_sort s JOIN ay_model m ON m.mcode=s.mcode WHERE s.status='1' AND m.type='2' ORDER BY s.id LIMIT 1");
+$acode = $db->querySingle("SELECT acode FROM ay_content_sort WHERE scode='" . SQLite3::escapeString((string)$category) . "' LIMIT 1");
+$model = $db->querySingle("SELECT mcode FROM ay_content_sort WHERE scode='" . SQLite3::escapeString((string)$category) . "' AND acode='" . SQLite3::escapeString((string)$acode) . "' LIMIT 1");
+if (!$category || !$acode || !$model || $db->querySingle("SELECT count(*) FROM ay_content_sort WHERE scode='news_01'") || $db->querySingle("SELECT count(*) FROM ay_model WHERE mcode='M01'")) exit(21);
+$db->exec('BEGIN IMMEDIATE');
+$oldModel = SQLite3::escapeString((string)$model);
+$oldCode = SQLite3::escapeString((string)$category);
+$language = SQLite3::escapeString((string)$acode);
+if (!$db->exec("UPDATE ay_model SET mcode='M01' WHERE mcode='$oldModel'")) exit(22);
+if (!$db->exec("UPDATE ay_content_sort SET mcode='M01' WHERE mcode='$oldModel'")) exit(23);
+if (!$db->exec("UPDATE ay_content_sort SET scode='news_01' WHERE scode='$oldCode' AND acode='$language'")) exit(24);
+if (!$db->exec("UPDATE ay_content SET scode='news_01' WHERE scode='$oldCode' AND acode='$language'")) exit(25);
+if (!$db->exec('COMMIT')) exit(26);`,
+        ],
+        User: '1000:1000',
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const logicalCodeFixtureStream = await logicalCodeFixture.start({
+        hijack: true,
+        stdin: false,
+      });
+      await new Promise<void>((resolve, reject) => {
+        logicalCodeFixtureStream.once('end', resolve);
+        logicalCodeFixtureStream.once('close', resolve);
+        logicalCodeFixtureStream.once('error', reject);
+        logicalCodeFixtureStream.resume();
+      });
+      expect((await logicalCodeFixture.inspect()).ExitCode).toBe(0);
+      const logicalCategories = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.categories.list',
+        payload: { limit: 100 },
+      })) as { items: Array<{ scode: string; modelCode: string }> };
+      expect(logicalCategories.items).toContainEqual(
+        expect.objectContaining({ scode: 'news_01', modelCode: 'M01' }),
+      );
+      const logicalContentList = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.list',
+        payload: { categoryCode: 'news_01', limit: 5 },
+      })) as { items: Array<{ id: string; categoryCode: string }> };
+      expect(logicalContentList.items.length).toBeGreaterThan(1);
+      expect(logicalContentList.items[0]!.categoryCode).toBe('news_01');
+      const logicalContent = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.get',
+        payload: { contentId: logicalContentList.items[0]!.id },
+      })) as { category: { code: string } };
+      expect(logicalContent.category.code).toBe('news_01');
       await expect(
         provider.cmsOperation(realWebsiteId, {
           operation: 'cms.categories.list',
@@ -572,6 +625,10 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         version: string;
         extensionFields: Record<string, string>;
       };
+      const conflictingContent = (await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.get',
+        payload: { contentId: contentList.items[1]!.id },
+      })) as { id: string; filename: string; title: string };
       expect(Object.keys(content.extensionFields).length).toBeGreaterThan(0);
       await expect(
         provider.cmsOperation(realWebsiteId, {
@@ -583,6 +640,16 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
           },
         }),
       ).rejects.toMatchObject({ code: 'CMS_INVALID_VALUE' });
+      const unchangedContent = await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.get',
+        payload: { contentId: content.id },
+      });
+      const unchangedConflictingContent = await provider.cmsOperation(realWebsiteId, {
+        operation: 'cms.content.get',
+        payload: { contentId: conflictingContent.id },
+      });
+      expect(unchangedContent).toEqual(content);
+      expect(unchangedConflictingContent).toMatchObject(conflictingContent);
       await expect(
         provider.cmsOperation(realWebsiteId, {
           operation: 'cms.content.get',
