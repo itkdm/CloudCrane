@@ -14,7 +14,7 @@
 - 日常工作直接在 `main` 上进行，不另建功能分支或要求 Pull Request。
 - 一个明确功能点或约定的提交点完成，且适用的本地检查通过后，Codex 自动创建 Conventional Commit 并推送 `main`。有未完成改动、检查失败或基线/远端状态不明时，不把它包装成完成点。
 - 推送会触发 GitHub Actions CI。当前 CI 检查格式、lint、类型、单测、构建、数据库迁移，并运行 Docker/远程执行集成任务。
-- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 将部署同一个已验证 commit，并检查线上健康入口。首次功能提交已端到端验证：CI `#404` 和 Deploy production `#1` 均成功，部署的 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
+- 生产发布采用 CI/CD：`main` 的 push CI 成功后，部署 workflow 会对比上次成功部署的 SHA。若其间只改了 `docs/**`、仓库级 README/AGENTS/CHANGELOG/CONTRIBUTING 文档，则跳过平台重启；其他改动部署同一个已验证 commit 并检查线上健康入口。此保护避免文档更新中断正在运行的 Agent Run。workflow 的这项新规则以 CI 与 Deploy 成功后为准。首次功能提交已端到端验证：CI `#404` 和 Deploy production `#1` 均成功，部署的 SHA 为 `973d9bb4cca32b2d576fa2fc394dc403cf878c7c`。
 
 ## 运行环境边界
 
@@ -204,7 +204,7 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 
 在线 Agent 附件验收期间，第一次调用发现专用网站的 Production 容器仍运行旧镜像，尚不认识 `cms.media.upload`；在专用 E2E 网站执行 Republish 后，容器升级至当前 Production 镜像。随后用户提供的 JPEG 为 2924×2775（8.1141 MP），被旧的未文档化 8 MP 拒绝阈值拦截，尚未写入文件或账本。修复将输入上限定为 16 MP，超过 8 MP 时等比缩小。GitHub Actions [CI #535](https://github.com/itkdm/CloudCrane/actions/runs/37183707680) 的 quality 和 docker-integration 均通过，Docker 集成使用 2924×2775 PNG 验证缩放后不超过 8 MP 且公开静态路径返回 200；[Production Deploy #134](https://github.com/itkdm/CloudCrane/actions/runs/37184183564) 部署 `f66ecdb` 并通过公网健康检查。部署后再次在专用 `CloudCrane Production E2E` 网站执行 Republish，并在新的 Agent 对话中附上同一 JPEG。Agent 的 `cms_media_upload` 工具返回 `image/jpeg`、1,079,802 字节、`replayed: false`；随后通过内置浏览器打开其 Production 公网路径，图片成功渲染，浏览器报告尺寸 2903×2755。Agent 工具后最终文字回复在当时仍处于生成状态；工具卡片已明确显示完成且返回成功，未再次提交上传。截图在内置浏览器中截取并目视检查，DEVTOOLS MCP 不可用，因此没有 Network 面板证据。
 
-随后用用户给定的本地 JPEG（896,744 字节，SHA-256 `5ca69d8c…3f121ee9`）在同一 Production E2E 对话发送为当前消息附件。Agent UI 最终显示 `Run could not be completed`（2 steps），没有显示上传成功卡片、公开 URL 或完成回复。之后只读检查 Production 媒体幂等账本时，发现按该原图计算的 `request_hash` 与一条成功账本记录完全匹配；记录对应的公开 JPEG 为 1,079,802 字节，SHA-256 `443c1c15…a3cd48da8`，通过内置浏览器打开后成功渲染（2903×2755）。因此图片确实已写入 Production 并可公网访问；此前“图片是否写入尚未验证”的判断已被这条只读证据修正。对应 Agent Run 在 08:31:36 UTC 开始，随后于 08:46:30 UTC 被 stale-run recovery 标记为 `INTERRUPTED`，审计状态为 `UNKNOWN / AGENT_RUN_INTERRUPTED`；运行日志没有成功或失败终态，也没有可用错误码。结论是媒体副作用成功，但 Agent 对话未正常完成；本次没有重传图片。内置浏览器截图已目视检查，DEVTOOLS MCP 不可用，因此没有 Network 面板证据。失败状态截图保存在本机 Codex visualizations 目录，未提交到仓库。
+随后用用户给定的本地 JPEG（896,744 字节，SHA-256 `5ca69d8c…3f121ee9`）在同一 Production E2E 对话发送为当前消息附件。Agent UI 最终显示 `Run could not be completed`（2 steps），没有显示上传成功卡片、公开 URL 或完成回复。之后只读检查 Production 媒体幂等账本时，发现按该原图计算的 `request_hash` 与一条成功账本记录完全匹配；记录对应的公开 JPEG 为 1,079,802 字节，SHA-256 `443c1c15…a3cd48da8`，通过内置浏览器打开后成功渲染（2903×2755）。因此图片确实已写入 Production 并可公网访问；此前“图片是否写入尚未验证”的判断已被这条只读证据修正。对应 Agent Run 在 08:31:36 UTC 开始，随后于 08:46:30 UTC 被 stale-run recovery 标记为 `INTERRUPTED`，审计状态为 `UNKNOWN / AGENT_RUN_INTERRUPTED`；运行日志没有成功或失败终态，也没有可用错误码。该恢复时刻与 Deploy production #138（提交 `bdffefc`）的 08:45:51–08:46:33 UTC 执行窗口重合；部署脚本会结束并重启整组 tmux 平台服务，因此这次部署中断 Agent Run 是目前最符合时间线的解释，但日志不能证明 Agent 是否已收到 CMS 工具结果。部署提交仅修改文档，也暴露了文档 push 会触发无必要平台重启；后续在 Deploy workflow 增加基线差异检查，成功 CI 后只对文档变更跳过部署。结论是媒体副作用成功，但 Agent 对话未正常完成；本次没有重传图片。内置浏览器截图已目视检查，DEVTOOLS MCP 不可用，因此没有 Network 面板证据。失败状态截图保存在本机 Codex visualizations 目录，未提交到仓库。
 
 ### 2026-10-04 CMS Category Create V1 实现与线上验收
 
