@@ -128,6 +128,8 @@ Cloudflare 中保留 Resend 要求的 DNS-only 记录：`resend._domainkey` TXT�
 
 Docker systemd drop-in 和 Metadata oneshot service 已安装并检查生效；本轮没有主动重启 Docker 或整台 ECS 做中断演练，因此 daemon 重启后的自动重放机制尚未经过运行时故障注入。ECS 控制面上的 Metadata token-required/hardened 模式也未能核实，宿主机网络 deny 是当前已验证的强制边界。
 
+2026-10-04 复核：重启 `cloudcrane-metadata-deny.service` 后，真实 Workspace 容器和一个新建的 Workspace 镜像容器都无法完成 Metadata GET / token PUT；iptables REJECT 计数各增加 2，普通 HTTPS 仍成功。`scripts/verify-workspace-disk-quota.sh` 在 ECS 实际运行通过：16 MiB 配额容器写入超限返回 `ENOSPC`，64 MiB 配额容器写入成功，Runner 与 Production Gateway 健康检查通过，临时目录与 project quota 已清理。`repquota -P -a` 复核现存 Workspace 的 1 GiB 块硬限制和 100,000 inode 限制。此次未重启 Docker daemon 或 ECS 主机，ECS 控制面 token-required 状态仍未核实。
+
 - Metadata 地址 `100.100.100.200/32` 由 `/usr/local/sbin/cloudcrane-metadata-deny` 在 Docker `DOCKER-USER` 链前段拒绝，匹配 Docker bridge 接口。`cloudcrane-metadata-deny.service` 在 Docker 启动后应用规则，Docker systemd drop-in 也会在每次 Docker 启动后重放规则；策略不限制其它公网 HTTPS egress。
 - 规则安装和存在性检查由 `scripts/install-cloudcrane-metadata-policy.sh` 执行。用真实 Workspace 容器验证 GET、Token PUT 均被该规则计数并拒绝，同时检查 `https://example.com` 仍可访问：
 
