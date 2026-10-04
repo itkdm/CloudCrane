@@ -913,7 +913,7 @@ Real-time Dev/Prod DB Sync
 - 只允许提交父栏目编码、栏目名、可选安全 URL 名称和状态。Adapter 生成新的 Pboot 逻辑编码，不接受 Agent 指定编码、模型、模板或 Pboot 表字段；栏目名在同一父栏目下不允许重复。
 - 创建操作使用 Production SQLite 持久化幂等账本。相同 key/相同规范化请求重放同一个栏目；相同 key/不同请求返回 `IDEMPOTENCY_KEY_REUSED`；已创建栏目后来删除时返回 `CMS_CATEGORY_CREATE_RESULT_UNAVAILABLE`。超时或页面缓存清理失败时保留同一个幂等键重试。
 - 成功后清理 Pboot 页面缓存并刷新 PHP runtime state；失败返回 `UNKNOWN_RESULT`，客户端使用相同 key 安全恢复。Production-only 幂等账本不会进入 Workspace Refresh 快照。
-- PbootCMS 3.2.24/3.2.26 Docker integration 覆盖首次创建、默认隐藏状态、父栏目模型/模板继承、缓存清理失败后的容器重启重放、冲突 key 和 Refresh 账本剔除。公网测试站的真实栏目创建尚未执行；线上验证需在创建一次性隐藏测试栏目并确认其可见数据后进行。
+- PbootCMS 3.2.24/3.2.26 Docker integration 覆盖首次创建、默认隐藏状态、父栏目模型/模板继承、缓存清理失败后的容器重启重放、冲突 key 和 Refresh 账本剔除。GitHub CI #37186937287 与 Production Deploy #37187354588 均通过。专用线上 Production E2E 已创建隐藏栏目 `cc000001`（名称 `CloudCrane Category E2E 0069b41`、父编码 `2`、列表模型、状态 `0`）；栏目列表读回工具调用完成。因内置浏览器工具详情视图截断了完整栏目 JSON，截图中可直接复核创建响应的字段，Network 面板未验证。操作前该站容器仍运行旧 Production 镜像，返回 `Unsupported CMS operation`；Republish 后容器 image ID 与当前镜像一致，重跑创建成功。详情见 `docs/operations/cloudcrane-development-lifecycle.md`。
 
 ## Implementation Status (2026-10-04): CMS Content Create 与线上 E2E
 
