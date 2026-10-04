@@ -196,8 +196,10 @@ CI Docker integration 同时验证 Create 的持久幂等：模拟数据库已�
 
 早期“尚无 Metadata deny”记录反映 2026-10-01 当时状态，已被后续部署修复取代。按 [生产部署手册](cloudcrane-production-deploy.md) 的后续记录，`9117c351` 已在 ECS 安装 Metadata host-level deny，并将 Workspace 持久目录迁至带 ext4 project quota 的独立文件系统；真实容器验证了 Metadata GET/Token PUT 被拒绝、普通 HTTPS 可访问及每个 Workspace 的硬配额限制。这些当前状态不要再从本节前面的 2026-10-01 历史记录推断。
 
-### 2026-10-04 CMS Media Upload V1（待远程 CI/部署）
+### 2026-10-04 CMS Media Upload V1（已部署；在线 Agent 附件验收待补）
 
-基于 `92ec3089` 实现 Agent 当前消息图片附件到 Production CMS 的单向上传。后台直接上传的 Production 图片沿用现有路径；对话附件只有在用户明确要求用于正式站时才上传。第一版仅接受不超过 5 MiB、8 MP 的 JPEG/PNG/WebP，Production 端校验并重新编码后保存到共享 uploads；数据库只留幂等摘要和结果路径，不保存图片字节，Refresh 时剔除操作账本但正常回流文件。上传未引用的媒体不触发页面缓存失效。
+基于 `92ec3089` 实现 Agent 当前消息图片附件到 Production CMS 的单向上传。后台直接上传的 Production 图片沿用现有路径；对话附件只有在用户明确要求用于正式站时才上传。第一版仅接受不超过 5 MiB、8 MP 的 JPEG/PNG/WebP，Production 端校验并重新编码后保存到共享 uploads；数据库只留幂等摘要和结果路径，不保存图片字节，Refresh 时剔除操作账本但正常回流文件。上传未引用的媒体不触发页面缓存失效。改动提交为 `6a1e717`，其后的 Docker 集成发现 HTTP 静态图片请求返回 403：写入端把 `/static/upload/...` 整段追加到了共享 upload 根目录，但容器内 `/site/current/static/upload` 已经是指向 `/site/shared/upload` 的符号链接。修复提交 `fb24ca9` 后，写入位置改为共享根下的 `image/cloudcrane/...`，公开 URL 仍为 `/static/upload/image/cloudcrane/...`；重放路径同时校验账本路径格式、hash 前缀和目录没有符号链接。
 
-本机 `pnpm format:check`、`pnpm lint`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm db:migration:check` 与 `git diff --check` 均通过。build 需对单个进程设置未监听回环地址的 `DATABASE_URL` 和非生产 `BETTER_AUTH_SECRET`；不会连接数据库。全仓单测中 Docker/PHP integration 因开发机未安装 Docker/PHP 而跳过；镜像构建、Pboot 处理、容器重启后的幂等重试与 3.2.24/3.2.26 覆盖待 GitHub Docker integration。推送后的 CI/CD 与线上 Agent E2E 也尚未验证；完成前不可记录为已上线或线上验收通过。
+本机 `pnpm format:check`、`pnpm lint`、`pnpm typecheck`、`pnpm test` 与 `git diff --check` 通过；本机没有 Docker/PHP，因此本地 Runner 集成测试显示 skipped，不能用它证明容器内 PHP、共享挂载或公网静态文件可用。本次 GitHub Actions [CI #532](https://github.com/itkdm/CloudCrane/actions/runs/37179636491) 的 Docker 集成正是发现上述 403 的地方；修复后的 [CI #533](https://github.com/itkdm/CloudCrane/actions/runs/37180233523) quality 与 docker-integration 均通过，覆盖 Production 图片经 HTTP 读取及容器重启后的同 key 幂等重放。随后 [Production Deploy #132](https://github.com/itkdm/CloudCrane/actions/runs/37180704537) 成功部署 `fb24ca9`，公网 `/api/auth/get-session` 与 `/agent/health` 检查通过。**今后涉及 Docker、PHP 扩展、bind mount、Nginx 静态路径或运行时权限时，即使本机纯单元测试通过，也必须等 GitHub Docker integration 和部署后的线上健康检查；不要把本机 skipped 写成验证通过。**
+
+当前未完成的验收仅是在线 Agent 的真实对话附件流程：需要一张在当前用户消息中上传的图片，在线检查 Agent 是否只使用本轮附件、Production 是否返回可访问图片 URL，以及失败重试是否不重复写入。CI 已验证 Runner/Production 容器层，但没有替代该浏览器端 Agent E2E。
