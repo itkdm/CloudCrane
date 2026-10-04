@@ -220,6 +220,8 @@ Workspace 容器到 `100.100.100.200/32` 的宿主机 deny、规则服务重启�
 
 因此，Issue #6 的宿主机网络隔离部分已有验证；云厂商控制面是否存在、以及是否支持等价的 token-required/hardened 模式，仍需先确认服务商/实例控制台身份，再按该服务商的权威设置核验。不要把当前主机称作已核实的阿里云 ECS，也不要把 Alibaba `HttpTokens` 设置描述为已配置或已确认缺失。继续保留对 Workspace bridge 的 host-level deny，直到查明此主机实际提供的 Metadata 服务和控制面边界。
 
+后续 SSH 只读复核补充了主机指纹：`systemd-detect-virt` 为 `kvm`，DMI 为 `Red Hat` / `KVM` / `SeaBIOS`，cloud-init 为 `DataSourceNoCloud [seed=/dev/sr0]`；系统中未发现 Alibaba、AWS、Google、Azure 或 OpenStack 的专用 guest agent/unit。默认路由为 `186.244.238.1`，源地址仍是 `186.244.238.219`。这些信息支持“当前 Guest OS 没有暴露可识别的云平台身份”这一判断，但不证明宿主机运营方、销售商、Metadata 服务是否存在或控制台配置；未访问任何 Metadata endpoint。
+
 2026-10-04 补充公开线索：IPinfo 对当前公网地址段的登记信息显示 ARIN 分配组织为 Uscloud Inc，关联域名 `us-cloud.top`；该域名当前网站以 AROSSCLOUD 品牌销售云服务器。该 `/24` 的公开 BGP 路由由 AS154376（Cloudvalley Sdn. Bhd.）宣告。[IPinfo 的地址段登记与路由摘要](https://ipinfo.io/AS154376/186.244.238.0/24)、[公开 BGP 路由信息](https://bgp.he.net/net/186.244.238.0/24)、[us-cloud.top 当前服务页面](https://us-cloud.top/)。**推断**：Uscloud/AROSSCLOUD 是可能的销售或服务品牌，Cloudvalley 是网络路由运营方；这些公开记录不能证明本机租户实际通过哪家平台下单，也不能证明控制面提供何种 Metadata 设置。guest OS 只报告 `KVM` / `NoCloud`，仍需从账单、客户门户或服务商确认，才能完成控制面核验。
 
 为补齐本机重启后的服务恢复边界，`scripts/server-acceptance-start.sh` 已增加启动前的只读策略校验：要求 host deny service enabled/active、Docker `ExecStartPost` hook 存在、DOCKER-USER 的 bridge hook 位于首条规则，且两条 Metadata REJECT 位于专用链首部，否则在创建 tmux 服务栈前退出。部署安装脚本与手动恢复脚本共用同一个 host verifier；云厂商控制台身份仍是独立待确认项。
