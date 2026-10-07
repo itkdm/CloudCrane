@@ -3,7 +3,6 @@
 import { Check, ChevronDown, Folder, LoaderCircle, Send } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Brand } from '@/components/layout/brand';
 
 type Website = {
   id: string;
@@ -70,7 +69,6 @@ export function WorkspaceStart({
   return (
     <main className="workspace-start" aria-labelledby="workspace-start-title">
       <div className="workspace-start-header">
-        <Brand />
         <p>{t('startSubtitle')}</p>
       </div>
       <form className="workspace-start-composer" onSubmit={submit}>

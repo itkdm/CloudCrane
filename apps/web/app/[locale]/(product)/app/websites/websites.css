@@ -564,10 +564,6 @@
   gap: 6px;
   color: var(--cc-text);
 }
-.workspace-start-header .cc-brand-content {
-  font-size: 22px;
-  font-weight: 650;
-}
 .workspace-start-header p {
   margin: 0;
   color: var(--cc-text-secondary);
@@ -617,6 +613,8 @@
 }
 .workspace-start-selector {
   position: relative;
+  width: 180px;
+  max-width: min(180px, calc(100vw - 104px));
   min-width: 0;
 }
 .workspace-start-selector-trigger,
@@ -628,9 +626,9 @@
   cursor: pointer;
 }
 .workspace-start-selector-trigger {
-  width: 240px;
+  width: 100%;
   min-width: 0;
-  max-width: min(240px, calc(100vw - 104px));
+  max-width: 100%;
   gap: 7px;
   padding: 7px 8px;
   border-radius: 8px;
@@ -745,9 +743,6 @@
   .workspace-start-composer {
     min-height: 150px;
     padding: 14px;
-  }
-  .workspace-start-selector-trigger {
-    max-width: min(240px, calc(100vw - 104px));
   }
 }
 .website-dialog-backdrop {

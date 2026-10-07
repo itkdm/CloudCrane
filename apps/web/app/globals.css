@@ -1056,6 +1056,9 @@ button:disabled {
   font-size: 12px;
   text-align: center;
 }
+.unified-sidebar .session-empty.is-loading {
+  text-align: left;
+}
 .unified-sidebar .session-list-toggle {
   width: 100%;
   padding: 6px 0 6px var(--session-title-offset);

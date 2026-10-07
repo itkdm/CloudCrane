@@ -388,7 +388,7 @@ export function UnifiedSidebar({
                   {expanded ? (
                     !group.sessionsLoaded ? (
                       group.sessionsLoading ? (
-                        <div className="session-empty" role="status">
+                        <div className="session-empty is-loading" role="status">
                           {workbenchT('loadingSessions')}
                         </div>
                       ) : group.sessionsError ? (
