@@ -5,6 +5,8 @@ export type AgentServiceErrorCode =
   | 'WORKSPACE_NOT_FOUND'
   | 'WORKSPACE_NOT_READY'
   | 'SESSION_NOT_FOUND'
+  | 'SESSION_NOT_READY'
+  | 'HISTORY_CURSOR_INVALID'
   | 'SESSION_NOT_CLONABLE'
   | 'SESSION_TITLE_INVALID'
   | 'SESSION_BUSY'
@@ -48,6 +50,7 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
     typeof error === 'object' &&
     ((error as { code?: unknown }).code === 'SESSION_BUSY' ||
       (error as { code?: unknown }).code === 'SESSION_NOT_FOUND' ||
+      (error as { code?: unknown }).code === 'HISTORY_CURSOR_INVALID' ||
       (error as { code?: unknown }).code === 'SESSION_NOT_CLONABLE' ||
       (error as { code?: unknown }).code === 'SESSION_TITLE_INVALID' ||
       (error as { code?: unknown }).code === 'WEBSITE_MUTATION_BUSY' ||
@@ -60,6 +63,7 @@ export function asAgentServiceError(error: unknown): AgentServiceError {
         code:
           | 'SESSION_BUSY'
           | 'SESSION_NOT_FOUND'
+          | 'HISTORY_CURSOR_INVALID'
           | 'SESSION_NOT_CLONABLE'
           | 'SESSION_TITLE_INVALID'
           | 'WEBSITE_MUTATION_BUSY'

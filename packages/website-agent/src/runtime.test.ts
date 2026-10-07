@@ -73,6 +73,64 @@ describe('WebsiteAgentRuntime', () => {
     await runtime.shutdown();
   });
 
+  it('paginates complete turns on a pinned Pi branch and reuses the restored manager', async () => {
+    const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'cloudcrane-session-history-page-'));
+    const sessionDir = path.join(dataRoot, websiteId, 'agent', 'sessions');
+    const store = createInMemoryWebsiteAgentStore();
+    const manager = SessionManager.create('/workspace', sessionDir);
+    for (let index = 0; index < 23; index += 1) {
+      manager.appendMessage({
+        role: 'user',
+        content: `user-${index}`,
+        timestamp: 1_800_000_000_000 + index * 2,
+      });
+      manager.appendMessage({
+        ...fauxAssistantMessage(`assistant-${index}`),
+        timestamp: 1_800_000_000_001 + index * 2,
+      });
+    }
+    const sessionFile = manager.getSessionFile();
+    if (!sessionFile) throw new Error('Pi session was not persisted');
+    const session = await store.createSession({
+      websiteId,
+      piSessionId: manager.getSessionId(),
+      sessionFile: path.relative(dataRoot, sessionFile).split(path.sep).join('/'),
+      title: null,
+      status: 'ACTIVE',
+      lastActiveAt: null,
+      pinnedAt: null,
+      clonedFromSessionId: null,
+    });
+    const runtime = new WebsiteAgentRuntime({
+      websiteId,
+      workspaceId,
+      workspaceGatewayEndpoint: 'http://gateway.invalid',
+      workspaceClientToken: 'client-only',
+      agentDataRoot: dataRoot,
+      store,
+      modelRuntime: {} as never,
+    });
+    const open = vi.spyOn(SessionManager, 'open');
+
+    const recent = await runtime.getSessionHistoryPage(session.id);
+    const older = await runtime.getSessionHistoryPage(session.id, recent.olderCursor ?? undefined);
+    const textByRole = (messages: typeof recent.messages, role: 'user' | 'assistant') =>
+      messages.filter((message) => message.role === role).map((message) => message.text);
+
+    expect(recent.hasMore).toBe(true);
+    expect(textByRole(recent.messages, 'user')).toEqual(
+      Array.from({ length: 20 }, (_, index) => `user-${index + 3}`),
+    );
+    expect(older.hasMore).toBe(false);
+    expect(textByRole(older.messages, 'user')).toEqual(['user-0', 'user-1', 'user-2']);
+    expect(
+      new Set([...recent.messages, ...older.messages].map((message) => message.turnId)).size,
+    ).toBe(23);
+    expect(open).toHaveBeenCalledTimes(1);
+
+    await runtime.shutdown();
+  });
+
   it('publishes only the current Website through the guarded template tool', async () => {
     const publish = vi.fn(
       async (request: { name: string; description: string; category: string }) => ({

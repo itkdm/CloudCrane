@@ -1,4 +1,4 @@
-import type { SnapshotMessage } from '@cloudcrane/agent-protocol';
+import type { SessionRuntimeState, SnapshotMessage } from '@cloudcrane/agent-protocol';
 import type {
   AssistantNarrativeStep,
   ConversationTurn,
@@ -30,6 +30,7 @@ export type ConversationState = {
   messages: Message[];
   manualMaintenanceItems: ManualMaintenanceItem[];
   contextUsage: ContextUsageSnapshot | null;
+  revision: number;
 };
 
 export const initialConversationState: ConversationState = {
@@ -37,6 +38,7 @@ export const initialConversationState: ConversationState = {
   messages: [],
   manualMaintenanceItems: [],
   contextUsage: null,
+  revision: 0,
 };
 
 export type ConversationEvent =
@@ -68,6 +70,8 @@ export type ConversationEvent =
         >;
       };
     }
+  | { type: 'session.history.page'; payload: { messages: SnapshotMessage[] } }
+  | { type: 'session.runtime.ready'; payload: SessionRuntimeState }
   | { type: 'user.added'; payload: { message: Message } }
   | { type: 'message.status'; payload: { requestId?: string; status: string } }
   | { type: 'run.started'; payload?: { runId?: string } }
@@ -130,6 +134,14 @@ export function conversationReducer(
   state: ConversationState,
   event: ConversationEvent,
 ): ConversationState {
+  const next = reduceConversationEvent(state, event);
+  return next === state ? state : { ...next, revision: state.revision + 1 };
+}
+
+function reduceConversationEvent(
+  state: ConversationState,
+  event: ConversationEvent,
+): ConversationState {
   if (event.type === 'batch') return event.actions.reduce(conversationReducer, state);
 
   if (event.type === 'session.snapshot') {
@@ -147,6 +159,35 @@ export function conversationReducer(
     );
     const restored = restoreSnapshotMaintenance(
       next,
+      event.payload.activeRun,
+      event.payload.contextMaintenance,
+    );
+    restored.contextUsage = event.payload.contextUsage ?? null;
+    return (event.payload.pendingInteractions ?? []).reduce(
+      (current, interaction) =>
+        conversationReducer(
+          current,
+          interaction.kind === 'reference_upload'
+            ? { type: 'reference_upload.requested', payload: interaction }
+            : { type: 'interaction.requested', payload: interaction },
+        ),
+      restored,
+    );
+  }
+
+  if (event.type === 'session.history.page') {
+    const existingIds = new Set(state.turns.map((turn) => turn.userMessage.id));
+    const olderTurns = snapshotToTurns(event.payload.messages, false).filter(
+      (turn) => !existingIds.has(turn.userMessage.id),
+    );
+    return olderTurns.length
+      ? present([...olderTurns, ...state.turns], state.manualMaintenanceItems, state.contextUsage)
+      : state;
+  }
+
+  if (event.type === 'session.runtime.ready') {
+    const restored = restoreSnapshotMaintenance(
+      present(state.turns, state.manualMaintenanceItems, state.contextUsage),
       event.payload.activeRun,
       event.payload.contextMaintenance,
     );
@@ -924,6 +965,7 @@ function present(
     messages: flattenTurns(turns),
     manualMaintenanceItems,
     contextUsage,
+    revision: 0,
   };
 }
 

@@ -62,6 +62,7 @@ const REMOTE_SKILLS_MAX_DEPTH = 8;
 const REMOTE_SKILLS_MAX_DIRECTORIES = 512;
 const REMOTE_SKILLS_IO_CONCURRENCY = 8;
 const MAX_TURN_INDEX = 1_000_000;
+const SESSION_HISTORY_PAGE_TURN_LIMIT = 20;
 const logger = createLogger('website-agent');
 
 async function mapWithConcurrency<T, R>(
@@ -260,6 +261,15 @@ export type WebsiteAgentSessionSnapshot = {
   pendingInteractions: HumanInteraction[];
 };
 
+export type WebsiteAgentSessionHistoryPage = {
+  session: WebsiteSessionIndex;
+  messages: WebsiteAgentMessage[];
+  olderCursor: string | null;
+  hasMore: boolean;
+};
+
+export type WebsiteAgentSessionRuntimeState = Omit<WebsiteAgentSessionSnapshot, 'messages'>;
+
 export type WebsiteAgentInteractionEvent = {
   type: 'interaction_requested';
   interaction: HumanInteraction;
@@ -330,6 +340,7 @@ export class WebsiteAgentRuntimeError extends Error {
     public readonly code:
       | 'SESSION_BUSY'
       | 'SESSION_NOT_FOUND'
+      | 'HISTORY_CURSOR_INVALID'
       | 'SESSION_NOT_CLONABLE'
       | 'SESSION_TITLE_INVALID'
       | 'WEBSITE_MUTATION_BUSY'
@@ -541,6 +552,7 @@ class ManagedSession implements DisposableSession {
 export class WebsiteAgentRuntime {
   private readonly layout: AgentSessionPathLayout;
   private readonly sessions = new ActiveSessionRegistry<ManagedSession>();
+  private readonly sessionManagers = new Map<string, Promise<SessionManager>>();
   private readonly runContext = new AsyncLocalStorage<RunContext>();
   private readonly listeners = new Set<(event: WebsiteAgentEvent) => void>();
   private readonly settingsManager = SettingsManager.inMemory(undefined, { projectTrusted: false });
@@ -615,6 +627,7 @@ export class WebsiteAgentRuntime {
       throw error;
     }
     try {
+      this.cacheSessionManager(record.id, sessionManager);
       await this.sessions.getOrLoad(record.id, () => this.loadManaged(record, sessionManager));
       return record;
     } catch (error) {
@@ -632,6 +645,59 @@ export class WebsiteAgentRuntime {
       throw new WebsiteAgentRuntimeError('SESSION_NOT_FOUND', 'website session was not found');
     await this.sessions.getOrLoad(record.id, () => this.loadManaged(record));
     return record;
+  }
+
+  async getSessionHistoryPage(
+    websiteSessionId: string,
+    cursor?: string,
+  ): Promise<WebsiteAgentSessionHistoryPage> {
+    assertUuid(websiteSessionId, 'websiteSessionId');
+    const record = await this.options.store.findSession(this.options.websiteId, websiteSessionId);
+    if (!record)
+      throw new WebsiteAgentRuntimeError('SESSION_NOT_FOUND', 'website session was not found');
+
+    const manager = await this.getSessionManager(record);
+    const projectionStartedAt = performance.now();
+    const decodedCursor = cursor ? decodeSessionHistoryCursor(cursor, record.id) : undefined;
+    const leafId = decodedCursor?.leafId ?? manager.getLeafId();
+    const branch = leafId ? manager.getBranch(leafId) : [];
+    const groups = groupSessionHistoryTurns(branch);
+    const endIndex = decodedCursor
+      ? groups.findIndex((group) => group.id === decodedCursor.beforeTurnId)
+      : groups.length;
+    if (decodedCursor && endIndex < 0)
+      throw new WebsiteAgentRuntimeError(
+        'HISTORY_CURSOR_INVALID',
+        'history cursor is no longer valid',
+      );
+
+    const pageEnd = Math.max(0, endIndex);
+    const pageStart = Math.max(0, pageEnd - SESSION_HISTORY_PAGE_TURN_LIMIT);
+    const pageGroups = groups.slice(pageStart, pageEnd);
+    const messages = pageGroups.flatMap((group) =>
+      projectSessionHistory(group.entries).map((message) => ({ ...message, turnId: group.id })),
+    );
+    const hasMore = pageStart > 0;
+    const olderCursor = hasMore
+      ? encodeSessionHistoryCursor({
+          sessionId: record.id,
+          leafId: leafId ?? '',
+          beforeTurnId: groups[pageStart]!.id,
+        })
+      : null;
+
+    logger.info(
+      {
+        event: 'agent.session.history.projected',
+        websiteId: this.options.websiteId,
+        websiteSessionId: record.id,
+        durationMs: Math.round(performance.now() - projectionStartedAt),
+        messageCount: messages.length,
+        hasMore,
+      },
+      'agent session history projected',
+    );
+    return { session: record, messages, olderCursor, hasMore };
   }
 
   async listSessions(): Promise<WebsiteSessionIndex[]> {
@@ -653,6 +719,30 @@ export class WebsiteAgentRuntime {
     return {
       session: { ...managed.record },
       messages: projectSessionHistory(managed.sessionManager.getBranch()),
+      contextUsage: managed.getContextUsage(),
+      contextMaintenance: managed.compactionStatus
+        ? { operation: 'compaction', status: 'running' }
+        : null,
+      activeRun: managed.activeRun
+        ? {
+            runId: managed.activeRun.runId,
+            traceId: managed.activeRun.traceId,
+            previewClientId: managed.activeRun.previewClientId,
+            promptRequestId: managed.activeRun.promptRequestId,
+            status: 'RUNNING',
+          }
+        : null,
+      pendingInteractions: this.interactionBroker.listPending(
+        this.options.websiteId,
+        managed.websiteSessionId,
+      ),
+    };
+  }
+
+  async getSessionRuntimeState(websiteSessionId: string): Promise<WebsiteAgentSessionRuntimeState> {
+    const managed = await this.getManaged(websiteSessionId);
+    return {
+      session: { ...managed.record },
       contextUsage: managed.getContextUsage(),
       contextMaintenance: managed.compactionStatus
         ? { operation: 'compaction', status: 'running' }
@@ -989,6 +1079,7 @@ export class WebsiteAgentRuntime {
   async closeSession(websiteSessionId: string): Promise<void> {
     assertUuid(websiteSessionId, 'websiteSessionId');
     await this.sessions.close(websiteSessionId);
+    this.sessionManagers.delete(websiteSessionId);
     await this.options.store.updateSession(websiteSessionId, {
       status: 'CLOSED',
       updatedAt: new Date().toISOString(),
@@ -1097,6 +1188,7 @@ export class WebsiteAgentRuntime {
       managed.record.sessionFile,
     );
     await this.sessions.close(managed.record.id);
+    this.sessionManagers.delete(managed.record.id);
     const deletingFile = `${sessionFile}.deleting-${randomUUID()}`;
     let movedFile = false;
     try {
@@ -1142,6 +1234,7 @@ export class WebsiteAgentRuntime {
 
   async disposeAll(): Promise<void> {
     await this.sessions.disposeAll();
+    this.sessionManagers.clear();
   }
 
   async shutdown(): Promise<void> {
@@ -1187,7 +1280,7 @@ export class WebsiteAgentRuntime {
     record: WebsiteSessionIndex,
     manager?: SessionManager,
   ): Promise<ManagedSession> {
-    const sessionManager = manager ?? (await this.openOrRecreateSession(record));
+    const sessionManager = await this.getSessionManager(record, manager);
     await this.ensurePiCwd();
     const modelRuntime = await this.modelRuntimePromise;
     const rawTools = createCloudCraneCodingTools({
@@ -1942,6 +2035,53 @@ export class WebsiteAgentRuntime {
       );
     }
   }
+
+  private getSessionManager(
+    record: WebsiteSessionIndex,
+    suppliedManager?: SessionManager,
+  ): Promise<SessionManager> {
+    const existing = this.sessionManagers.get(record.id);
+    if (existing) return existing;
+
+    const load = suppliedManager
+      ? Promise.resolve(suppliedManager)
+      : this.openOrRecreateSession(record);
+    this.sessionManagers.set(record.id, load);
+    const restoreStartedAt = performance.now();
+    void load.then(
+      (sessionManager) =>
+        logger.info(
+          {
+            event: 'agent.session.pi_session.restored',
+            websiteId: this.options.websiteId,
+            websiteSessionId: record.id,
+            durationMs: Math.round(performance.now() - restoreStartedAt),
+            entryCount: sessionManager.getEntries().length,
+            source: suppliedManager ? 'existing' : 'disk',
+          },
+          'agent Pi session restored',
+        ),
+      (error) =>
+        logger.warn(
+          {
+            event: 'agent.session.pi_session.restore_failed',
+            websiteId: this.options.websiteId,
+            websiteSessionId: record.id,
+            durationMs: Math.round(performance.now() - restoreStartedAt),
+            ...serializeError(error),
+          },
+          'agent Pi session restore failed',
+        ),
+    );
+    void load.catch(() => {
+      if (this.sessionManagers.get(record.id) === load) this.sessionManagers.delete(record.id);
+    });
+    return load;
+  }
+
+  private cacheSessionManager(websiteSessionId: string, manager: SessionManager): void {
+    this.sessionManagers.set(websiteSessionId, Promise.resolve(manager));
+  }
 }
 
 function isCompactionNotNeededError(error: unknown): boolean {
@@ -2133,10 +2273,86 @@ function projectSessionHistory(entries: readonly unknown[]): WebsiteAgentMessage
   const messages = entries.flatMap((entry) => {
     if (!entry || typeof entry !== 'object' || (entry as { type?: unknown }).type !== 'message')
       return [];
-    const message = (entry as { message?: unknown }).message;
-    return message ? [message] : [];
+    const value = entry as { id?: unknown; message?: unknown };
+    if (!value.message || typeof value.message !== 'object') return [];
+    const message = value.message as { id?: unknown; timestamp?: unknown };
+    return [
+      {
+        ...message,
+        ...(!readString(message.id) &&
+        !(typeof message.timestamp === 'number' && Number.isFinite(message.timestamp))
+          ? { id: readString(value.id) }
+          : {}),
+      },
+    ];
   });
   return projectMessages(messages);
+}
+
+type SessionHistoryTurnGroup = { id: string; entries: unknown[] };
+type SessionHistoryCursor = {
+  version: 1;
+  sessionId: string;
+  leafId: string;
+  beforeTurnId: string;
+};
+
+function groupSessionHistoryTurns(entries: readonly unknown[]): SessionHistoryTurnGroup[] {
+  const groups: SessionHistoryTurnGroup[] = [];
+  const prefix: unknown[] = [];
+  let current: SessionHistoryTurnGroup | undefined;
+
+  for (const entry of entries) {
+    if (isUserSessionMessageEntry(entry)) {
+      current = {
+        id: readString((entry as { id?: unknown }).id) ?? `turn-${groups.length}`,
+        entries: [...prefix, entry],
+      };
+      prefix.length = 0;
+      groups.push(current);
+    } else if (current) {
+      current.entries.push(entry);
+    } else {
+      prefix.push(entry);
+    }
+  }
+
+  if (groups.length === 0 && prefix.length > 0) {
+    const first = prefix[0] as { id?: unknown } | undefined;
+    groups.push({ id: readString(first?.id) ?? 'turn-0', entries: prefix });
+  }
+  return groups;
+}
+
+function isUserSessionMessageEntry(entry: unknown): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const value = entry as { type?: unknown; message?: { role?: unknown } };
+  return value.type === 'message' && value.message?.role === 'user';
+}
+
+function encodeSessionHistoryCursor(cursor: Omit<SessionHistoryCursor, 'version'>): string {
+  return Buffer.from(JSON.stringify({ version: 1, ...cursor }), 'utf8').toString('base64url');
+}
+
+function decodeSessionHistoryCursor(cursor: string, sessionId: string): SessionHistoryCursor {
+  try {
+    if (cursor.length > 2_048) throw new Error('cursor too large');
+    const value = JSON.parse(
+      Buffer.from(cursor, 'base64url').toString('utf8'),
+    ) as Partial<SessionHistoryCursor>;
+    if (
+      value.version !== 1 ||
+      value.sessionId !== sessionId ||
+      typeof value.leafId !== 'string' ||
+      value.leafId.length === 0 ||
+      typeof value.beforeTurnId !== 'string' ||
+      value.beforeTurnId.length === 0
+    )
+      throw new Error('invalid cursor fields');
+    return value as SessionHistoryCursor;
+  } catch {
+    throw new WebsiteAgentRuntimeError('HISTORY_CURSOR_INVALID', 'history cursor is invalid');
+  }
 }
 
 async function streamToBase64(stream: NodeJS.ReadableStream): Promise<string> {

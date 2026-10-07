@@ -16,6 +16,10 @@ type ChatPanelProps = {
   turns: ConversationTurn[];
   pendingPrompt?: string;
   sessionLoading?: boolean;
+  conversationRevision?: number;
+  hasOlderHistory?: boolean;
+  loadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
   draft: string;
   running: boolean;
   disabled?: boolean;
@@ -54,6 +58,10 @@ export function ChatPanel({
   turns,
   pendingPrompt,
   sessionLoading,
+  conversationRevision = 0,
+  hasOlderHistory = false,
+  loadingOlderHistory = false,
+  onLoadOlderHistory,
   draft,
   running,
   disabled,
@@ -157,6 +165,10 @@ export function ChatPanel({
         turns={turns}
         pendingPrompt={pendingPrompt}
         sessionLoading={sessionLoading}
+        conversationRevision={conversationRevision}
+        hasOlderHistory={hasOlderHistory}
+        loadingOlderHistory={loadingOlderHistory}
+        onLoadOlderHistory={onLoadOlderHistory}
         onExample={onExample}
         manualMaintenanceItems={manualMaintenanceItems}
         onInteractionRespond={onInteractionRespond}

@@ -51,6 +51,10 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     payload: z.object({ sessionId: z.string().uuid() }),
   }),
   commandBase.extend({
+    type: z.literal('session.history.load'),
+    payload: z.object({ cursor: z.string().min(1).max(2_048) }),
+  }),
+  commandBase.extend({
     type: z.literal('agent.prompt'),
     payload: z.object({
       text: z.string().min(1).max(32_000),
@@ -178,6 +182,17 @@ export const sessionSnapshotSchema = z.object({
 });
 export type SessionSnapshot = z.infer<typeof sessionSnapshotSchema>;
 
+export const sessionRuntimeStateSchema = sessionSnapshotSchema.omit({ messages: true });
+export type SessionRuntimeState = z.infer<typeof sessionRuntimeStateSchema>;
+
+export const sessionHistoryPageSchema = z.object({
+  session: sessionViewSchema,
+  messages: z.array(snapshotMessageSchema),
+  olderCursor: z.string().max(2_048).nullable(),
+  hasMore: z.boolean(),
+});
+export type SessionHistoryPage = z.infer<typeof sessionHistoryPageSchema>;
+
 export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('connection.ready'),
@@ -186,6 +201,13 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session.attached'),
     payload: z.object({ session: sessionViewSchema }),
+  }),
+  z.object({ type: z.literal('session.history.snapshot'), payload: sessionHistoryPageSchema }),
+  z.object({ type: z.literal('session.history.page'), payload: sessionHistoryPageSchema }),
+  z.object({ type: z.literal('session.runtime.ready'), payload: sessionRuntimeStateSchema }),
+  z.object({
+    type: z.literal('session.runtime.failed'),
+    payload: z.object({ code: z.string(), message: z.string() }),
   }),
   z.object({ type: z.literal('session.snapshot'), payload: sessionSnapshotSchema }),
   z.object({

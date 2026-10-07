@@ -26,7 +26,7 @@ export type ConversationScroll = {
 };
 
 export function useConversationScroll(
-  contentVersion: string,
+  contentVersion: number,
   followKey?: string,
 ): ConversationScroll {
   const containerRef = useRef<HTMLDivElement | null>(null);

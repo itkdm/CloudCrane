@@ -271,6 +271,22 @@
   scroll-behavior: auto;
 }
 
+.load-older-history {
+  display: block;
+  margin: 0 auto 20px;
+  padding: 7px 12px;
+  border: 1px solid var(--cc-line);
+  border-radius: 999px;
+  background: var(--cc-surface-1);
+  color: var(--cc-text-secondary);
+  cursor: pointer;
+}
+
+.load-older-history:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .empty-state {
   max-width: 390px;
   margin: 15vh auto 0;

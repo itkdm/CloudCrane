@@ -15,6 +15,51 @@ const user = (id = 'user-1'): ConversationEvent => ({
 });
 
 describe('conversationReducer turn presentation model', () => {
+  it('prepends older complete turns and applies runtime state without replacing history', () => {
+    const recent = reduce({
+      type: 'session.snapshot',
+      payload: {
+        messages: [
+          { id: 'user-new', role: 'user', text: 'new question' },
+          { id: 'assistant-new', role: 'assistant', text: 'new answer', status: 'completed' },
+        ],
+      },
+    });
+    const withOlder = conversationReducer(recent, {
+      type: 'session.history.page',
+      payload: {
+        messages: [
+          { id: 'user-old', role: 'user', text: 'old question' },
+          { id: 'assistant-old', role: 'assistant', text: 'old answer', status: 'completed' },
+        ],
+      },
+    });
+    const ready = conversationReducer(withOlder, {
+      type: 'session.runtime.ready',
+      payload: {
+        session: {
+          id: '00000000-0000-4000-8000-000000000001',
+          title: null,
+          status: 'ACTIVE',
+          piSessionId: 'pi-session',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          lastActiveAt: null,
+          pinnedAt: null,
+          clonedFromSessionId: null,
+        },
+        contextUsage: { tokens: 10, contextWindow: 100, percent: 10 },
+        contextMaintenance: null,
+        activeRun: null,
+        pendingInteractions: [],
+      },
+    });
+
+    expect(ready.turns.map((turn) => turn.userMessage.id)).toEqual(['user-old', 'user-new']);
+    expect(ready.contextUsage).toEqual({ tokens: 10, contextWindow: 100, percent: 10 });
+    expect(ready.revision).toBeGreaterThan(recent.revision);
+  });
+
   it('restores and updates context usage without losing it across turn updates', () => {
     const usage = { tokens: 12_400, contextWindow: 200_000, percent: 6.2 };
     const state = reduce({
@@ -681,6 +726,7 @@ describe('empty session snapshot reset boundary', () => {
       messages: [],
       manualMaintenanceItems: [],
       contextUsage: null,
+      revision: expect.any(Number),
     });
   });
 

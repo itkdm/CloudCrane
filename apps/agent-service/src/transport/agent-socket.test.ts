@@ -1,7 +1,11 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import WebSocket from 'ws';
 import { agentEventSchema } from '@cloudcrane/agent-protocol';
-import type { WebsiteAgentRuntime, WebsiteSessionIndex } from '@cloudcrane/website-agent';
+import type {
+  WebsiteAgentEvent,
+  WebsiteAgentRuntime,
+  WebsiteSessionIndex,
+} from '@cloudcrane/website-agent';
 import { buildAgentServiceApp } from '../app.js';
 import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
@@ -41,6 +45,8 @@ describe('AgentSocketTransport', () => {
   let unsubscribeCount = 0;
   let runtimeBusy = false;
   let compactionError: unknown;
+  let historyPageGate: Promise<void> | undefined;
+  let publishRuntimeEvent: ((event: WebsiteAgentEvent) => void) | undefined;
   let previewClients: PreviewClientRegistry;
   const runtime = {
     openSession: async () => session,
@@ -54,11 +60,24 @@ describe('AgentSocketTransport', () => {
       contextMaintenance: null,
       activeRun: null,
     }),
+    getSessionHistoryPage: async () => {
+      if (historyPageGate) await historyPageGate;
+      return { session, messages: [], olderCursor: null, hasMore: false };
+    },
+    getSessionRuntimeState: async () => ({
+      session,
+      contextUsage: null,
+      contextMaintenance: null,
+      activeRun: null,
+      pendingInteractions: [],
+    }),
     hasActiveRun: async () => false,
-    subscribe: () => {
+    subscribe: (listener: (event: WebsiteAgentEvent) => void) => {
       subscribeCount += 1;
+      publishRuntimeEvent = listener;
       return () => {
         unsubscribeCount += 1;
+        publishRuntimeEvent = undefined;
       };
     },
     prompt: vi.fn(
@@ -93,6 +112,8 @@ describe('AgentSocketTransport', () => {
     unsubscribeCount = 0;
     runtimeBusy = false;
     compactionError = undefined;
+    historyPageGate = undefined;
+    publishRuntimeEvent = undefined;
     previewClients = new PreviewClientRegistry({ observeMs: 1_000 });
     const registry = new WebsiteRuntimeRegistry({
       bindingStore: {
@@ -135,8 +156,8 @@ describe('AgentSocketTransport', () => {
             }),
           );
         }
-        if (message.type === 'session.snapshot') {
-          expect(agentEventSchema.parse(message).type).toBe('session.snapshot');
+        if (message.type === 'session.runtime.ready') {
+          expect(agentEventSchema.parse(message).type).toBe('session.runtime.ready');
           resolve();
         }
       });
@@ -146,7 +167,8 @@ describe('AgentSocketTransport', () => {
       'connection.ready',
       'command.ack',
       'session.attached',
-      'session.snapshot',
+      'session.history.snapshot',
+      'session.runtime.ready',
     ]);
     expect(subscribeCount).toBe(1);
     client.close();
@@ -154,6 +176,55 @@ describe('AgentSocketTransport', () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(unsubscribeCount).toBe(1);
     expect(app.agentSocket.connectionCount).toBe(0);
+  });
+
+  it('replays live runtime events that arrive while the initial history page is loading', async () => {
+    let releaseHistoryPage!: () => void;
+    historyPageGate = new Promise<void>((resolve) => {
+      releaseHistoryPage = resolve;
+    });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('test server has no port');
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/v1/agent/connect`, {
+      headers: { origin: config.webOrigin },
+    });
+    const events: string[] = [];
+    await new Promise<void>((resolve, reject) => {
+      client.on('error', reject);
+      client.on('message', (raw) => {
+        const message = JSON.parse(raw.toString()) as { type: string; requestId?: string };
+        events.push(message.type);
+        if (message.type === 'connection.ready')
+          client.send(
+            JSON.stringify({
+              type: 'session.attach',
+              requestId: 'attach-history-race',
+              websiteId,
+              timestamp: new Date().toISOString(),
+              payload: { sessionId },
+            }),
+          );
+        if (message.type === 'command.ack' && message.requestId === 'attach-history-race') {
+          publishRuntimeEvent?.({
+            websiteId,
+            websiteSessionId: sessionId,
+            piSessionId: session.piSessionId,
+            runId: '00000000-0000-4000-8000-000000000005',
+            traceId: '00000000-0000-4000-8000-000000000006',
+            event: {
+              type: 'run_started',
+              runId: '00000000-0000-4000-8000-000000000005',
+              traceId: '00000000-0000-4000-8000-000000000006',
+            },
+          });
+          releaseHistoryPage();
+        }
+        if (message.type === 'run.started') expect(message.type).toBe('run.started');
+        if (events.includes('session.runtime.ready') && events.includes('run.started')) resolve();
+      });
+    });
+    expect(events.indexOf('session.history.snapshot')).toBeLessThan(events.indexOf('run.started'));
+    client.close();
   });
 
   it('serves session indexes and enforces the configured HTTP origin', async () => {
@@ -218,7 +289,7 @@ describe('AgentSocketTransport', () => {
               payload: { sessionId },
             }),
           );
-        } else if (message.type === 'session.snapshot') {
+        } else if (message.type === 'session.runtime.ready') {
           client.send(
             JSON.stringify({
               type: 'session.compact',
@@ -263,7 +334,7 @@ describe('AgentSocketTransport', () => {
               payload: { sessionId },
             }),
           );
-        else if (message.type === 'session.snapshot')
+        else if (message.type === 'session.runtime.ready')
           client.send(
             JSON.stringify({
               type: 'session.compact',
@@ -325,7 +396,7 @@ describe('AgentSocketTransport', () => {
               payload: { sessionId },
             }),
           );
-        } else if (message.type === 'session.snapshot') {
+        } else if (message.type === 'session.runtime.ready') {
           client.send(
             JSON.stringify({
               type: 'agent.prompt',

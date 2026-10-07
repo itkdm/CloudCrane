@@ -5,6 +5,8 @@ import {
   agentCommandSchema,
   createAgentEnvelope,
   type AgentCommand,
+  type AgentWireMessage,
+  type SnapshotMessage,
 } from '@cloudcrane/agent-protocol';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from '../application/errors.js';
@@ -30,6 +32,42 @@ import {
   type CloudCraneAuth,
 } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
+
+function isEventReflectedByHistory(message: AgentWireMessage, history: SnapshotMessage[]): boolean {
+  const payload = message.payload;
+  if (!payload || typeof payload !== 'object') return false;
+  const value = payload as Record<string, unknown>;
+  if (
+    message.type === 'assistant.started' ||
+    message.type === 'assistant.delta' ||
+    message.type === 'assistant.completed'
+  ) {
+    return (
+      typeof value.messageId === 'string' && history.some((item) => item.id === value.messageId)
+    );
+  }
+  if (message.type === 'user.added') {
+    const userMessage = value.message;
+    return (
+      !!userMessage &&
+      typeof userMessage === 'object' &&
+      'id' in userMessage &&
+      typeof userMessage.id === 'string' &&
+      history.some((item) => item.id === userMessage.id)
+    );
+  }
+  if (
+    message.type === 'tool.started' ||
+    message.type === 'tool.updated' ||
+    message.type === 'tool.completed'
+  ) {
+    return (
+      typeof value.toolCallId === 'string' &&
+      history.some((item) => item.toolCallId === value.toolCallId)
+    );
+  }
+  return false;
+}
 
 const logger = createLogger('agent-service.socket');
 
@@ -123,6 +161,7 @@ export class AgentSocketTransport {
 class AgentSocketConnection {
   private readonly connectionId = randomUUID();
   private runtime?: WebsiteAgentRuntime;
+  private runtimeReady = false;
   private sessionId?: string;
   private unsubscribe?: () => void;
   private websiteId?: string;
@@ -282,18 +321,14 @@ class AgentSocketConnection {
           400,
         );
       const runtime = await this.options.registry.get(command.websiteId);
-      let session;
-      try {
-        session = await runtime.openSession(command.payload.sessionId);
-      } catch {
-        throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
-      }
       this.unsubscribe?.();
+      this.attachState = undefined;
       this.runtime = runtime;
       this.websiteId = command.websiteId;
-      this.sessionId = session.id;
+      this.sessionId = command.payload.sessionId;
+      this.runtimeReady = false;
       const attachState = {
-        sessionId: session.id,
+        sessionId: command.payload.sessionId,
         queued: [] as ReturnType<typeof createAgentEnvelope>[],
       };
       this.attachState = attachState;
@@ -305,24 +340,118 @@ class AgentSocketConnection {
         else this.write(message);
       });
       this.ack(command);
-      this.send('session.attached', { session: toSessionView(session) });
+      const historyStartedAt = performance.now();
+      let historySent = false;
       try {
-        const snapshot = await runtime.getSessionSnapshot(session.id);
+        const history = await runtime.getSessionHistoryPage(command.payload.sessionId);
         if (this.attachState !== attachState) return;
-        this.send('session.snapshot', {
-          session: toSessionView(snapshot.session),
-          messages: snapshot.messages,
-          contextUsage: snapshot.contextUsage,
-          contextMaintenance: snapshot.contextMaintenance,
-          activeRun: snapshot.activeRun,
-          pendingInteractions: snapshot.pendingInteractions,
+        // Preserve concurrent runtime events, skipping only message updates already
+        // represented by the history projection to avoid replaying duplicate deltas.
+        attachState.queued = attachState.queued.filter(
+          (message) => !isEventReflectedByHistory(message, history.messages),
+        );
+        const session = toSessionView(history.session);
+        this.send('session.attached', { session });
+        this.send('session.history.snapshot', {
+          session,
+          messages: history.messages,
+          olderCursor: history.olderCursor,
+          hasMore: history.hasMore,
         });
+        historySent = true;
+        logger.info(
+          {
+            event: 'agent.session.history.ready',
+            connectionId: this.connectionId,
+            websiteId: command.websiteId,
+            sessionId: command.payload.sessionId,
+            durationMs: Math.round(performance.now() - historyStartedAt),
+            messageCount: history.messages.length,
+            hasMore: history.hasMore,
+          },
+          'agent session history ready',
+        );
+
+        const runtimeStartedAt = performance.now();
+        try {
+          await runtime.openSession(command.payload.sessionId);
+          const runtimeState = await runtime.getSessionRuntimeState(command.payload.sessionId);
+          if (this.attachState !== attachState) return;
+          this.runtimeReady = true;
+          this.send('session.runtime.ready', {
+            session: toSessionView(runtimeState.session),
+            contextUsage: runtimeState.contextUsage,
+            contextMaintenance: runtimeState.contextMaintenance,
+            activeRun: runtimeState.activeRun,
+            pendingInteractions: runtimeState.pendingInteractions,
+          });
+          logger.info(
+            {
+              event: 'agent.session.runtime.ready',
+              connectionId: this.connectionId,
+              websiteId: command.websiteId,
+              sessionId: command.payload.sessionId,
+              durationMs: Math.round(performance.now() - runtimeStartedAt),
+            },
+            'agent session runtime ready',
+          );
+        } catch (error) {
+          if (this.attachState !== attachState) return;
+          this.runtimeReady = false;
+          logger.warn(
+            {
+              event: 'agent.session.runtime.failed',
+              connectionId: this.connectionId,
+              websiteId: command.websiteId,
+              sessionId: command.payload.sessionId,
+              durationMs: Math.round(performance.now() - runtimeStartedAt),
+              ...serializeError(error),
+            },
+            'agent session runtime failed after history loaded',
+          );
+          this.send('session.runtime.failed', {
+            code: 'SESSION_RUNTIME_UNAVAILABLE',
+            message: 'Agent runtime is unavailable',
+          });
+        }
+      } catch (error) {
+        if (!historySent) {
+          this.unsubscribe?.();
+          this.unsubscribe = undefined;
+          this.runtime = undefined;
+          this.sessionId = undefined;
+          this.websiteId = undefined;
+          this.attachState = undefined;
+          this.runtimeReady = false;
+          if ((error as { code?: unknown })?.code === 'SESSION_NOT_FOUND')
+            throw new AgentServiceError('SESSION_NOT_FOUND', 'website session was not found', 404);
+          throw error;
+        }
       } finally {
         if (this.attachState === attachState) {
           this.attachState = undefined;
           attachState.queued.forEach((message) => this.write(message));
         }
       }
+      return;
+    }
+    if (command.type === 'session.history.load') {
+      this.requireAttached(command);
+      const page = await this.runtime!.getSessionHistoryPage(
+        this.sessionId!,
+        command.payload.cursor,
+      );
+      this.send(
+        'session.history.page',
+        {
+          session: toSessionView(page.session),
+          messages: page.messages,
+          olderCursor: page.olderCursor,
+          hasMore: page.hasMore,
+        },
+        command.requestId,
+      );
+      this.ack(command);
       return;
     }
     if (command.type === 'preview.client.register') {
@@ -377,6 +506,12 @@ class AgentSocketConnection {
       return;
     }
     this.requireAttached(command);
+    if (!this.runtimeReady)
+      throw new AgentServiceError(
+        'SESSION_NOT_READY',
+        'Agent runtime is not ready for commands',
+        409,
+      );
     const runtime = this.runtime!;
     const sessionId = this.sessionId!;
     if (command.type === 'interaction.respond') {
@@ -488,6 +623,7 @@ class AgentSocketConnection {
     );
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.runtimeReady = false;
     if (this.previewWebsiteId && this.previewClientId)
       this.options.previewClients.unregister(
         this.previewWebsiteId,

@@ -1,5 +1,6 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useLayoutEffect, useRef } from 'react';
 import { AssistantMessage } from './assistant-message';
 import { useConversationScroll } from './conversation-scroll';
 import { ExecutionProcess } from './tool-execution';
@@ -10,6 +11,10 @@ type MessageListProps = {
   turns: ConversationTurn[];
   pendingPrompt?: string;
   sessionLoading?: boolean;
+  conversationRevision?: number;
+  hasOlderHistory?: boolean;
+  loadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
   onExample: (value: string) => void;
   manualMaintenanceItems?: ManualMaintenanceItem[];
   onInteractionRespond?: (
@@ -24,7 +29,11 @@ export function MessageList({
   turns,
   pendingPrompt,
   sessionLoading = false,
+  conversationRevision = 0,
+  hasOlderHistory = false,
+  loadingOlderHistory = false,
   onExample,
+  onLoadOlderHistory,
   manualMaintenanceItems = [],
   onInteractionRespond,
   onInteractionCancel,
@@ -32,7 +41,10 @@ export function MessageList({
 }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
-  const contentVersion = JSON.stringify({ turns, pendingPrompt, manualMaintenanceItems });
+  const prependAnchorRef = useRef<
+    { scrollHeight: number; scrollTop: number; turnCount: number } | undefined
+  >(undefined);
+  const contentVersion = conversationRevision;
   const latestUserMessageId =
     turns.at(-1)?.userMessage.id ?? (pendingPrompt ? 'pending-initial-prompt' : undefined);
   const {
@@ -47,6 +59,29 @@ export function MessageList({
     showReturnToLatest,
   } = useConversationScroll(contentVersion, latestUserMessageId);
 
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    const container = containerRef.current;
+    if (!anchor || !container) return;
+    if (turns.length > anchor.turnCount) {
+      container.scrollTop = anchor.scrollTop + container.scrollHeight - anchor.scrollHeight;
+      prependAnchorRef.current = undefined;
+    } else if (!loadingOlderHistory) {
+      prependAnchorRef.current = undefined;
+    }
+  }, [containerRef, loadingOlderHistory, turns.length]);
+
+  const loadOlderHistory = () => {
+    const container = containerRef.current;
+    if (!container || !onLoadOlderHistory || loadingOlderHistory) return;
+    prependAnchorRef.current = {
+      scrollHeight: container.scrollHeight,
+      scrollTop: container.scrollTop,
+      turnCount: turns.length,
+    };
+    onLoadOlderHistory();
+  };
+
   return (
     <div
       ref={containerRef}
@@ -59,6 +94,16 @@ export function MessageList({
       aria-label={t('chat')}
     >
       <div className="message-list">
+        {hasOlderHistory ? (
+          <button
+            className="load-older-history"
+            type="button"
+            onClick={loadOlderHistory}
+            disabled={loadingOlderHistory}
+          >
+            {loadingOlderHistory ? t('loadingOlderConversation') : t('loadOlderConversation')}
+          </button>
+        ) : null}
         {turns.length === 0 && pendingPrompt ? (
           <div className="conversation-turn pending-initial-turn">
             <UserMessage

@@ -92,6 +92,39 @@ describe('agent protocol', () => {
     expect(JSON.stringify(event)).not.toMatch(/summary|reason|token/i);
   });
 
+  it('validates staged session history loading events and cursors', () => {
+    const command = agentCommandSchema.parse({
+      type: 'session.history.load',
+      requestId: 'history-1',
+      websiteId,
+      sessionId,
+      timestamp: new Date(),
+      payload: { cursor: 'eyJ2ZXJzaW9uIjoxfQ' },
+    });
+    expect(command.type).toBe('session.history.load');
+    expect(
+      agentEventSchema.parse({
+        type: 'session.history.snapshot',
+        payload: {
+          session: {
+            id: sessionId,
+            title: null,
+            status: 'ACTIVE',
+            piSessionId: 'pi-session',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastActiveAt: null,
+            pinnedAt: null,
+            clonedFromSessionId: null,
+          },
+          messages: [],
+          olderCursor: null,
+          hasMore: false,
+        },
+      }).type,
+    ).toBe('session.history.snapshot');
+  });
+
   it('accepts nullable context usage in snapshots and live events', () => {
     const usage = { tokens: 12_400, contextWindow: 200_000, percent: 6.2 };
     expect(

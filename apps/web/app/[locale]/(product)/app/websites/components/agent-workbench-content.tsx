@@ -95,6 +95,9 @@ export function AgentWorkbenchContent({
     initialConversationState,
   );
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(sessionId);
+  const [sessionRuntimeReady, setSessionRuntimeReady] = useState(false);
+  const [hasOlderHistory, setHasOlderHistory] = useState(false);
+  const [loadingOlderHistory, setLoadingOlderHistory] = useState(false);
   const [runId, setRunId] = useState<string | undefined>();
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
@@ -179,11 +182,22 @@ export function AgentWorkbenchContent({
   const compactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const initialPromptConsumedRef = useRef<string | undefined>(undefined);
   const [sessionSnapshotVersion, setSessionSnapshotVersion] = useState(0);
+  const runtimeReadyRef = useRef(false);
+  const olderHistoryCursorRef = useRef<string | null>(null);
+  const olderHistoryRequestIdRef = useRef<string | undefined>(undefined);
+  const olderHistoryTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [manualMaintenancePending, setManualMaintenancePending] = useState(false);
   const workbenchBodyRef = useRef<HTMLDivElement | null>(null);
   const onPreviewOpenChangeRef = useRef(onPreviewOpenChange);
+  const onSessionChangeRef = useRef(onSessionChange);
+
+  const markRuntimeReady = useCallback((ready: boolean) => {
+    runtimeReadyRef.current = ready;
+    setSessionRuntimeReady(ready);
+  }, []);
 
   onPreviewOpenChangeRef.current = onPreviewOpenChange;
+  onSessionChangeRef.current = onSessionChange;
   previewWebsiteIdRef.current = websiteId;
 
   activeRunRef.current = runId;
@@ -222,6 +236,41 @@ export function AgentWorkbenchContent({
     if (requestId) next.requestId = requestId;
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify(next));
   }, []);
+
+  const loadOlderHistory = useCallback(() => {
+    const cursor = olderHistoryCursorRef.current;
+    if (
+      !currentSessionId ||
+      !cursor ||
+      !hasOlderHistory ||
+      olderHistoryRequestIdRef.current ||
+      socket.current?.readyState !== WebSocket.OPEN
+    )
+      return;
+    const requestId = crypto.randomUUID();
+    olderHistoryRequestIdRef.current = requestId;
+    setLoadingOlderHistory(true);
+    olderHistoryTimeoutRef.current = setTimeout(() => {
+      if (olderHistoryRequestIdRef.current !== requestId) return;
+      olderHistoryRequestIdRef.current = undefined;
+      olderHistoryTimeoutRef.current = undefined;
+      setLoadingOlderHistory(false);
+      setError(
+        toWorkbenchError('session', undefined, t('historyLoadFailed'), {
+          code: 'HISTORY_LOAD_FAILED',
+        }),
+      );
+    }, 20_000);
+    sendCommand(
+      {
+        type: 'session.history.load',
+        websiteId,
+        sessionId: currentSessionId,
+        payload: { cursor },
+      },
+      requestId,
+    );
+  }, [currentSessionId, hasOlderHistory, sendCommand, t, websiteId]);
 
   const clearManualMaintenancePending = useCallback(() => {
     if (compactionTimeoutRef.current) {
@@ -561,6 +610,13 @@ export function AgentWorkbenchContent({
       flushConversation();
       queueConversation({ type: 'session.snapshot', payload: { messages: [] } }, true);
       setSessionSnapshotVersion(0);
+      markRuntimeReady(false);
+      olderHistoryCursorRef.current = null;
+      olderHistoryRequestIdRef.current = undefined;
+      if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+      olderHistoryTimeoutRef.current = undefined;
+      setHasOlderHistory(false);
+      setLoadingOlderHistory(false);
       setRunIdState(undefined);
       setError(undefined);
       if (currentSessionId && attachments.length > 0)
@@ -578,6 +634,7 @@ export function AgentWorkbenchContent({
     attachments,
     currentSessionId,
     flushConversation,
+    markRuntimeReady,
     queueConversation,
     sessionId,
     setRunIdState,
@@ -590,6 +647,7 @@ export function AgentWorkbenchContent({
       const blocked = {
         empty: !text,
         missingSession: !currentSessionId,
+        runtimeNotReady: !runtimeReadyRef.current,
         activeRun: Boolean(activeRunRef.current),
         promptPending: Boolean(pendingPromptRequestIdRef.current),
         maintenance: hasRunningManualMaintenance(conversation),
@@ -700,6 +758,7 @@ export function AgentWorkbenchContent({
       initialPrompt.websiteId !== websiteId ||
       !currentSessionId ||
       sessionSnapshotVersion === 0 ||
+      !sessionRuntimeReady ||
       initialPromptConsumedRef.current === initialPrompt.id
     )
       return;
@@ -710,6 +769,7 @@ export function AgentWorkbenchContent({
     currentSessionId,
     initialPrompt,
     onInitialPromptConsumed,
+    sessionRuntimeReady,
     sessionSnapshotVersion,
     submitPrompt,
     websiteId,
@@ -727,6 +787,7 @@ export function AgentWorkbenchContent({
   const compactContext = useCallback(() => {
     if (
       !currentSessionId ||
+      !runtimeReadyRef.current ||
       activeRunRef.current ||
       hasRunningManualMaintenance(conversation) ||
       pendingCompactionRequestIdRef.current ||
@@ -807,6 +868,7 @@ export function AgentWorkbenchContent({
       ws.onopen = () => {
         if (disposed || socket.current !== ws) return;
         setError((current) => (current?.source === 'connection' ? undefined : current));
+        markRuntimeReady(false);
         sendCommand({
           type: 'session.attach',
           websiteId,
@@ -818,6 +880,11 @@ export function AgentWorkbenchContent({
       ws.onclose = (event) => {
         if (disposed || socket.current !== ws) return;
         socket.current = null;
+        markRuntimeReady(false);
+        setLoadingOlderHistory(false);
+        olderHistoryRequestIdRef.current = undefined;
+        if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+        olderHistoryTimeoutRef.current = undefined;
         clearManualMaintenancePending();
         failPendingPrompt(t('connectionInterrupted'), event.code !== 1008);
         if (event.code === 1008) {
@@ -850,8 +917,90 @@ export function AgentWorkbenchContent({
         )
           return;
 
+        if (projected.event.type === 'session.history.snapshot') {
+          setError((current) => (current?.source === 'session' ? undefined : current));
+          setSessionSnapshotVersion((current) => current + 1);
+          olderHistoryCursorRef.current = projected.event.payload.olderCursor;
+          setHasOlderHistory(projected.event.payload.hasMore);
+          setLoadingOlderHistory(false);
+          olderHistoryRequestIdRef.current = undefined;
+          if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+          olderHistoryTimeoutRef.current = undefined;
+          queueConversation(
+            {
+              type: 'session.snapshot',
+              payload: {
+                session: projected.event.payload.session,
+                messages: projected.event.payload.messages,
+              },
+            },
+            true,
+          );
+          const loadedSession = projected.event.payload.session;
+          onSessionChangeRef.current?.({
+            id: loadedSession.id,
+            title: loadedSession.title,
+            createdAt: loadedSession.createdAt,
+            updatedAt: loadedSession.updatedAt,
+            lastActiveAt: loadedSession.lastActiveAt,
+            pinnedAt: loadedSession.pinnedAt,
+            clonedFromSessionId: loadedSession.clonedFromSessionId,
+          });
+          return;
+        }
+
+        if (projected.event.type === 'session.history.page') {
+          if (projected.envelope.requestId !== olderHistoryRequestIdRef.current) return;
+          olderHistoryRequestIdRef.current = undefined;
+          if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+          olderHistoryTimeoutRef.current = undefined;
+          olderHistoryCursorRef.current = projected.event.payload.olderCursor;
+          setHasOlderHistory(projected.event.payload.hasMore);
+          setLoadingOlderHistory(false);
+          queueConversation(
+            {
+              type: 'session.history.page',
+              payload: { messages: projected.event.payload.messages },
+            },
+            true,
+          );
+          return;
+        }
+
+        if (projected.event.type === 'session.runtime.ready') {
+          markRuntimeReady(true);
+          setError((current) => (current?.source === 'session' ? undefined : current));
+          queueConversation(
+            { type: 'session.runtime.ready', payload: projected.event.payload },
+            true,
+          );
+          setRunIdState(projected.event.payload.activeRun?.runId);
+          const readySession = projected.event.payload.session;
+          onSessionChangeRef.current?.({
+            id: readySession.id,
+            title: readySession.title,
+            createdAt: readySession.createdAt,
+            updatedAt: readySession.updatedAt,
+            lastActiveAt: readySession.lastActiveAt,
+            pinnedAt: readySession.pinnedAt,
+            clonedFromSessionId: readySession.clonedFromSessionId,
+          });
+          return;
+        }
+
+        if (projected.event.type === 'session.runtime.failed') {
+          markRuntimeReady(false);
+          setError(
+            toWorkbenchError('session', undefined, t('sessionRuntimeUnavailable'), {
+              code: projected.event.payload.code,
+            }),
+          );
+          return;
+        }
+
         if (projected.event.type === 'session.snapshot') {
           setError((current) => (current?.source === 'session' ? undefined : current));
+          markRuntimeReady(true);
           const nextSession = projected.event.payload.session;
           setSessionSnapshotVersion((current) => current + 1);
           onSessionChange?.({
@@ -933,6 +1082,12 @@ export function AgentWorkbenchContent({
         }
 
         if (projected.event.type === 'command.error') {
+          if (projected.envelope.requestId === olderHistoryRequestIdRef.current) {
+            olderHistoryRequestIdRef.current = undefined;
+            if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+            olderHistoryTimeoutRef.current = undefined;
+            setLoadingOlderHistory(false);
+          }
           if (projected.envelope.requestId === pendingCompactionRequestIdRef.current)
             clearManualMaintenancePending();
           if (projected.envelope.requestId === pendingPromptRequestIdRef.current)
@@ -1000,6 +1155,8 @@ export function AgentWorkbenchContent({
 
     return () => {
       disposed = true;
+      if (olderHistoryTimeoutRef.current) clearTimeout(olderHistoryTimeoutRef.current);
+      olderHistoryTimeoutRef.current = undefined;
       clearManualMaintenancePending();
       if (retryTimer) clearTimeout(retryTimer);
       socket.current?.close();
@@ -1018,6 +1175,7 @@ export function AgentWorkbenchContent({
     failPendingPrompt,
     clearManualMaintenancePending,
     setRunIdState,
+    markRuntimeReady,
     t,
   ]);
 
@@ -1046,10 +1204,14 @@ export function AgentWorkbenchContent({
           turns={conversation.turns}
           pendingPrompt={pendingInitialPrompt}
           sessionLoading={sessionSnapshotVersion === 0}
+          conversationRevision={conversation.revision}
+          hasOlderHistory={hasOlderHistory}
+          loadingOlderHistory={loadingOlderHistory}
+          onLoadOlderHistory={loadOlderHistory}
           draft={draft}
           running={Boolean(runId)}
           error={error}
-          disabled={!currentSessionId}
+          disabled={!currentSessionId || !sessionRuntimeReady}
           manualMaintenanceItems={conversation.manualMaintenanceItems}
           manualMaintenanceRunning={hasRunningManualMaintenance(conversation)}
           manualMaintenancePending={manualMaintenancePending}
