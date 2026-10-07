@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { createModelProfile, deleteModelProfile, updateModelProfile } from '@/lib/agent-client';
+import type { ContextUsage } from './types';
 
 type ComposerProps = {
   draft: string;
@@ -16,6 +17,7 @@ type ComposerProps = {
   uploadingAttachmentNames?: string[];
   onAttachmentSelect?: (files: File[]) => void;
   onAttachmentRemove?: (id: string) => void;
+  contextUsage?: ContextUsage | null;
   modelProfiles?: ModelProfile[];
   modelCatalog?: ModelPreset[];
   selectedModelProfileId?: string;
@@ -34,6 +36,7 @@ export function Composer({
   uploadingAttachmentNames = [],
   onAttachmentSelect,
   onAttachmentRemove,
+  contextUsage,
   modelProfiles = [],
   modelCatalog = [],
   selectedModelProfileId,
@@ -542,6 +545,7 @@ export function Composer({
               }}
             />
           </label>
+          <ContextUsageIndicator usage={contextUsage} />
           {running ? (
             <button
               className="composer-send stop"
@@ -568,4 +572,99 @@ export function Composer({
       </div>
     </div>
   );
+}
+
+function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
+  const t = useTranslations('workbench');
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const percent = usage?.percent;
+  const displayPercent =
+    percent === null || percent === undefined ? null : Math.max(0, Math.min(100, percent));
+  const severity =
+    displayPercent === null
+      ? 'unknown'
+      : displayPercent >= 90
+        ? 'danger'
+        : displayPercent >= 70
+          ? 'warning'
+          : 'normal';
+  const label = t('contextUsageLabel', {
+    used: formatTokens(usage?.tokens),
+    max: formatTokens(usage?.contextWindow),
+    percent: Math.round(displayPercent ?? 0),
+  });
+
+  useEffect(() => {
+    if (displayPercent !== null) {
+      setLoadingTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setLoadingTimedOut(true), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [displayPercent]);
+
+  if (displayPercent === null && !loadingTimedOut) {
+    const loadingLabel = t('contextUsageLoading');
+    return (
+      <div
+        className={`context-usage composer-context-usage ${severity}`}
+        role="status"
+        aria-live="polite"
+        aria-label={loadingLabel}
+        title={loadingLabel}
+      >
+        <span className="context-usage-loading" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  const unavailableLabel =
+    usage && (usage.tokens !== null || usage.contextWindow > 0)
+      ? t('contextUsageUnknownLabel', {
+          used: formatTokens(usage.tokens),
+          max: formatTokens(usage.contextWindow),
+        })
+      : t('contextUsageUnavailable');
+
+  if (displayPercent === null) {
+    return (
+      <div
+        className="context-usage composer-context-usage unknown unavailable"
+        role="status"
+        aria-live="polite"
+        aria-label={unavailableLabel}
+        title={unavailableLabel}
+      >
+        <span className="context-usage-label">{unavailableLabel}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`context-usage composer-context-usage ${severity}`}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+      title={label}
+    >
+      <span className="context-usage-label">{label}</span>
+      <div
+        className="context-usage-track"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={displayPercent}
+      >
+        <span style={{ width: `${displayPercent}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function formatTokens(tokens: number | null | undefined): string {
+  if (tokens === null || tokens === undefined) return '?';
+  if (tokens < 1000) return String(tokens);
+  return `${(tokens / 1000).toFixed(tokens >= 100_000 ? 0 : 1)}k`;
 }

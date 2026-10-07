@@ -874,14 +874,102 @@
   margin-top: 2px;
 }
 
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 10px clamp(22px, 4vw, 48px) 0;
+}
+
 .composer-model {
   position: relative;
-  margin-left: auto;
-  order: 2;
+  margin-left: 0;
+  order: 3;
 }
 
 .composer-attach {
   order: 1;
+}
+
+.composer-context-usage {
+  order: 2;
+}
+
+.composer-send {
+  order: 4;
+}
+
+.context-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 280px;
+  min-width: 170px;
+  margin-left: auto;
+  color: var(--cc-text-tertiary);
+  font-size: 11px;
+}
+
+.context-usage.unknown:not(.unavailable) {
+  flex: 0 0 18px;
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+}
+
+.context-usage.unavailable {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.context-usage-loading {
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: context-usage-spin 800ms linear infinite;
+}
+
+@keyframes context-usage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.context-usage-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.context-usage-track {
+  min-width: 48px;
+  height: 5px;
+  flex: 1 1 56px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.context-usage-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  transition: width 180ms ease;
+}
+
+.context-usage.warning {
+  color: #b7791f;
+}
+
+.context-usage.danger {
+  color: #c53030;
 }
 .composer-model-trigger {
   display: inline-flex;
@@ -893,6 +981,32 @@
   color: var(--muted-foreground);
   font-size: 12px;
   cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .context-usage:not(.unknown):not(.unavailable) {
+    flex: 0 0 42px;
+    width: 42px;
+    min-width: 42px;
+    gap: 0;
+  }
+
+  .context-usage:not(.unknown):not(.unavailable) .context-usage-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .context-usage-track {
+    min-width: 42px;
+  }
+
+  .composer-model-trigger {
+    max-width: 124px;
+  }
 }
 .composer-model-menu,
 .composer-model-form {
@@ -1091,7 +1205,7 @@
 }
 
 .composer-send {
-  order: 3;
+  order: 4;
   display: inline-flex;
   align-items: center;
   gap: 6px;

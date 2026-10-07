@@ -2,7 +2,7 @@ import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
 import type {
@@ -107,7 +107,6 @@ export function ChatPanel({
     <section className="chat-panel" aria-label={t('chat')}>
       {onPreviewToggle || onSettingsOpen || onCompact ? (
         <div className="chat-toolbar">
-          <ContextUsageIndicator usage={contextUsage} />
           {onSettingsOpen ? (
             <button
               type="button"
@@ -186,6 +185,7 @@ export function ChatPanel({
         uploadingAttachmentNames={uploadingAttachmentNames}
         onAttachmentSelect={onAttachmentSelect}
         onAttachmentRemove={onAttachmentRemove}
+        contextUsage={contextUsage}
         modelProfiles={modelProfiles}
         modelCatalog={modelCatalog}
         selectedModelProfileId={selectedModelProfileId}
@@ -201,100 +201,6 @@ function isTransientNotice(error?: string | WorkbenchError): boolean {
     error === 'CONTEXT_COMPACTION_NOT_NEEDED' ||
     (typeof error !== 'string' && error?.code === 'CONTEXT_COMPACTION_NOT_NEEDED')
   );
-}
-
-function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
-  const t = useTranslations('workbench');
-  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
-  const percent = usage?.percent;
-  const displayPercent =
-    percent === null || percent === undefined ? null : Math.max(0, Math.min(100, percent));
-  const severity =
-    displayPercent === null
-      ? 'unknown'
-      : displayPercent >= 90
-        ? 'danger'
-        : displayPercent >= 70
-          ? 'warning'
-          : 'normal';
-  const label = t('contextUsageLabel', {
-    used: formatTokens(usage?.tokens),
-    max: formatTokens(usage?.contextWindow),
-    percent: Math.round(displayPercent ?? 0),
-  });
-
-  useEffect(() => {
-    if (displayPercent !== null) {
-      setLoadingTimedOut(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setLoadingTimedOut(true), 4_000);
-    return () => window.clearTimeout(timer);
-  }, [displayPercent]);
-
-  if (displayPercent === null && !loadingTimedOut) {
-    const loadingLabel = t('contextUsageLoading');
-    return (
-      <div
-        className={`context-usage ${severity}`}
-        role="status"
-        aria-live="polite"
-        aria-label={loadingLabel}
-        title={loadingLabel}
-      >
-        <span className="context-usage-loading" aria-hidden="true" />
-      </div>
-    );
-  }
-
-  const unavailableLabel =
-    usage && (usage.tokens !== null || usage.contextWindow > 0)
-      ? t('contextUsageUnknownLabel', {
-          used: formatTokens(usage.tokens),
-          max: formatTokens(usage.contextWindow),
-        })
-      : t('contextUsageUnavailable');
-
-  if (displayPercent === null) {
-    return (
-      <div
-        className="context-usage unknown unavailable"
-        role="status"
-        aria-live="polite"
-        aria-label={unavailableLabel}
-        title={unavailableLabel}
-      >
-        <span className="context-usage-label">{unavailableLabel}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={`context-usage ${severity}`}
-      role="status"
-      aria-live="polite"
-      aria-label={label}
-    >
-      <span className="context-usage-label">{label}</span>
-      <div
-        className="context-usage-track"
-        role="progressbar"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        {...(displayPercent === null ? {} : { 'aria-valuenow': displayPercent })}
-      >
-        <span style={{ width: displayPercent === null ? '0%' : `${displayPercent}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function formatTokens(tokens: number | null | undefined): string {
-  if (tokens === null || tokens === undefined) return '?';
-  if (tokens < 1000) return String(tokens);
-  return `${(tokens / 1000).toFixed(tokens >= 100_000 ? 0 : 1)}k`;
 }
 
 function friendlyError(error: string | WorkbenchError, t: (key: string) => string): string {
