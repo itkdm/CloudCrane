@@ -688,7 +688,7 @@ describe.skipIf(!enabled)('WebsiteAgentRuntime over the real CloudCrane stack', 
             }),
           );
         }
-        if (message.type === 'session.snapshot') {
+        if (message.type === 'session.runtime.ready') {
           client.send(
             JSON.stringify({
               type: 'agent.prompt',
