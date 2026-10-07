@@ -94,6 +94,7 @@ export function WorkspaceStart({
               onClick={() => setSelectorOpen((open) => !open)}
               aria-expanded={selectorOpen}
               aria-haspopup="listbox"
+              title={selectedWebsite?.name ?? t('selectWebsite')}
             >
               <Folder size={15} aria-hidden="true" />
               <span>{selectedWebsite?.name ?? t('selectWebsite')}</span>

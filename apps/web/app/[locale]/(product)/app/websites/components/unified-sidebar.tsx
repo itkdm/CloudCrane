@@ -263,7 +263,7 @@ export function UnifiedSidebar({
             type="button"
             className="unified-sidebar-link"
             onClick={onCreateWebsite}
-            title={websiteT('create')}
+            title={websiteT('createShort')}
           >
             <svg
               width="16"
@@ -275,7 +275,7 @@ export function UnifiedSidebar({
             >
               <path d="M12 5v14M5 12h14" />
             </svg>
-            <span>{websiteT('create')}</span>
+            <span>{websiteT('createShort')}</span>
           </button>
           <button
             type="button"
@@ -389,7 +389,6 @@ export function UnifiedSidebar({
                     !group.sessionsLoaded ? (
                       group.sessionsLoading ? (
                         <div className="session-empty" role="status">
-                          <LoaderCircle className="spin" size={13} aria-hidden="true" />
                           {workbenchT('loadingSessions')}
                         </div>
                       ) : group.sessionsError ? (

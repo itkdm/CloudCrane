@@ -628,8 +628,9 @@
   cursor: pointer;
 }
 .workspace-start-selector-trigger {
+  width: 240px;
   min-width: 0;
-  max-width: 460px;
+  max-width: min(240px, calc(100vw - 104px));
   gap: 7px;
   padding: 7px 8px;
   border-radius: 8px;
@@ -643,6 +644,8 @@
   color: var(--cc-text);
 }
 .workspace-start-selector-trigger span {
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -744,7 +747,7 @@
     padding: 14px;
   }
   .workspace-start-selector-trigger {
-    max-width: calc(100vw - 104px);
+    max-width: min(240px, calc(100vw - 104px));
   }
 }
 .website-dialog-backdrop {
