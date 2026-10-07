@@ -392,7 +392,6 @@
     "earlier": "Earlier",
     "emptyTitle": "What would you like to change first?",
     "emptyDescription": "Describe the website change and I’ll make it in the current workspace.",
-    "startTitle": "Start a website task",
     "startSubtitle": "From the first launch to every iteration",
     "startPromptLabel": "Website task description",
     "startPromptPlaceholder": "What would you like to change on your website?",

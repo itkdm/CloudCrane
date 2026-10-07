@@ -392,7 +392,6 @@
     "earlier": "更早",
     "emptyTitle": "想先改什么？",
     "emptyDescription": "描述你想修改的网站内容，我会在当前网站中完成修改。",
-    "startTitle": "开始一个网站任务",
     "startSubtitle": "从第一次上线，到每一次迭代",
     "startPromptLabel": "网站任务描述",
     "startPromptPlaceholder": "想对网站做些什么？",

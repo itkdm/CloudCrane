@@ -69,7 +69,7 @@ export function WorkspaceStart({
   return (
     <main className="workspace-start" aria-labelledby="workspace-start-title">
       <div className="workspace-start-header">
-        <p>{t('startSubtitle')}</p>
+        <h1 id="workspace-start-title">{t('startSubtitle')}</h1>
       </div>
       <form className="workspace-start-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="workspace-start-prompt">
@@ -113,6 +113,7 @@ export function WorkspaceStart({
                       className="workspace-start-selector-option"
                       role="option"
                       aria-selected={website.id === selectedWebsiteId}
+                      title={website.name}
                       onClick={() => {
                         setSelectorOpen(false);
                         if (ready) onWebsiteChange(website.id);
@@ -155,9 +156,6 @@ export function WorkspaceStart({
           {error}
         </p>
       ) : null}
-      <h1 id="workspace-start-title" className="sr-only">
-        {t('startTitle')}
-      </h1>
     </main>
   );
 }
