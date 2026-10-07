@@ -252,6 +252,13 @@ export function UnifiedApp({ initialState }: { initialState?: WorkspaceInitialSt
   }, [loadWebsites]);
 
   useEffect(() => {
+    if (websiteLoadState !== 'success') return;
+    for (const website of websites) {
+      if (canEnterWorkspace(website)) void loadWebsiteSessions(website.id);
+    }
+  }, [loadWebsiteSessions, websiteLoadState, websites]);
+
+  useEffect(() => {
     const locale = window.location.pathname.split('/').filter(Boolean)[0] ?? 'zh';
     const nextUrl = buildWorkspacePath(locale, {
       view,

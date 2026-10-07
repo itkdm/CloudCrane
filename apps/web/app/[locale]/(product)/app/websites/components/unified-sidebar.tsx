@@ -188,7 +188,7 @@ export function UnifiedSidebar({
       for (const group of groupedSessions) {
         if (!(group.websiteId in current)) {
           next ??= { ...current };
-          next[group.websiteId] = group.websiteId === selectedWebsiteId;
+          next[group.websiteId] = group.status === 'ready' || group.websiteId === selectedWebsiteId;
         }
       }
       return next ?? current;
