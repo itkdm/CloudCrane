@@ -83,92 +83,95 @@ export function MessageList({
   };
 
   return (
-    <div
-      ref={containerRef}
-      className="message-viewport"
-      onScroll={onScroll}
-      onWheel={(event) => onWheel(event.deltaY)}
-      onTouchStart={(event) => onTouchStart(event.touches[0]?.clientY ?? 0)}
-      onTouchMove={(event) => onTouchMove(event.touches[0]?.clientY ?? 0)}
-      onTouchEnd={onTouchEnd}
-      aria-label={t('chat')}
-    >
-      <div className="message-list">
-        {hasOlderHistory ? (
-          <button
-            className="load-older-history"
-            type="button"
-            onClick={loadOlderHistory}
-            disabled={loadingOlderHistory}
-          >
-            {loadingOlderHistory ? t('loadingOlderConversation') : t('loadOlderConversation')}
-          </button>
-        ) : null}
-        {turns.length === 0 && pendingPrompt ? (
-          <div className="conversation-turn pending-initial-turn">
-            <UserMessage
-              message={{
-                id: 'pending-initial-prompt',
-                role: 'user',
-                text: pendingPrompt,
-                status: 'pending',
-              }}
-            />
-            <AssistantMessage
-              message={{
-                id: 'pending-initial-response',
-                role: 'assistant',
-                text: '',
-                status: 'streaming',
-              }}
-            />
-          </div>
-        ) : turns.length === 0 && sessionLoading ? (
-          <div className="session-loading" role="status" aria-live="polite">
-            <LoaderCircle className="spin" size={16} aria-hidden="true" />
-            <span>{t('loadingConversation')}</span>
-          </div>
-        ) : turns.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon" aria-hidden="true">
-              <Sparkles size={19} />
-            </div>
-            <h2>{t('emptyTitle')}</h2>
-            <p>{t('emptyDescription')}</p>
-            <div className="example-prompts" aria-label={t('examples')}>
-              {examples.map((example) => (
-                <button type="button" key={example} onClick={() => onExample(example)}>
-                  {example}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          turns.map((turn) => (
-            <div key={turn.userMessage.id} className="conversation-turn-slot">
-              <ConversationTurnView
-                turn={turn}
-                onInteractionRespond={onInteractionRespond}
-                onInteractionCancel={onInteractionCancel}
-                onReferenceUpload={onReferenceUpload}
+    <div className="message-list-shell">
+      <div
+        ref={containerRef}
+        className="message-viewport"
+        onScroll={onScroll}
+        onWheel={(event) => onWheel(event.deltaY)}
+        onTouchStart={(event) => onTouchStart(event.touches[0]?.clientY ?? 0)}
+        onTouchMove={(event) => onTouchMove(event.touches[0]?.clientY ?? 0)}
+        onTouchEnd={onTouchEnd}
+        aria-label={t('chat')}
+      >
+        <div className="message-list">
+          {hasOlderHistory ? (
+            <button
+              className="load-older-history"
+              type="button"
+              onClick={loadOlderHistory}
+              disabled={loadingOlderHistory}
+            >
+              {loadingOlderHistory ? t('loadingOlderConversation') : t('loadOlderConversation')}
+            </button>
+          ) : null}
+          {turns.length === 0 && pendingPrompt ? (
+            <div className="conversation-turn pending-initial-turn">
+              <UserMessage
+                message={{
+                  id: 'pending-initial-prompt',
+                  role: 'user',
+                  text: pendingPrompt,
+                  status: 'pending',
+                }}
               />
-              {manualMaintenanceItems
-                .filter((item) => item.afterTurnId === turn.userMessage.id)
-                .map((item) => (
-                  <MaintenanceItem key={item.id} item={item} />
-                ))}
+              <AssistantMessage
+                message={{
+                  id: 'pending-initial-response',
+                  role: 'assistant',
+                  text: '',
+                  status: 'streaming',
+                }}
+              />
             </div>
-          ))
-        )}
-        {manualMaintenanceItems
-          .filter(
-            (item) =>
-              !item.afterTurnId || !turns.some((turn) => turn.userMessage.id === item.afterTurnId),
-          )
-          .map((item) => (
-            <MaintenanceItem key={item.id} item={item} />
-          ))}
-        <div ref={endRef} aria-hidden="true" />
+          ) : turns.length === 0 && sessionLoading ? (
+            <div className="session-loading" role="status" aria-live="polite">
+              <LoaderCircle className="spin" size={16} aria-hidden="true" />
+              <span>{t('loadingConversation')}</span>
+            </div>
+          ) : turns.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon" aria-hidden="true">
+                <Sparkles size={19} />
+              </div>
+              <h2>{t('emptyTitle')}</h2>
+              <p>{t('emptyDescription')}</p>
+              <div className="example-prompts" aria-label={t('examples')}>
+                {examples.map((example) => (
+                  <button type="button" key={example} onClick={() => onExample(example)}>
+                    {example}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            turns.map((turn) => (
+              <div key={turn.userMessage.id} className="conversation-turn-slot">
+                <ConversationTurnView
+                  turn={turn}
+                  onInteractionRespond={onInteractionRespond}
+                  onInteractionCancel={onInteractionCancel}
+                  onReferenceUpload={onReferenceUpload}
+                />
+                {manualMaintenanceItems
+                  .filter((item) => item.afterTurnId === turn.userMessage.id)
+                  .map((item) => (
+                    <MaintenanceItem key={item.id} item={item} />
+                  ))}
+              </div>
+            ))
+          )}
+          {manualMaintenanceItems
+            .filter(
+              (item) =>
+                !item.afterTurnId ||
+                !turns.some((turn) => turn.userMessage.id === item.afterTurnId),
+            )
+            .map((item) => (
+              <MaintenanceItem key={item.id} item={item} />
+            ))}
+          <div ref={endRef} aria-hidden="true" />
+        </div>
       </div>
       {showReturnToLatest ? (
         <button

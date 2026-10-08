@@ -1796,11 +1796,22 @@
 .message-viewport {
   min-height: 0;
   flex: 1 1 auto;
-  position: relative;
   overflow: auto;
   padding: 0 clamp(16px, 3vw, 30px);
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.message-list-shell {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+}
+
+.message-list-shell > .message-viewport {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .message-viewport {
@@ -1887,7 +1898,7 @@
 .return-to-latest {
   position: absolute;
   right: max(16px, calc((100% - 900px) / 2 + 8px));
-  bottom: 12px;
+  top: 16px;
   z-index: 2;
   display: block;
   margin: 0;
@@ -2175,6 +2186,11 @@
   .message-viewport {
     padding-right: 14px;
     padding-left: 14px;
+  }
+
+  .return-to-latest {
+    top: 10px;
+    right: 10px;
   }
 
   .message-list {
