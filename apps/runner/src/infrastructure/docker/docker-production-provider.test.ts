@@ -676,7 +676,10 @@ describe('DockerProductionProvider', () => {
     const websiteId = '00000000-0000-4000-8000-000000000001';
     const runtimeDirectory = path.join(base, 'production', websiteId, 'shared', 'runtime');
     await mkdir(runtimeDirectory, { recursive: true });
-    await writeFile(path.join(runtimeDirectory, '.cloudcrane-authorization-v1'), 'authorized');
+    await writeFile(
+      path.join(runtimeDirectory, '.cloudcrane-authorization-v1'),
+      'authorized:production-website.sites.example.com',
+    );
     const container = {
       id: 'container-id',
       inspect: vi.fn(async () => ({
@@ -709,6 +712,7 @@ describe('DockerProductionProvider', () => {
       runnerId: '00000000-0000-4000-8000-000000000010',
       workspaceRoot: path.join(base, 'workspaces'),
       productionRoot: path.join(base, 'production'),
+      productionHostSuffix: 'sites.example.com',
       releaseArtifactRoot: path.join(base, 'releases'),
       productionKeepReleases: 5,
       productionImage: 'cloudcrane-production-pboot:test',
@@ -885,7 +889,12 @@ describe('DockerProductionProvider', () => {
       expect(container.exec).toHaveBeenCalledWith(
         expect.objectContaining({
           Cmd: ['cloudcrane-pboot-license'],
-          Env: [`PBOOT_SN=${authorizationCode}`, 'PBOOT_SN_USER=', 'PBOOT_SITE_ROOT=/site/current'],
+          Env: [
+            `PBOOT_SN=${authorizationCode}`,
+            'PBOOT_SN_USER=',
+            'PBOOT_SITE_ROOT=/site/current',
+            'PBOOT_CANONICAL_HOST=production-website.sites.example.com',
+          ],
           User: '1000:1000',
           Tty: false,
         }),

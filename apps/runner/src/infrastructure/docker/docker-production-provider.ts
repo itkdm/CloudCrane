@@ -1,5 +1,5 @@
 import { constants, createReadStream } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { PassThrough, type Readable } from 'node:stream';
@@ -90,9 +90,10 @@ export class DockerProductionProvider implements ProductionProvider {
     }
     let restored = 0;
     let failed = 0;
-    for (const [websiteId, productionSlug] of runtimes) {
+    for (const [websiteId, labelSlug] of runtimes) {
       const container = this.docker.getContainer(this.containerName(websiteId));
       try {
+        const productionSlug = await this.readProductionSlug(websiteId, labelSlug);
         await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
         let info = await container.inspect();
         this.assertRuntimeMatches(info, websiteId);
@@ -127,7 +128,7 @@ export class DockerProductionProvider implements ProductionProvider {
     const root = this.root(websiteId);
     await this.ensureLayout(root);
     const slugPath = path.join(root, '.production-slug');
-    await writeFileSecure(slugPath, `${productionSlug}\n`);
+    await replaceFileSecure(slugPath, `${productionSlug}\n`);
     await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
     const containerName = this.containerName(websiteId);
     const persistedPort = await this.readProductionPort(root);
@@ -660,6 +661,10 @@ export class DockerProductionProvider implements ProductionProvider {
     }
     this.assertRuntimeMatches(info, websiteId);
     if (!info.State?.Running) throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
+    await replaceFileSecure(
+      path.join(this.root(websiteId), '.production-slug'),
+      `${productionSlug}\n`,
+    );
 
     let output: string;
     let exitCode: number | null | undefined;
@@ -1723,6 +1728,7 @@ export class DockerProductionProvider implements ProductionProvider {
     websiteId: string,
     productionSlug: string,
   ): Promise<boolean> {
+    if (!this.config.productionHostSuffix) return false;
     const marker = path.join(
       this.root(websiteId),
       'shared',
@@ -1736,6 +1742,17 @@ export class DockerProductionProvider implements ProductionProvider {
     if (!info?.isFile() || info.isSymbolicLink()) return false;
     const markerContents = await readFile(marker, 'utf8').catch(() => '');
     return markerContents.trim() === `authorized:${this.canonicalHost(productionSlug)}`;
+  }
+
+  private async readProductionSlug(websiteId: string, fallbackSlug: string): Promise<string> {
+    const slugPath = path.join(this.root(websiteId), '.production-slug');
+    const persistedSlug = await readFile(slugPath, 'utf8').catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    const productionSlug = persistedSlug?.trim() || fallbackSlug;
+    this.assertSlug(productionSlug);
+    return productionSlug;
   }
 
   private async waitForHealth(port: number | null, productionSlug: string): Promise<boolean> {
@@ -1940,6 +1957,25 @@ async function writeFileSecure(filename: string, contents: string): Promise<void
     await file.sync();
   } finally {
     await file.close();
+  }
+}
+
+async function replaceFileSecure(filename: string, contents: string): Promise<void> {
+  const { open, mkdir } = await import('node:fs/promises');
+  await mkdir(path.dirname(filename), { recursive: true });
+  const temporaryPath = `${filename}.${randomUUID()}.tmp`;
+  const file = await open(temporaryPath, 'wx', 0o440);
+  try {
+    await file.writeFile(contents, 'utf8');
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  try {
+    await rename(temporaryPath, filename);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
   }
 }
 
