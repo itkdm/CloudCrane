@@ -1,6 +1,7 @@
 import { ChevronDown, LoaderCircle, Paperclip, Send, Square, X } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { createModelProfile, deleteModelProfile, updateModelProfile } from '@/lib/agent-client';
@@ -576,6 +577,7 @@ export function Composer({
 
 function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
   const t = useTranslations('workbench');
+  const tooltipId = useId();
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const percent = usage?.percent;
   const displayPercent =
@@ -593,6 +595,7 @@ function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
     max: formatTokens(usage?.contextWindow),
     percent: Math.round(displayPercent ?? 0),
   });
+  const remainingPercent = 100 - Math.round(displayPercent ?? 0);
 
   useEffect(() => {
     if (displayPercent !== null) {
@@ -646,19 +649,33 @@ function ContextUsageIndicator({ usage }: { usage?: ContextUsage | null }) {
       role="status"
       aria-live="polite"
       aria-label={label}
-      title={label}
+      aria-describedby={tooltipId}
+      tabIndex={0}
     >
-      <span className="context-usage-label">{label}</span>
-      <div
-        className="context-usage-track"
+      <span
+        className="context-usage-ring"
         role="progressbar"
         aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={displayPercent}
-      >
-        <span style={{ width: `${displayPercent}%` }} />
-      </div>
+        style={{ '--context-usage-angle': `${displayPercent * 3.6}deg` } as CSSProperties}
+      />
+      <span id={tooltipId} className="context-usage-tooltip" role="tooltip">
+        <strong>{t('contextUsageTooltipTitle')}</strong>
+        <span>
+          {t('contextUsageTooltipUsage', {
+            percent: Math.round(displayPercent),
+            remaining: remainingPercent,
+          })}
+        </span>
+        <span>
+          {t('contextUsageTooltipTokens', {
+            used: formatTokens(usage?.tokens),
+            max: formatTokens(usage?.contextWindow),
+          })}
+        </span>
+      </span>
     </div>
   );
 }

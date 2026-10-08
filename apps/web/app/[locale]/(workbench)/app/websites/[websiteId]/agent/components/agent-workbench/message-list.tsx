@@ -1,6 +1,6 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { AssistantMessage } from './assistant-message';
 import { useConversationScroll } from './conversation-scroll';
 import { ExecutionProcess } from './tool-execution';
@@ -23,6 +23,7 @@ type MessageListProps = {
   ) => void;
   onInteractionCancel?: (interactionId: string) => void;
   onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
+  onReturnToLatestChange?: (control: { visible: boolean; onClick: () => void }) => void;
 };
 
 export function MessageList({
@@ -38,6 +39,7 @@ export function MessageList({
   onInteractionRespond,
   onInteractionCancel,
   onReferenceUpload,
+  onReturnToLatestChange,
 }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
@@ -58,6 +60,10 @@ export function MessageList({
     returnToLatest,
     showReturnToLatest,
   } = useConversationScroll(contentVersion, latestUserMessageId);
+
+  useEffect(() => {
+    onReturnToLatestChange?.({ visible: showReturnToLatest, onClick: returnToLatest });
+  }, [onReturnToLatestChange, returnToLatest, showReturnToLatest]);
 
   useLayoutEffect(() => {
     const anchor = prependAnchorRef.current;
@@ -173,17 +179,6 @@ export function MessageList({
           <div ref={endRef} aria-hidden="true" />
         </div>
       </div>
-      {showReturnToLatest ? (
-        <button
-          className="return-to-latest"
-          type="button"
-          onClick={returnToLatest}
-          aria-label={t('latest')}
-          title={t('latest')}
-        >
-          {t('latest')}
-        </button>
-      ) : null}
     </div>
   );
 }
