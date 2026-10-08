@@ -42,8 +42,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   const t = useTranslations('workbench');
   const common = useTranslations('common');
   const [copied, setCopied] = useState(false);
-  const isStreaming =
-    message.status === 'running' || message.status === 'streaming' || !message.text;
+  const isActive = message.status === 'running' || message.status === 'streaming';
+  const isStreaming = isActive || !message.text;
 
   useEffect(() => {
     if (!copied) return;
@@ -55,6 +55,8 @@ export const AssistantMessage = memo(function AssistantMessage({
     if (!message.text || !(await copyTextWithFallback(message.text))) return;
     setCopied(true);
   }
+
+  if (variant === 'narrative' && !message.text && !isActive) return null;
 
   if (variant === 'narrative')
     return (
