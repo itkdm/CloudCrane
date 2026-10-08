@@ -121,10 +121,6 @@ export function PreviewPane({
               {t('mobile')}
             </button>
           </div>
-          <span className="preview-viewport-meta">
-            {viewport.width} × {viewportLayout.logicalHeight} ·{' '}
-            {Math.round(viewportLayout.scale * 100)}%
-          </span>
         </div>
         <div className="preview-actions">
           <button
