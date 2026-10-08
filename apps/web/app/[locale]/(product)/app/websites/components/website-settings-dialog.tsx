@@ -1090,16 +1090,7 @@ export function WebsiteSettingsDialog({
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => setEditingProductionDomain(true)}
-                    disabled={publishing || refreshingProduction}
-                  >
-                    {t('productionDomainEdit')}
-                  </button>
-                )}
+                ) : null}
                 {currentWebsite.production.status === 'authorization_required' ? (
                   <form className="website-settings-authorization" onSubmit={authorizeProduction}>
                     <p>{t('productionAuthorizationDescription')}</p>
@@ -1130,7 +1121,8 @@ export function WebsiteSettingsDialog({
                     </button>
                   </form>
                 ) : null}
-                {currentWebsite.production.status !== 'authorization_required' ? (
+                {currentWebsite.production.status !== 'authorization_required' &&
+                !editingProductionDomain ? (
                   <div className="website-production-actions">
                     <button
                       className="primary-button"
@@ -1173,6 +1165,14 @@ export function WebsiteSettingsDialog({
                           : t('productionRefresh')}
                       </button>
                     ) : null}
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => setEditingProductionDomain(true)}
+                      disabled={publishing || refreshingProduction}
+                    >
+                      {t('productionDomainEdit')}
+                    </button>
                   </div>
                 ) : null}
               </div>
