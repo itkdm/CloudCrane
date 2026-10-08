@@ -538,7 +538,7 @@ describe.skipIf(!enabled)('Docker Production Runtime integration', () => {
         Cmd: [
           '/bin/sh',
           '-ec',
-          "printf 'v1\\n' > /site/shared/runtime/.cloudcrane-authorization-v1",
+          "printf 'authorized:real-pboot-integration.sites.example.com\\n' > /site/shared/runtime/.cloudcrane-authorization-v1",
         ],
         User: '1000:1000',
         AttachStdout: true,
