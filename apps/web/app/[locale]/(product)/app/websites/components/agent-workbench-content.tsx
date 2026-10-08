@@ -40,6 +40,7 @@ import {
 import { ChatPanel } from '@/app/[locale]/(workbench)/app/websites/[websiteId]/agent/components/agent-workbench/chat-panel';
 import {
   conversationReducer,
+  withConversationRunId,
   hasRunningManualMaintenance,
   initialConversationState,
   type ConversationEvent,
@@ -164,6 +165,9 @@ export function AgentWorkbenchContent({
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const pendingConversationQueue = useRef<ConversationEvent[]>([]);
   const activeRunRef = useRef<string | undefined>(undefined);
+  const eventSequenceRef = useRef<
+    { sessionId: string; sequence: number; generation?: string } | undefined
+  >(undefined);
   const conversationRafRef = useRef<number | undefined>(undefined);
   const previewDirtyRef = useRef(false);
   const previewDirtyGenerationRef = useRef(0);
@@ -857,6 +861,8 @@ export function AgentWorkbenchContent({
   // Handle WebSocket events
   useEffect(() => {
     if (!currentSessionId) return;
+    if (eventSequenceRef.current?.sessionId !== currentSessionId)
+      eventSequenceRef.current = undefined;
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -872,7 +878,17 @@ export function AgentWorkbenchContent({
         sendCommand({
           type: 'session.attach',
           websiteId,
-          payload: { sessionId: currentSessionId },
+          payload: {
+            sessionId: currentSessionId,
+            ...(eventSequenceRef.current?.sessionId === currentSessionId
+              ? {
+                  afterEventSeq: eventSequenceRef.current.sequence,
+                  ...(eventSequenceRef.current.generation
+                    ? { afterEventGeneration: eventSequenceRef.current.generation }
+                    : {}),
+                }
+              : {}),
+          },
         });
         registerPreviewClient();
       };
@@ -909,6 +925,37 @@ export function AgentWorkbenchContent({
         if (projected.envelope.websiteId && projected.envelope.websiteId !== websiteId) return;
         if (projected.envelope.sessionId && projected.envelope.sessionId !== currentSessionId)
           return;
+        const eventSequence = projected.envelope.eventSeq;
+        if (projected.envelope.eventGeneration) {
+          const currentGeneration =
+            eventSequenceRef.current?.sessionId === currentSessionId
+              ? eventSequenceRef.current.generation
+              : undefined;
+          if (currentGeneration && currentGeneration !== projected.envelope.eventGeneration) {
+            setError(toWorkbenchError('connection', undefined, t('connectionInterrupted')));
+            ws.close(4000, 'agent event generation changed');
+            return;
+          }
+          if (eventSequenceRef.current?.sessionId === currentSessionId)
+            eventSequenceRef.current.generation = projected.envelope.eventGeneration;
+        }
+        if (eventSequence !== undefined) {
+          const lastSequence =
+            eventSequenceRef.current?.sessionId === currentSessionId
+              ? eventSequenceRef.current.sequence
+              : undefined;
+          if (lastSequence !== undefined && eventSequence <= lastSequence) return;
+          if (lastSequence !== undefined && eventSequence !== lastSequence + 1) {
+            setError(toWorkbenchError('connection', undefined, t('connectionInterrupted')));
+            ws.close(4000, 'agent event sequence gap');
+            return;
+          }
+          eventSequenceRef.current = {
+            sessionId: currentSessionId,
+            sequence: eventSequence,
+            generation: projected.envelope.eventGeneration,
+          };
+        }
         if (
           projected.envelope.runId &&
           activeRunRef.current &&
@@ -918,6 +965,12 @@ export function AgentWorkbenchContent({
           return;
 
         if (projected.event.type === 'session.history.snapshot') {
+          if (projected.event.payload.eventCursor !== undefined)
+            eventSequenceRef.current = {
+              sessionId: currentSessionId,
+              sequence: projected.event.payload.eventCursor,
+              generation: projected.event.payload.eventGeneration,
+            };
           setError((current) => (current?.source === 'session' ? undefined : current));
           setSessionSnapshotVersion((current) => current + 1);
           olderHistoryCursorRef.current = projected.event.payload.olderCursor;
@@ -1440,13 +1493,15 @@ function handleEvent(
   schedulePreviewRefresh: (runId?: string) => void,
   markPreviewDirty: () => void,
 ) {
+  const queueRunEvent = (action: ConversationEvent, immediate?: boolean) =>
+    queueConversation(withConversationRunId(action, envelope.runId), immediate);
   if (
     event.type === 'context.compaction.started' ||
     event.type === 'context.compaction.completed' ||
     event.type === 'context.compaction.failed' ||
     event.type === 'context.compaction.not_needed'
   ) {
-    queueConversation({ type: event.type, payload: { runId: envelope.runId } }, true);
+    queueRunEvent({ type: event.type, payload: { runId: envelope.runId } }, true);
     return;
   }
   if (event.type === 'context.usage.updated') {
@@ -1456,7 +1511,18 @@ function handleEvent(
   if (event.type === 'run.started') {
     setRunId(event.payload.runId);
     setError(undefined);
-    queueConversation({ type: 'run.started', payload: { runId: event.payload.runId } }, true);
+    queueConversation(
+      {
+        type: 'run.started',
+        payload: {
+          runId: event.payload.runId,
+          ...(event.payload.promptRequestId
+            ? { promptRequestId: event.payload.promptRequestId }
+            : {}),
+        },
+      },
+      true,
+    );
   }
   if (event.type === 'run.settled') {
     const settledRunId = event.payload.runId ?? envelope.runId;
@@ -1522,17 +1588,17 @@ function handleEvent(
   if (event.type === 'turn.completed')
     queueConversation({ type: 'turn.completed', payload: event.payload }, true);
   if (event.type === 'assistant.started')
-    queueConversation({ type: 'assistant.started', payload: event.payload });
+    queueRunEvent({ type: 'assistant.started', payload: event.payload });
   if (event.type === 'assistant.delta')
-    queueConversation({ type: 'assistant.delta', payload: event.payload });
+    queueRunEvent({ type: 'assistant.delta', payload: event.payload });
   if (event.type === 'assistant.completed')
-    queueConversation({ type: 'assistant.completed', payload: event.payload }, true);
+    queueRunEvent({ type: 'assistant.completed', payload: event.payload }, true);
   if (event.type === 'tool.started')
-    queueConversation({ type: 'tool.started', payload: event.payload });
+    queueRunEvent({ type: 'tool.started', payload: event.payload });
   if (event.type === 'tool.updated')
-    queueConversation({ type: 'tool.updated', payload: event.payload });
+    queueRunEvent({ type: 'tool.updated', payload: event.payload });
   if (event.type === 'tool.completed') {
-    queueConversation({ type: 'tool.completed', payload: event.payload }, true);
+    queueRunEvent({ type: 'tool.completed', payload: event.payload }, true);
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) markPreviewDirty();
   }
   if (event.type === 'interaction.requested') {
@@ -1541,8 +1607,8 @@ function handleEvent(
         AgentEvent,
         { type: 'interaction.requested' }
       >['payload'] & { accept: ['.zip']; maxBytes: number };
-      queueConversation({ type: 'reference_upload.requested', payload }, true);
-    } else queueConversation({ type: 'interaction.requested', payload: event.payload }, true);
+      queueRunEvent({ type: 'reference_upload.requested', payload }, true);
+    } else queueRunEvent({ type: 'interaction.requested', payload: event.payload }, true);
   }
 }
 

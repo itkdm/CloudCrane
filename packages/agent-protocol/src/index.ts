@@ -23,6 +23,8 @@ export const agentEnvelopeSchema = z.object({
   traceparent: z.string().max(255).optional(),
   runId: z.string().uuid().optional(),
   traceId: z.string().uuid().optional(),
+  eventSeq: z.number().int().positive().optional(),
+  eventGeneration: z.string().uuid().optional(),
   timestamp: z.coerce.date(),
   payload: z.unknown(),
 });
@@ -48,7 +50,11 @@ export type AttachmentRef = z.infer<typeof attachmentRefSchema>;
 export const agentCommandSchema = z.discriminatedUnion('type', [
   commandBase.extend({
     type: z.literal('session.attach'),
-    payload: z.object({ sessionId: z.string().uuid() }),
+    payload: z.object({
+      sessionId: z.string().uuid(),
+      afterEventSeq: z.number().int().nonnegative().optional(),
+      afterEventGeneration: z.string().uuid().optional(),
+    }),
   }),
   commandBase.extend({
     type: z.literal('session.history.load'),
@@ -190,6 +196,8 @@ export const sessionHistoryPageSchema = z.object({
   messages: z.array(snapshotMessageSchema),
   olderCursor: z.string().max(2_048).nullable(),
   hasMore: z.boolean(),
+  eventCursor: z.number().int().nonnegative().optional(),
+  eventGeneration: z.string().uuid().optional(),
 });
 export type SessionHistoryPage = z.infer<typeof sessionHistoryPageSchema>;
 
@@ -278,6 +286,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
     payload: z.object({
       messageId: z.string(),
       text: z.string(),
+      offset: z.number().int().nonnegative().optional(),
       timestamp: z.number().finite().optional(),
       turnIndex: z.number().int().nonnegative().finite().max(1_000_000).optional(),
       turnId: z.string().optional(),

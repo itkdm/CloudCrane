@@ -19,14 +19,14 @@ export type Message = {
 };
 
 export type ConversationTurnStatus =
-  'running' | 'completed' | 'error' | 'aborted' | 'no-final-text';
+  'running' | 'completed' | 'error' | 'aborted' | 'interrupted' | 'no-final-text';
 
 export type AssistantNarrativeStep = {
   kind: 'assistant';
   id: string;
   text: string;
   timestamp?: number;
-  status: 'streaming' | 'completed';
+  status: 'streaming' | 'completed' | 'interrupted';
 };
 
 export type QuestionInteraction = {
@@ -62,7 +62,7 @@ export type ToolExecutionStep = {
   toolName?: string;
   toolInput?: string;
   toolOutput?: string;
-  status: 'running' | 'completed' | 'error';
+  status: 'running' | 'completed' | 'error' | 'aborted' | 'interrupted';
   interaction?: ToolInteraction;
 };
 
@@ -70,7 +70,7 @@ export type ContextMaintenanceExecutionStep = {
   kind: 'context-maintenance';
   id: string;
   operation: 'compaction';
-  status: 'running' | 'completed' | 'error';
+  status: 'running' | 'completed' | 'error' | 'aborted' | 'interrupted';
 };
 
 export type ExecutionStep =

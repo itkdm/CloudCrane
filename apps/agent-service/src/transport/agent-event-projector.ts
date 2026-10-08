@@ -7,8 +7,8 @@ import type {
   WebsiteAgentLifecycleEvent,
 } from '@cloudcrane/website-agent';
 
-const MAX_SUMMARY_BYTES = 512;
 const MAX_TURN_INDEX = 1_000_000;
+const MAX_TOOL_OUTPUT_SUMMARY_CHARS = 512;
 const activeAssistantMessageIds = new Map<string, string>();
 const finalCandidateMessageIds = new Map<string, string>();
 const turnStates = new Map<string, { nextIndex: number; currentIndex?: number; turnId?: string }>();
@@ -153,6 +153,7 @@ export function projectWebsiteAgentEvent(event: WebsiteAgentEvent): AgentWireMes
             payload: {
               messageId: activeAssistantMessage(event, value.message),
               text: delta,
+              offset: Math.max(0, extractTextLength(value.message) - delta.length),
               ...(messageTimestamp(value.message) !== undefined
                 ? { timestamp: messageTimestamp(value.message) }
                 : {}),
@@ -285,7 +286,7 @@ function extractDelta(value: unknown): string {
   if (!value || typeof value !== 'object') return '';
   if ((value as { type?: unknown }).type !== 'text_delta') return '';
   const delta = (value as { delta?: unknown }).delta;
-  return typeof delta === 'string' ? delta.slice(0, MAX_SUMMARY_BYTES) : '';
+  return typeof delta === 'string' ? delta : '';
 }
 
 function validTurnIndex(value: unknown): number | undefined {
@@ -315,6 +316,22 @@ function extractText(message: unknown): string {
     .slice(0, 32_000);
 }
 
+function extractTextLength(message: unknown): number {
+  if (!message || typeof message !== 'object') return 0;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return 0;
+  return content.reduce((length, part) => {
+    if (
+      !part ||
+      typeof part !== 'object' ||
+      (part as { type?: unknown }).type !== 'text' ||
+      typeof (part as { text?: unknown }).text !== 'string'
+    )
+      return length;
+    return length + (part as { text: string }).text.length;
+  }, 0);
+}
+
 function summarize(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   let text: string;
@@ -323,7 +340,7 @@ function summarize(value: unknown): string | undefined {
   } catch {
     return '[summary unavailable]';
   }
-  return redactSecrets(text).slice(0, MAX_SUMMARY_BYTES);
+  return redactSecrets(text).slice(0, MAX_TOOL_OUTPUT_SUMMARY_CHARS);
 }
 
 function redactSecrets(value: string): string {

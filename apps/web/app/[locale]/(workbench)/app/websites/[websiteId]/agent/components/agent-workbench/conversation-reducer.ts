@@ -41,6 +41,30 @@ export const initialConversationState: ConversationState = {
   revision: 0,
 };
 
+export function withConversationRunId(
+  event: ConversationEvent,
+  runId: string | undefined,
+): ConversationEvent {
+  if (!runId) return event;
+  switch (event.type) {
+    case 'context.compaction.started':
+    case 'context.compaction.completed':
+    case 'context.compaction.failed':
+    case 'context.compaction.not_needed':
+    case 'assistant.started':
+    case 'assistant.delta':
+    case 'assistant.completed':
+    case 'tool.started':
+    case 'tool.updated':
+    case 'tool.completed':
+    case 'interaction.requested':
+    case 'reference_upload.requested':
+      return { ...event, payload: { ...(event.payload ?? {}), runId } } as ConversationEvent;
+    default:
+      return event;
+  }
+}
+
 export type ConversationEvent =
   | { type: 'batch'; actions: ConversationEvent[] }
   | {
@@ -59,6 +83,7 @@ export type ConversationEvent =
               question: string;
               options: Array<{ label: string; description?: string }>;
               allowCustom: true;
+              runId?: string;
             }
           | {
               interactionId: string;
@@ -66,6 +91,7 @@ export type ConversationEvent =
               toolCallId: string;
               accept: ['.zip'];
               maxBytes: number;
+              runId?: string;
             }
         >;
       };
@@ -74,7 +100,7 @@ export type ConversationEvent =
   | { type: 'session.runtime.ready'; payload: SessionRuntimeState }
   | { type: 'user.added'; payload: { message: Message } }
   | { type: 'message.status'; payload: { requestId?: string; status: string } }
-  | { type: 'run.started'; payload?: { runId?: string } }
+  | { type: 'run.started'; payload?: { runId?: string; promptRequestId?: string } }
   | { type: 'context.usage.updated'; payload: { contextUsage: ContextUsageSnapshot | null } }
   | {
       type:
@@ -96,17 +122,41 @@ export type ConversationEvent =
         traceId?: string;
       };
     }
-  | { type: 'assistant.started'; payload: { messageId: string; timestamp?: number } }
-  | { type: 'assistant.delta'; payload: { messageId: string; text: string; timestamp?: number } }
+  | {
+      type: 'assistant.started';
+      payload: { messageId: string; timestamp?: number; runId?: string };
+    }
+  | {
+      type: 'assistant.delta';
+      payload: {
+        messageId: string;
+        text: string;
+        offset?: number;
+        timestamp?: number;
+        runId?: string;
+      };
+    }
   | {
       type: 'assistant.completed';
-      payload: { messageId: string; text: string; timestamp?: number };
+      payload: { messageId: string; text: string; timestamp?: number; runId?: string };
     }
-  | { type: 'tool.started'; payload: { toolCallId: string; toolName: string; input?: string } }
-  | { type: 'tool.updated'; payload: { toolCallId: string; toolName?: string; output?: string } }
+  | {
+      type: 'tool.started';
+      payload: { toolCallId: string; toolName: string; input?: string; runId?: string };
+    }
+  | {
+      type: 'tool.updated';
+      payload: { toolCallId: string; toolName?: string; output?: string; runId?: string };
+    }
   | {
       type: 'tool.completed';
-      payload: { toolCallId: string; toolName?: string; output?: string; status: string };
+      payload: {
+        toolCallId: string;
+        toolName?: string;
+        output?: string;
+        status: string;
+        runId?: string;
+      };
     }
   | {
       type: 'interaction.requested';
@@ -117,6 +167,7 @@ export type ConversationEvent =
         question: string;
         options: Array<{ label: string; description?: string }>;
         allowCustom: true;
+        runId?: string;
       };
     }
   | {
@@ -126,6 +177,7 @@ export type ConversationEvent =
         toolCallId: string;
         accept: ['.zip'];
         maxBytes: number;
+        runId?: string;
       };
     }
   | { type: 'interaction.failed'; payload: { interactionId: string; error: string } };
@@ -147,9 +199,11 @@ function reduceConversationEvent(
   if (event.type === 'session.snapshot') {
     const active = isActiveRun(event.payload.activeRun);
     const isEmptySnapshot = event.payload.messages.length === 0;
-    const currentTurns = isEmptySnapshot
+    let currentTurns = isEmptySnapshot
       ? []
       : mergeSnapshotTurns(state.turns, snapshotToTurns(event.payload.messages, active), active);
+    const snapshotRunId = activeRunId(event.payload.activeRun);
+    if (snapshotRunId) currentTurns = markLatestTurnActive(currentTurns, snapshotRunId);
     const next = present(
       currentTurns,
       isEmptySnapshot
@@ -186,12 +240,21 @@ function reduceConversationEvent(
   }
 
   if (event.type === 'session.runtime.ready') {
-    const restored = restoreSnapshotMaintenance(
+    let restored = restoreSnapshotMaintenance(
       present(state.turns, state.manualMaintenanceItems, state.contextUsage),
       event.payload.activeRun,
       event.payload.contextMaintenance,
     );
     restored.contextUsage = event.payload.contextUsage ?? null;
+    const runtimeRunId = activeRunId(event.payload.activeRun);
+    if (runtimeRunId) {
+      restored.turns = markLatestTurnActive(restored.turns, runtimeRunId);
+      restored = present(restored.turns, restored.manualMaintenanceItems, restored.contextUsage);
+    } else {
+      const latest = restored.turns[latestTurnIndex(restored.turns)];
+      if (latest?.status === 'running' && latest.runId)
+        restored = settle(restored, { status: 'INTERRUPTED', runId: latest.runId });
+    }
     return (event.payload.pendingInteractions ?? []).reduce(
       (current, interaction) =>
         conversationReducer(
@@ -251,9 +314,27 @@ function reduceConversationEvent(
     return { ...state, contextUsage: event.payload.contextUsage };
 
   if (event.type === 'run.started') {
-    const index = latestTurnIndex(state.turns);
+    const runId = event.payload?.runId;
+    let index = runId ? state.turns.findIndex((turn) => turn.runId === runId) : -1;
+    if (index < 0 && event.payload?.promptRequestId) {
+      index = state.turns.findIndex(
+        (turn) =>
+          turn.userMessage.requestId === event.payload?.promptRequestId ||
+          turn.userMessage.id === event.payload?.promptRequestId,
+      );
+    }
+    if (index < 0) {
+      for (let candidate = state.turns.length - 1; candidate >= 0; candidate -= 1) {
+        const turn = state.turns[candidate];
+        if (turn && turn.status === 'running' && (!turn.runId || turn.runId === runId)) {
+          index = candidate;
+          break;
+        }
+      }
+    }
+    if (!runId && index < 0) index = latestTurnIndex(state.turns);
     const turn = state.turns[index];
-    return !turn || isSettled(turn.status)
+    return !turn || (isSettled(turn.status) && !event.payload?.promptRequestId)
       ? state
       : replaceTurn(state, index, {
           ...turn,
@@ -270,7 +351,7 @@ function reduceConversationEvent(
   if (event.type === 'run.settled') return settle(state, event.payload);
 
   if (event.type === 'assistant.started')
-    return updateAssistant(state, event.payload.messageId, (step) => ({
+    return updateAssistant(state, event.payload.messageId, event.payload.runId, (step) => ({
       kind: 'assistant',
       id: event.payload.messageId,
       text: step?.text ?? '',
@@ -282,13 +363,17 @@ function reduceConversationEvent(
       status: step?.status === 'completed' ? 'completed' : 'streaming',
     }));
   if (event.type === 'assistant.delta')
-    return updateAssistant(state, event.payload.messageId, (step) =>
+    return updateAssistant(state, event.payload.messageId, event.payload.runId, (step) =>
       step?.status === 'completed'
         ? step
         : {
             kind: 'assistant',
             id: event.payload.messageId,
-            text: appendText(step?.text, boundText(event.payload.text)),
+            text: appendTextAtOffset(
+              step?.text ?? '',
+              boundText(event.payload.text),
+              event.payload.offset,
+            ),
             ...(event.payload.timestamp !== undefined
               ? { timestamp: event.payload.timestamp }
               : step?.timestamp !== undefined
@@ -298,7 +383,7 @@ function reduceConversationEvent(
           },
     );
   if (event.type === 'assistant.completed')
-    return updateAssistant(state, event.payload.messageId, () => ({
+    return updateAssistant(state, event.payload.messageId, event.payload.runId, () => ({
       kind: 'assistant',
       id: event.payload.messageId,
       text: boundText(event.payload.text),
@@ -307,7 +392,7 @@ function reduceConversationEvent(
     }));
 
   if (event.type === 'tool.started')
-    return updateTool(state, event.payload.toolCallId, (step) => ({
+    return updateTool(state, event.payload.toolCallId, event.payload.runId, (step) => ({
       kind: 'tool',
       id: event.payload.toolCallId,
       toolCallId: event.payload.toolCallId,
@@ -319,7 +404,7 @@ function reduceConversationEvent(
       status: step?.status === 'completed' || step?.status === 'error' ? step.status : 'running',
     }));
   if (event.type === 'interaction.requested')
-    return updateTool(state, event.payload.toolCallId, (step) => ({
+    return updateTool(state, event.payload.toolCallId, event.payload.runId, (step) => ({
       kind: 'tool',
       id: event.payload.toolCallId,
       toolCallId: event.payload.toolCallId,
@@ -337,7 +422,7 @@ function reduceConversationEvent(
       },
     }));
   if (event.type === 'reference_upload.requested')
-    return updateTool(state, event.payload.toolCallId, (step) => ({
+    return updateTool(state, event.payload.toolCallId, event.payload.runId, (step) => ({
       kind: 'tool',
       id: event.payload.toolCallId,
       toolCallId: event.payload.toolCallId,
@@ -371,7 +456,7 @@ function reduceConversationEvent(
     return replaceTurn(state, index, { ...turn, execution });
   }
   if (event.type === 'tool.updated')
-    return updateTool(state, event.payload.toolCallId, (step) => {
+    return updateTool(state, event.payload.toolCallId, event.payload.runId, (step) => {
       if (step && step.status !== 'running') return step;
       return {
         kind: 'tool',
@@ -387,7 +472,7 @@ function reduceConversationEvent(
       };
     });
   if (event.type !== 'tool.completed') return state;
-  return updateTool(state, event.payload.toolCallId, (step) => ({
+  return updateTool(state, event.payload.toolCallId, event.payload.runId, (step) => ({
     kind: 'tool',
     id: event.payload.toolCallId,
     toolCallId: event.payload.toolCallId,
@@ -415,23 +500,49 @@ function settle(
   state: ConversationState,
   payload: Extract<ConversationEvent, { type: 'run.settled' }>['payload'],
 ): ConversationState {
-  const index = latestTurnIndex(state.turns);
+  const runIndex = payload.runId
+    ? state.turns.findIndex((candidate) => candidate.runId === payload.runId)
+    : -1;
+  const finalMessageIndex = payload.finalMessageId
+    ? state.turns.findIndex((candidate) =>
+        turnContainsAssistantMessage(candidate, payload.finalMessageId!),
+      )
+    : -1;
+  const index =
+    runIndex >= 0
+      ? runIndex
+      : finalMessageIndex >= 0
+        ? finalMessageIndex
+        : payload.runId
+          ? -1
+          : latestTurnIndex(state.turns);
   const turn = state.turns[index];
   if (!turn) return state;
+  const isSettledRunMatch =
+    (payload.runId !== undefined && turn.runId === payload.runId) ||
+    (payload.finalMessageId !== undefined &&
+      turnContainsAssistantMessage(turn, payload.finalMessageId));
   if (payload.status === 'FAILED') {
-    if (isSettled(turn.status) && turn.status !== 'no-final-text') return state;
+    if (isSettled(turn.status) && turn.status !== 'no-final-text' && !isSettledRunMatch)
+      return state;
     return replaceTurn(state, index, {
       ...turn,
+      execution: settleExecution(turn.execution, 'error'),
       status: 'error',
       error: payload.error ?? 'Agent run failed',
       expanded: false,
     });
   }
   if (payload.status === 'ABORTED' || payload.status === 'INTERRUPTED') {
-    if (isSettled(turn.status) && turn.status !== 'no-final-text') return state;
+    if (isSettled(turn.status) && turn.status !== 'no-final-text' && !isSettledRunMatch)
+      return state;
     return replaceTurn(state, index, {
       ...turn,
-      status: 'aborted',
+      execution: settleExecution(
+        turn.execution,
+        payload.status === 'ABORTED' ? 'aborted' : 'interrupted',
+      ),
+      status: payload.status === 'ABORTED' ? 'aborted' : 'interrupted',
       error:
         payload.error ??
         (payload.status === 'ABORTED' ? 'Agent run aborted' : 'Agent run interrupted'),
@@ -443,11 +554,12 @@ function settle(
   if (!candidate)
     return replaceTurn(state, index, {
       ...turn,
+      execution: settleExecution(turn.execution, 'interrupted'),
       status: 'no-final-text',
       error: payload.error ?? 'Run completed without a final answer',
       expanded: false,
     });
-  const execution = withoutStep(turn.execution, candidate.id);
+  const execution = withoutStep(settleExecution(turn.execution, 'interrupted'), candidate.id);
   const settledTurn = omitExecution(turn);
   return replaceTurn(state, index, {
     ...settledTurn,
@@ -457,6 +569,13 @@ function settle(
     error: undefined,
     expanded: false,
   });
+}
+
+function turnContainsAssistantMessage(turn: ConversationTurn, messageId: string): boolean {
+  return (
+    turn.finalAnswer?.id === messageId ||
+    Boolean(turn.execution?.some((step) => step.kind === 'assistant' && step.id === messageId))
+  );
 }
 
 function reduceContextMaintenance(
@@ -574,11 +693,14 @@ export function hasRunningManualMaintenance(state: ConversationState): boolean {
 function updateAssistant(
   state: ConversationState,
   messageId: string,
+  runId: string | undefined,
   update: (step: AssistantNarrativeStep | undefined) => AssistantNarrativeStep,
 ): ConversationState {
-  const index = latestTurnIndex(state.turns);
+  const index = findTurnIndex(state.turns, runId, (turn) =>
+    Boolean(turn.execution?.some((step) => step.kind === 'assistant' && step.id === messageId)),
+  );
   const turn = state.turns[index];
-  if (!turn || (isSettled(turn.status) && turn.finalAnswer)) return state;
+  if (!turn || isSettled(turn.status)) return state;
   const execution = [...(turn.execution ?? [])];
   const stepIndex = execution.findIndex(
     (step) => step.kind === 'assistant' && step.id === messageId,
@@ -606,14 +728,60 @@ function updateAssistant(
   return replaceTurn(state, index, nextTurn);
 }
 
+function findTurnIndex(
+  turns: ConversationTurn[],
+  runId: string | undefined,
+  matchesStep: (turn: ConversationTurn) => boolean,
+): number {
+  if (runId) return turns.findIndex((turn) => turn.runId === runId);
+  let matchingStep = -1;
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn && matchesStep(turn)) {
+      matchingStep = index;
+      break;
+    }
+  }
+  return matchingStep >= 0 ? matchingStep : latestTurnIndex(turns);
+}
+
+function markLatestTurnActive(turns: ConversationTurn[], runId: string): ConversationTurn[] {
+  const index = latestTurnIndex(turns);
+  const turn = turns[index];
+  if (!turn || (turn.runId && turn.runId !== runId)) return turns;
+  return turns.map((candidate, candidateIndex) =>
+    candidateIndex === index
+      ? { ...candidate, runId, status: 'running', expanded: true }
+      : candidate,
+  );
+}
+
+function settleExecution(
+  execution: ExecutionStep[] | undefined,
+  terminal: 'error' | 'aborted' | 'interrupted',
+): ExecutionStep[] | undefined {
+  if (!execution) return execution;
+  return execution.map((step) => {
+    if (step.kind === 'assistant' && step.status === 'streaming')
+      return { ...step, status: 'interrupted' };
+    if (step.kind === 'tool' && step.status === 'running') return { ...step, status: terminal };
+    if (step.kind === 'context-maintenance' && step.status === 'running')
+      return { ...step, status: terminal };
+    return step;
+  });
+}
+
 function updateTool(
   state: ConversationState,
   toolCallId: string,
+  runId: string | undefined,
   update: (step: ToolExecutionStep | undefined) => ToolExecutionStep,
 ): ConversationState {
-  const index = latestTurnIndex(state.turns);
+  const index = findTurnIndex(state.turns, runId, (turn) =>
+    Boolean(turn.execution?.some((step) => step.kind === 'tool' && step.toolCallId === toolCallId)),
+  );
   const turn = state.turns[index];
-  if (!turn || (isSettled(turn.status) && turn.finalAnswer)) return state;
+  if (!turn || isSettled(turn.status)) return state;
   const execution = [...(turn.execution ?? [])];
   const stepIndex = execution.findIndex(
     (step) => step.kind === 'tool' && step.toolCallId === toolCallId,
@@ -874,8 +1042,7 @@ function mergeStep(left: ExecutionStep, right: ExecutionStep): ExecutionStep {
     return {
       ...left,
       text: right.text || left.text,
-      status:
-        left.status === 'completed' || right.status === 'completed' ? 'completed' : 'streaming',
+      status: left.status === 'streaming' ? right.status : left.status,
     };
   if (left.kind === 'tool' && right.kind === 'tool')
     return {
@@ -1034,11 +1201,17 @@ function normalizeToolStatus(status: string | undefined): ToolExecutionStep['sta
   return status === 'error' ? 'error' : status === 'running' ? 'running' : 'completed';
 }
 function toolStatusRank(status: ToolExecutionStep['status']): number {
-  return status === 'running' ? 0 : 1;
+  return status === 'running' ? 0 : status === 'completed' ? 1 : status === 'error' ? 3 : 2;
 }
 function appendText(current: string | undefined, next: string): string {
   if (!next || current === next || current?.endsWith(next)) return boundText(current ?? next);
   return boundText(`${current ?? ''}${next}`);
+}
+function appendTextAtOffset(current: string, delta: string, offset?: number): string {
+  if (offset === undefined) return appendText(current, delta);
+  if (offset > current.length) return current;
+  const overlap = current.length - offset;
+  return appendText(current, overlap >= delta.length ? '' : delta.slice(overlap));
 }
 function boundText(text: string | undefined): string {
   return (text ?? '').slice(0, MAX_PRESENTATION_TEXT);

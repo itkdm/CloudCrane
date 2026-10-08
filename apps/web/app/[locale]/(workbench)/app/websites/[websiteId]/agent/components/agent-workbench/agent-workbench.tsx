@@ -24,6 +24,7 @@ import { PreviewBridgeClient, PreviewBridgeClientError } from '@/lib/preview-bri
 import { ChatPanel } from './chat-panel';
 import {
   conversationReducer,
+  withConversationRunId,
   initialConversationState,
   type ConversationEvent,
 } from './conversation-reducer';
@@ -45,6 +46,9 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
   const previewStateWebsiteIdRef = useRef(websiteId);
   const previewCapabilitiesRef = useRef<PreviewCapability[] | undefined>(undefined);
   const activeRunRef = useRef<string | undefined>(undefined);
+  const eventSequenceRef = useRef<
+    { sessionId: string; sequence: number; generation?: string } | undefined
+  >(undefined);
   const conversationRafRef = useRef<number | undefined>(undefined);
   const pendingConversationActionsRef = useRef<ConversationEvent[]>([]);
   const previewReadyRef = useRef<PreviewReadyWaiter | null>(null);
@@ -361,6 +365,7 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
 
   useEffect(() => {
     if (!sessionId) return;
+    if (eventSequenceRef.current?.sessionId !== sessionId) eventSequenceRef.current = undefined;
     let disposed = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const connect = () => {
@@ -369,7 +374,21 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
       socket.current = ws;
       ws.onopen = () => {
         if (disposed || socket.current !== ws) return;
-        sendCommand({ type: 'session.attach', websiteId, payload: { sessionId } });
+        sendCommand({
+          type: 'session.attach',
+          websiteId,
+          payload: {
+            sessionId,
+            ...(eventSequenceRef.current?.sessionId === sessionId
+              ? {
+                  afterEventSeq: eventSequenceRef.current.sequence,
+                  ...(eventSequenceRef.current.generation
+                    ? { afterEventGeneration: eventSequenceRef.current.generation }
+                    : {}),
+                }
+              : {}),
+          },
+        });
         registerPreviewClient();
       };
       ws.onclose = () => {
@@ -387,6 +406,69 @@ export function AgentWorkbench({ websiteId }: { websiteId: string }) {
         if (!projected) return;
         if (projected.envelope.websiteId && projected.envelope.websiteId !== websiteId) return;
         if (projected.envelope.sessionId && projected.envelope.sessionId !== sessionId) return;
+        const eventSequence = projected.envelope.eventSeq;
+        if (projected.envelope.eventGeneration) {
+          const currentGeneration =
+            eventSequenceRef.current?.sessionId === sessionId
+              ? eventSequenceRef.current.generation
+              : undefined;
+          if (currentGeneration && currentGeneration !== projected.envelope.eventGeneration) {
+            setError(t('connectionInterrupted'));
+            ws.close(4000, 'agent event generation changed');
+            return;
+          }
+          if (eventSequenceRef.current?.sessionId === sessionId)
+            eventSequenceRef.current.generation = projected.envelope.eventGeneration;
+        }
+        if (eventSequence !== undefined) {
+          const lastSequence =
+            eventSequenceRef.current?.sessionId === sessionId
+              ? eventSequenceRef.current.sequence
+              : undefined;
+          if (lastSequence !== undefined && eventSequence <= lastSequence) return;
+          if (lastSequence !== undefined && eventSequence !== lastSequence + 1) {
+            setError(t('connectionInterrupted'));
+            ws.close(4000, 'agent event sequence gap');
+            return;
+          }
+          eventSequenceRef.current = {
+            sessionId,
+            sequence: eventSequence,
+            generation: projected.envelope.eventGeneration,
+          };
+        }
+
+        if (projected.event.type === 'session.history.snapshot') {
+          if (projected.event.payload.eventCursor !== undefined)
+            eventSequenceRef.current = {
+              sessionId,
+              sequence: projected.event.payload.eventCursor,
+              generation: projected.event.payload.eventGeneration,
+            };
+          flushConversation();
+          queueConversation(
+            {
+              type: 'session.snapshot',
+              payload: { messages: projected.event.payload.messages },
+            },
+            true,
+          );
+          return;
+        }
+
+        if (projected.event.type === 'session.runtime.ready') {
+          queueConversation(
+            { type: 'session.runtime.ready', payload: projected.event.payload },
+            true,
+          );
+          setRunId(projected.event.payload.activeRun?.runId);
+          return;
+        }
+
+        if (projected.event.type === 'session.runtime.failed') {
+          setError(projected.event.payload.message);
+          return;
+        }
         if (
           projected.envelope.runId &&
           activeRunRef.current &&
@@ -796,9 +878,22 @@ function handleEvent(
   schedulePreviewRefresh: (runId?: string) => void,
   markPreviewDirty: () => void,
 ) {
+  const queueRunEvent = (action: ConversationEvent, immediate?: boolean) =>
+    queueConversation(withConversationRunId(action, envelope.runId), immediate);
   if (event.type === 'run.started') {
     setRunId(event.payload.runId);
-    queueConversation({ type: 'run.started', payload: { runId: event.payload.runId } }, true);
+    queueConversation(
+      {
+        type: 'run.started',
+        payload: {
+          runId: event.payload.runId,
+          ...(event.payload.promptRequestId
+            ? { promptRequestId: event.payload.promptRequestId }
+            : {}),
+        },
+      },
+      true,
+    );
   }
   if (event.type === 'run.settled') {
     flushConversation();
@@ -854,17 +949,17 @@ function handleEvent(
     queueConversation({ type: 'turn.completed', payload: event.payload }, true);
   }
   if (event.type === 'assistant.started')
-    queueConversation({ type: 'assistant.started', payload: event.payload });
+    queueRunEvent({ type: 'assistant.started', payload: event.payload });
   if (event.type === 'assistant.delta')
-    queueConversation({ type: 'assistant.delta', payload: event.payload });
+    queueRunEvent({ type: 'assistant.delta', payload: event.payload });
   if (event.type === 'assistant.completed')
-    queueConversation({ type: 'assistant.completed', payload: event.payload }, true);
+    queueRunEvent({ type: 'assistant.completed', payload: event.payload }, true);
   if (event.type === 'tool.started')
-    queueConversation({ type: 'tool.started', payload: event.payload });
+    queueRunEvent({ type: 'tool.started', payload: event.payload });
   if (event.type === 'tool.updated')
-    queueConversation({ type: 'tool.updated', payload: event.payload });
+    queueRunEvent({ type: 'tool.updated', payload: event.payload });
   if (event.type === 'tool.completed') {
-    queueConversation({ type: 'tool.completed', payload: event.payload }, true);
+    queueRunEvent({ type: 'tool.completed', payload: event.payload }, true);
     if (['edit', 'write', 'bash'].includes(event.payload.toolName)) markPreviewDirty();
   }
 }

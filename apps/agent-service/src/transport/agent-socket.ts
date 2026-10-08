@@ -6,14 +6,13 @@ import {
   createAgentEnvelope,
   type AgentCommand,
   type AgentWireMessage,
-  type SnapshotMessage,
 } from '@cloudcrane/agent-protocol';
 import type { WebsiteAgentRuntime } from '@cloudcrane/website-agent';
 import { AgentServiceError, asAgentServiceError } from '../application/errors.js';
 import { WebsiteRuntimeRegistry } from '../application/runtime-registry.js';
 import type { AgentServiceConfig } from '../config.js';
 import { PreviewClientRegistry } from '../infrastructure/preview-client-registry.js';
-import { projectWebsiteAgentEvent } from './agent-event-projector.js';
+import { AgentEventReplayBuffer } from './agent-event-replay-buffer.js';
 import {
   createLogger,
   createRequestId,
@@ -33,42 +32,6 @@ import {
 } from '@cloudcrane/auth';
 import type { PlatformDb } from '@cloudcrane/db';
 
-function isEventReflectedByHistory(message: AgentWireMessage, history: SnapshotMessage[]): boolean {
-  const payload = message.payload;
-  if (!payload || typeof payload !== 'object') return false;
-  const value = payload as Record<string, unknown>;
-  if (
-    message.type === 'assistant.started' ||
-    message.type === 'assistant.delta' ||
-    message.type === 'assistant.completed'
-  ) {
-    return (
-      typeof value.messageId === 'string' && history.some((item) => item.id === value.messageId)
-    );
-  }
-  if (message.type === 'user.added') {
-    const userMessage = value.message;
-    return (
-      !!userMessage &&
-      typeof userMessage === 'object' &&
-      'id' in userMessage &&
-      typeof userMessage.id === 'string' &&
-      history.some((item) => item.id === userMessage.id)
-    );
-  }
-  if (
-    message.type === 'tool.started' ||
-    message.type === 'tool.updated' ||
-    message.type === 'tool.completed'
-  ) {
-    return (
-      typeof value.toolCallId === 'string' &&
-      history.some((item) => item.toolCallId === value.toolCallId)
-    );
-  }
-  return false;
-}
-
 const logger = createLogger('agent-service.socket');
 
 type AgentSocketOptions = {
@@ -83,6 +46,7 @@ type AgentSocketOptions = {
 export class AgentSocketTransport {
   private readonly server = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
   private readonly connections = new Set<AgentSocketConnection>();
+  private readonly eventReplayBuffer = new AgentEventReplayBuffer();
 
   constructor(private readonly options: AgentSocketOptions) {
     options.app.server.on('upgrade', (request, socket, head) => {
@@ -113,6 +77,7 @@ export class AgentSocketTransport {
         const connection = new AgentSocketConnection(
           ws,
           this.options,
+          this.eventReplayBuffer,
           undefined,
           undefined,
           socketContext(request),
@@ -133,6 +98,7 @@ export class AgentSocketTransport {
       const connection = new AgentSocketConnection(
         ws,
         this.options,
+        this.eventReplayBuffer,
         session.user.id,
         sessionHeaders,
         { ...socketContext(request), userId: session.user.id },
@@ -170,7 +136,7 @@ class AgentSocketConnection {
   private previewClientId?: string;
   private attachState?: {
     sessionId: string;
-    queued: ReturnType<typeof createAgentEnvelope>[];
+    queued: AgentWireMessage[];
   };
   private readonly previewConnection = {
     send: (message: ReturnType<typeof createAgentEnvelope>) => this.write(message),
@@ -179,6 +145,7 @@ class AgentSocketConnection {
   constructor(
     private readonly socket: WebSocket,
     private readonly options: AgentSocketOptions,
+    private readonly eventReplayBuffer: AgentEventReplayBuffer,
     private readonly userId: string | undefined,
     private readonly sessionHeaders: Headers | undefined,
     private readonly logContext: LogContext,
@@ -329,35 +296,45 @@ class AgentSocketConnection {
       this.runtimeReady = false;
       const attachState = {
         sessionId: command.payload.sessionId,
-        queued: [] as ReturnType<typeof createAgentEnvelope>[],
+        queued: [] as AgentWireMessage[],
       };
       this.attachState = attachState;
       this.unsubscribe = runtime.subscribe((event) => {
         if (event.websiteSessionId !== this.sessionId) return;
-        const message = projectWebsiteAgentEvent(event);
+        const message = this.eventReplayBuffer.project(event);
         if (!message) return;
         if (this.attachState === attachState) attachState.queued.push(message);
         else this.write(message);
       });
       this.ack(command);
+      const replay =
+        command.payload.afterEventSeq === undefined ||
+        command.payload.afterEventGeneration !== this.eventReplayBuffer.getGeneration()
+          ? undefined
+          : this.eventReplayBuffer.readAfter(
+              command.payload.sessionId,
+              command.payload.afterEventSeq,
+            );
+      const replayAvailable = replay?.available === true;
+      const snapshotCursor = replayAvailable
+        ? undefined
+        : this.eventReplayBuffer.currentSequence(command.payload.sessionId);
       const historyStartedAt = performance.now();
       let historySent = false;
       try {
         const history = await runtime.getSessionHistoryPage(command.payload.sessionId);
         if (this.attachState !== attachState) return;
-        // Preserve concurrent runtime events, skipping only message updates already
-        // represented by the history projection to avoid replaying duplicate deltas.
-        attachState.queued = attachState.queued.filter(
-          (message) => !isEventReflectedByHistory(message, history.messages),
-        );
         const session = toSessionView(history.session);
         this.send('session.attached', { session });
-        this.send('session.history.snapshot', {
-          session,
-          messages: history.messages,
-          olderCursor: history.olderCursor,
-          hasMore: history.hasMore,
-        });
+        if (!replayAvailable)
+          this.send('session.history.snapshot', {
+            session,
+            messages: history.messages,
+            olderCursor: history.olderCursor,
+            hasMore: history.hasMore,
+            eventCursor: snapshotCursor,
+            eventGeneration: this.eventReplayBuffer.getGeneration(),
+          });
         historySent = true;
         logger.info(
           {
@@ -378,6 +355,13 @@ class AgentSocketConnection {
           const runtimeState = await runtime.getSessionRuntimeState(command.payload.sessionId);
           if (this.attachState !== attachState) return;
           this.runtimeReady = true;
+          if (replay?.available) replay.events.forEach((message) => this.write(message));
+          const bufferedEvents = attachState.queued.filter(
+            (message) =>
+              (message.eventSeq ?? 0) > (replayAvailable ? replay.head : (snapshotCursor ?? 0)),
+          );
+          attachState.queued = [];
+          bufferedEvents.forEach((message) => this.write(message));
           this.send('session.runtime.ready', {
             session: toSessionView(runtimeState.session),
             contextUsage: runtimeState.contextUsage,

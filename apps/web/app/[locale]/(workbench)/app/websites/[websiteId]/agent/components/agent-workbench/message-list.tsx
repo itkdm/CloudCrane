@@ -194,6 +194,15 @@ function ConversationTurnView({
   turn: ConversationTurn;
 }) {
   const t = useTranslations('workbench');
+  const hasActiveExecutionStep = Boolean(
+    turn.execution?.some((step) =>
+      step.kind === 'assistant'
+        ? step.status === 'streaming'
+        : step.kind === 'tool'
+          ? step.status === 'running'
+          : step.status === 'running',
+    ),
+  );
   return (
     <article className={`conversation-turn ${turn.status}`}>
       <UserMessage message={turn.userMessage} />
@@ -209,13 +218,17 @@ function ConversationTurnView({
       ) : null}
       {turn.error && !turn.execution?.length ? (
         <p className="turn-status-message" role="status">
-          {turn.status === 'aborted' ? t('aborted') : t('failed')}：
-          {friendlyTurnError(turn.error, t)}
+          {turn.status === 'aborted'
+            ? t('aborted')
+            : turn.status === 'interrupted'
+              ? t('interrupted')
+              : t('failed')}
+          ：{friendlyTurnError(turn.error, t)}
         </p>
       ) : null}
       {turn.finalAnswer ? (
         <AssistantMessage message={turn.finalAnswer} />
-      ) : turn.status === 'running' ? (
+      ) : turn.status === 'running' && !hasActiveExecutionStep ? (
         <AssistantMessage
           message={{
             id: `${turn.userMessage.id}-pending-assistant`,

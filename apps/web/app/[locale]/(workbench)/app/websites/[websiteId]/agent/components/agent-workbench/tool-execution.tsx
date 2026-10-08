@@ -80,7 +80,9 @@ export const ExecutionProcess = memo(function ExecutionProcess({
       ? t('executionComplete')
       : status === 'aborted'
         ? t('executionStopped')
-        : t('executionFailed');
+        : status === 'interrupted'
+          ? t('executionInterrupted')
+          : t('executionFailed');
   const processSummary = `${processLabel} · ${t('steps', { count: steps.length })}`;
 
   return (
@@ -94,9 +96,11 @@ export const ExecutionProcess = memo(function ExecutionProcess({
         {...(isRunning ? { 'aria-live': 'polite' as const } : {})}
       >
         <span className="execution-summary-icon" aria-hidden="true">
-          {isRunning ? <LoaderCircle className="spin" size={15} /> : null}
+          {isRunning ? <Terminal size={15} /> : null}
           {status === 'completed' ? <Check size={15} /> : null}
-          {status === 'error' || status === 'no-final-text' ? <CircleAlert size={15} /> : null}
+          {status === 'error' || status === 'no-final-text' || status === 'interrupted' ? (
+            <CircleAlert size={15} />
+          ) : null}
           {status === 'aborted' ? <X size={15} /> : null}
         </span>
         <span className="execution-summary-copy">
@@ -151,10 +155,19 @@ export const ExecutionProcess = memo(function ExecutionProcess({
               <ContextMaintenanceExecution key={step.id} step={step} />
             ),
           )}
-          {status === 'error' || status === 'no-final-text' || status === 'aborted' ? (
+          {status === 'error' ||
+          status === 'no-final-text' ||
+          status === 'aborted' ||
+          status === 'interrupted' ? (
             <div className="execution-error" role="status">
               <CircleAlert size={14} aria-hidden="true" />
-              <span>{status === 'aborted' ? t('runStopped') : t('runIncomplete')}</span>
+              <span>
+                {status === 'aborted'
+                  ? t('runStopped')
+                  : status === 'interrupted'
+                    ? t('runInterrupted')
+                    : t('runIncomplete')}
+              </span>
             </div>
           ) : null}
         </div>
@@ -419,6 +432,8 @@ export const ToolExecution = memo(function ToolExecution({ step }: { step: ToolE
           <LoaderCircle className="spin" size={13} aria-hidden="true" />
         ) : null}
         {status === 'failed' ? <X size={13} aria-hidden="true" /> : null}
+        {status === 'interrupted' ? <CircleAlert size={13} aria-hidden="true" /> : null}
+        {status === 'aborted' ? <X size={13} aria-hidden="true" /> : null}
         {status === 'waiting' ? <Clock3 size={13} aria-hidden="true" /> : null}
         <span>{t(statusLabelKeys[status])}</span>
       </span>
@@ -470,10 +485,19 @@ const statusLabelKeys = {
   running: 'running',
   completed: 'completed',
   failed: 'failure',
+  aborted: 'aborted',
+  interrupted: 'interrupted',
 } as const;
 
 function normalizeStatus(value?: string): keyof typeof statusLabelKeys {
-  if (value === 'running' || value === 'failed' || value === 'waiting') return value;
+  if (
+    value === 'running' ||
+    value === 'failed' ||
+    value === 'waiting' ||
+    value === 'aborted' ||
+    value === 'interrupted'
+  )
+    return value;
   if (value === 'error') return 'failed';
   return 'completed';
 }

@@ -905,17 +905,17 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 0 20px;
-  width: 20px;
-  min-width: 20px;
-  height: 20px;
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
   margin-left: auto;
   color: var(--cc-text-tertiary);
   font-size: 11px;
 }
 
 .context-usage.unknown:not(.unavailable) {
-  flex-basis: 20px;
+  flex-basis: 16px;
 }
 
 .context-usage.unavailable {
@@ -926,8 +926,8 @@
 }
 
 .context-usage-loading {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border: 2px solid color-mix(in srgb, currentColor 20%, transparent);
   border-top-color: currentColor;
   border-radius: 50%;
@@ -942,16 +942,20 @@
 
 .context-usage-ring {
   display: block;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   border-radius: 50%;
   background: conic-gradient(
     currentColor 0deg var(--context-usage-angle),
     color-mix(in srgb, currentColor 18%, transparent) var(--context-usage-angle) 360deg
   );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2.5px),
+    #000 calc(100% - 1.5px)
+  );
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px));
 }
 
 .context-usage-tooltip {

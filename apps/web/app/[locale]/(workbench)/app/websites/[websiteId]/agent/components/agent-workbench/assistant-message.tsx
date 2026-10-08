@@ -60,18 +60,22 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   if (variant === 'narrative')
     return (
-      <div
-        className="assistant-narrative"
-        {...(isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
-      >
+      <div className="assistant-narrative">
         {message.text ? (
-          <div className="markdown-body">
-            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-              {message.text}
-            </ReactMarkdown>
-          </div>
+          <>
+            {isStreaming ? (
+              <span className="sr-only" role="status" aria-live="polite">
+                {t('streamingNarrative')}
+              </span>
+            ) : null}
+            <div className="markdown-body">
+              <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                {message.text}
+              </ReactMarkdown>
+            </div>
+          </>
         ) : (
-          <div className="message-streaming" aria-label={t('streamingNarrative')}>
+          <div className="message-streaming" role="status" aria-live="polite">
             <LoaderCircle className="spin" size={14} aria-hidden="true" />
             <span>{t('streamingNarrative')}</span>
           </div>
@@ -81,16 +85,20 @@ export const AssistantMessage = memo(function AssistantMessage({
 
   return (
     <article className="assistant-message">
-      <div
-        className="message-body markdown-body"
-        {...(isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
-      >
+      <div className="message-body markdown-body">
         {message.text ? (
-          <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-            {message.text}
-          </ReactMarkdown>
+          <>
+            {isStreaming ? (
+              <span className="sr-only" role="status" aria-live="polite">
+                {t('streamingReply')}
+              </span>
+            ) : null}
+            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+              {message.text}
+            </ReactMarkdown>
+          </>
         ) : (
-          <div className="message-streaming" aria-label={t('streamingReply')}>
+          <div className="message-streaming" role="status" aria-live="polite">
             <LoaderCircle className="spin" size={16} aria-hidden="true" />
             <span>{t('streamingReply')}</span>
           </div>
