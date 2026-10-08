@@ -1909,18 +1909,6 @@
   font-size: 13px;
 }
 
-.return-to-latest {
-  flex: 0 0 auto;
-  margin: 0;
-  border: 1px solid var(--cc-border);
-  border-radius: 999px;
-  padding: 7px 11px;
-  background: var(--cc-surface-0);
-  color: var(--cc-brand-hover);
-  font-size: 11px;
-  box-shadow: var(--cc-shadow-sm);
-}
-
 .user-message {
   width: fit-content;
   max-width: min(72%, 700px);

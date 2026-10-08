@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 
 const FOLLOW_THRESHOLD_PX = 96;
@@ -15,14 +15,11 @@ function scrollToLatest(container: HTMLDivElement): void {
 
 export type ConversationScroll = {
   containerRef: RefObject<HTMLDivElement | null>;
-  endRef: RefObject<HTMLDivElement | null>;
-  showReturnToLatest: boolean;
   onScroll: () => void;
   onWheel: (deltaY: number) => void;
   onTouchStart: (clientY: number) => void;
   onTouchMove: (clientY: number) => void;
   onTouchEnd: () => void;
-  returnToLatest: () => void;
 };
 
 export function useConversationScroll(
@@ -30,7 +27,6 @@ export function useConversationScroll(
   followKey?: string,
 ): ConversationScroll {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | null>(null);
   const shouldFollowRef = useRef(true);
   const userPausedRef = useRef(false);
@@ -39,7 +35,6 @@ export function useConversationScroll(
   const previousFollowKeyRef = useRef(followKey);
   const previousScrollTopRef = useRef(0);
   const hasObservedScrollRef = useRef(false);
-  const [showReturnToLatest, setShowReturnToLatest] = useState(false);
 
   const isNearLatestCallback = useCallback(() => {
     const container = containerRef.current;
@@ -60,12 +55,6 @@ export function useConversationScroll(
     });
   }, []);
 
-  const returnToLatest = useCallback(() => {
-    shouldFollowRef.current = true;
-    setShowReturnToLatest(false);
-    scheduleScrollToLatest();
-  }, [scheduleScrollToLatest]);
-
   const onScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -80,16 +69,13 @@ export function useConversationScroll(
     if (userPausedRef.current) {
       if (!pauseScrollObservedRef.current) {
         pauseScrollObservedRef.current = true;
-        setShowReturnToLatest(true);
         return;
       }
       if (!nearLatest || !movedDown) {
-        setShowReturnToLatest(true);
         return;
       }
       userPausedRef.current = false;
       shouldFollowRef.current = true;
-      setShowReturnToLatest(false);
       return;
     }
     if (movedUp) {
@@ -98,11 +84,9 @@ export function useConversationScroll(
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
       }
-      setShowReturnToLatest(true);
       return;
     }
     shouldFollowRef.current = nearLatest;
-    setShowReturnToLatest((current) => (current === !nearLatest ? current : !nearLatest));
   }, [isNearLatestCallback]);
 
   const onWheel = useCallback((deltaY: number) => {
@@ -114,7 +98,6 @@ export function useConversationScroll(
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
       }
-      setShowReturnToLatest(true);
     }
   }, []);
 
@@ -147,7 +130,6 @@ export function useConversationScroll(
       shouldFollowRef.current = true;
       previousScrollTopRef.current = containerRef.current?.scrollTop ?? 0;
       hasObservedScrollRef.current = true;
-      setShowReturnToLatest(false);
     }
     if (shouldFollowRef.current) scheduleScrollToLatest();
     return () => {
@@ -168,13 +150,10 @@ export function useConversationScroll(
 
   return {
     containerRef,
-    endRef,
-    showReturnToLatest,
     onScroll,
     onWheel,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
-    returnToLatest,
   };
 }

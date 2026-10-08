@@ -2,7 +2,7 @@ import { AlertTriangle, Eye, Settings } from 'lucide-react';
 import type { AttachmentRef } from '@cloudcrane/agent-protocol';
 import type { ModelPreset, ModelProfile } from '@/lib/agent-client';
 import { useTranslations } from 'next-intl';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Composer } from './composer';
 import { MessageList } from './message-list';
 import type {
@@ -93,14 +93,6 @@ export function ChatPanel({
   onModelProfileChange,
 }: ChatPanelProps) {
   const t = useTranslations('workbench');
-  const [returnToLatestControl, setReturnToLatestControl] = useState<{
-    visible: boolean;
-    onClick: () => void;
-  }>({ visible: false, onClick: () => undefined });
-  const onReturnToLatestChange = useCallback(
-    (control: { visible: boolean; onClick: () => void }) => setReturnToLatestControl(control),
-    [],
-  );
   const onDismissErrorRef = useRef(onDismissError);
   onDismissErrorRef.current = onDismissError;
   const transientNotice = isTransientNotice(error);
@@ -113,7 +105,7 @@ export function ChatPanel({
 
   return (
     <section className="chat-panel" aria-label={t('chat')}>
-      {onPreviewToggle || onSettingsOpen || onCompact || returnToLatestControl.visible ? (
+      {onPreviewToggle || onSettingsOpen || onCompact ? (
         <div className="chat-toolbar">
           {onSettingsOpen ? (
             <button
@@ -153,17 +145,6 @@ export function ChatPanel({
               <span>{t('preview')}</span>
             </button>
           ) : null}
-          {returnToLatestControl.visible ? (
-            <button
-              type="button"
-              className="return-to-latest"
-              onClick={returnToLatestControl.onClick}
-              aria-label={t('latest')}
-              title={t('latest')}
-            >
-              {t('latest')}
-            </button>
-          ) : null}
         </div>
       ) : null}
       {error ? (
@@ -192,7 +173,6 @@ export function ChatPanel({
         onInteractionRespond={onInteractionRespond}
         onInteractionCancel={onInteractionCancel}
         onReferenceUpload={onReferenceUpload}
-        onReturnToLatestChange={onReturnToLatestChange}
       />
       <Composer
         draft={draft}

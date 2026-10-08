@@ -1,6 +1,6 @@
 import { LoaderCircle, Sparkles } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { AssistantMessage } from './assistant-message';
 import { useConversationScroll } from './conversation-scroll';
 import { ExecutionProcess } from './tool-execution';
@@ -23,7 +23,6 @@ type MessageListProps = {
   ) => void;
   onInteractionCancel?: (interactionId: string) => void;
   onReferenceUpload?: (interactionId: string, file: File) => Promise<void>;
-  onReturnToLatestChange?: (control: { visible: boolean; onClick: () => void }) => void;
 };
 
 export function MessageList({
@@ -39,7 +38,6 @@ export function MessageList({
   onInteractionRespond,
   onInteractionCancel,
   onReferenceUpload,
-  onReturnToLatestChange,
 }: MessageListProps) {
   const t = useTranslations('workbench');
   const examples = [t('exampleTitle'), t('exampleColors'), t('exampleNavigation')];
@@ -49,21 +47,8 @@ export function MessageList({
   const contentVersion = conversationRevision;
   const latestUserMessageId =
     turns.at(-1)?.userMessage.id ?? (pendingPrompt ? 'pending-initial-prompt' : undefined);
-  const {
-    containerRef,
-    endRef,
-    onScroll,
-    onWheel,
-    onTouchStart,
-    onTouchMove,
-    onTouchEnd,
-    returnToLatest,
-    showReturnToLatest,
-  } = useConversationScroll(contentVersion, latestUserMessageId);
-
-  useEffect(() => {
-    onReturnToLatestChange?.({ visible: showReturnToLatest, onClick: returnToLatest });
-  }, [onReturnToLatestChange, returnToLatest, showReturnToLatest]);
+  const { containerRef, onScroll, onWheel, onTouchStart, onTouchMove, onTouchEnd } =
+    useConversationScroll(contentVersion, latestUserMessageId);
 
   useLayoutEffect(() => {
     const anchor = prependAnchorRef.current;
@@ -176,7 +161,6 @@ export function MessageList({
             .map((item) => (
               <MaintenanceItem key={item.id} item={item} />
             ))}
-          <div ref={endRef} aria-hidden="true" />
         </div>
       </div>
     </div>
