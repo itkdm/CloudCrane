@@ -30,8 +30,8 @@ export function websiteDeleteRequestHash(websiteId: string): string {
   return createHash('sha256').update(JSON.stringify({ websiteId })).digest('hex');
 }
 
-export function websitePublishRequestHash(websiteId: string): string {
-  return createHash('sha256').update(JSON.stringify({ websiteId })).digest('hex');
+export function websitePublishRequestHash(websiteId: string, productionSlug: string): string {
+  return createHash('sha256').update(JSON.stringify({ websiteId, productionSlug })).digest('hex');
 }
 
 export async function claimWebsiteCreateOperation(input: {

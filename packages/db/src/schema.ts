@@ -812,7 +812,7 @@ export const productionRuntime = pgTable(
       .unique(),
     runnerId: uuid('runner_id').references(() => runner.id, { onDelete: 'set null' }),
     status: varchar('status', { length: 32 }).notNull().default('provisioning'),
-    productionSlug: varchar('production_slug', { length: 64 }).notNull().unique(),
+    productionSlug: varchar('production_slug', { length: 63 }).notNull().unique(),
     containerRef: text('container_ref'),
     productionPort: integer('production_port'),
     currentReleaseId: uuid('current_release_id').references((): AnyPgColumn => websiteRelease.id, {
@@ -833,6 +833,33 @@ export const productionRuntime = pgTable(
     check(
       'production_runtime_port_check',
       sql`${table.productionPort} is null or (${table.productionPort} > 0 and ${table.productionPort} < 65536)`,
+    ),
+  ],
+);
+
+export const productionDomain = pgTable(
+  'production_domain',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    productionRuntimeId: uuid('production_runtime_id')
+      .notNull()
+      .references(() => productionRuntime.id, { onDelete: 'cascade' }),
+    slug: varchar('slug', { length: 63 }).notNull().unique(),
+    routeType: varchar('route_type', { length: 16 }).notNull().default('canonical'),
+    createdAt: timestamp('created_at', { withTimezone: true }).default(now()).notNull(),
+  },
+  (table) => [
+    uniqueIndex('production_domain_runtime_canonical_unique')
+      .on(table.productionRuntimeId)
+      .where(sql`${table.routeType} = 'canonical'`),
+    index('production_domain_runtime_idx').on(table.productionRuntimeId),
+    check(
+      'production_domain_slug_check',
+      sql`${table.slug} ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'`,
+    ),
+    check(
+      'production_domain_route_type_check',
+      sql`${table.routeType} in ('canonical', 'redirect')`,
     ),
   ],
 );

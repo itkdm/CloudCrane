@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 $sn = getenv('PBOOT_SN');
 $snUser = getenv('PBOOT_SN_USER');
+$canonicalHost = getenv('PBOOT_CANONICAL_HOST');
 if (!is_string($sn) || $sn === '' || strlen($sn) > 2048) {
     fwrite(STDERR, "PBOOT_SN is required\n");
     exit(20);
 }
 if (!is_string($snUser)) {
     $snUser = '';
+}
+if ($canonicalHost !== false && (!is_string($canonicalHost) || !preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9.-]+$/', $canonicalHost))) {
+    fwrite(STDERR, "PBOOT_CANONICAL_HOST is invalid\n");
+    exit(20);
 }
 
 $siteRoot = getenv('PBOOT_SITE_ROOT');
@@ -95,7 +100,8 @@ if (is_dir($cache)) {
 }
 
 $authorizationMarker = rtrim($siteRoot, '/') . '/runtime/.cloudcrane-authorization-v1';
-if (file_put_contents($authorizationMarker, "authorized\n", LOCK_EX) === false) {
+$markerContents = is_string($canonicalHost) ? "authorized:" . $canonicalHost . "\n" : "authorized\n";
+if (file_put_contents($authorizationMarker, $markerContents, LOCK_EX) === false) {
     fwrite(STDERR, "PbootCMS authorization marker could not be written\n");
     exit(24);
 }

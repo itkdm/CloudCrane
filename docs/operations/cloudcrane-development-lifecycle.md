@@ -1,6 +1,6 @@
 # CloudCrane 工程生命周期与当前实现
 
-> 当前状态核对：2026-10-04。本文是日常工程流程与当前实现状态的入口；详细架构决策见 Tech-01 至 Tech-07，服务器操作见对应运维手册。服务器与 GitHub Actions 状态会变化，操作前仍应按实时环境复核。
+> 当前状态核对：2026-10-08。本文是日常工程流程与当前实现状态的入口；详细架构决策见 Tech-01 至 Tech-07，服务器操作见对应运维手册。服务器与 GitHub Actions 状态会变化，操作前仍应按实时环境复核。
 
 ## 文档和状态的事实来源
 
@@ -19,6 +19,7 @@ CloudCrane 平台自身的 Production 部署，与用户将某个 Website 发布
 | --- | --- |
 | Workspace / Agent / Preview | 长期 Website Workspace、Agent 编码工具和 Preview 已实现；真实服务验收必须使用远程完整服务栈。 |
 | Website Production Publish | 有 Release 构建、运行时、原子切换、健康检查、授权 API/UI 和 Nginx/Gateway 公网入口；指定测试站已完成多次发布与故障恢复场景验收。 |
+| Production 域名前缀 | 用户可自定义单级平台子域前缀；数据库唯一域名记录维护规范域名和历史别名，改名后由 Gateway 308 跳转并要求使用新 Host 重新授权。 |
 | Production → Workspace Refresh | 有安全快照、备份后替换、SQLite 校验、操作恢复和幂等流程；只把 Production 内容数据回流，不覆盖 Workspace 代码。 |
 | Production CMS 操作 | 已有内容/栏目读取、内容与公司信息更新、内容创建、媒体上传和受限栏目创建。CI 覆盖 PbootCMS 3.2.24/3.2.26；相应线上验收证据和边界见 Tech-03。 |
 | Workspace 宿主机隔离 | Runner 容器有项目配额；Metadata host-level deny 已有容器及服务/Docker/主机重启验证。当前 Guest OS 是 KVM，云销售商/控制面未核实。 |

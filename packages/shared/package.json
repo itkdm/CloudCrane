@@ -16,6 +16,10 @@
     "./preview-slug": {
       "types": "./dist/preview-slug.d.ts",
       "default": "./dist/preview-slug.js"
+    },
+    "./production-domain": {
+      "types": "./dist/production-domain.d.ts",
+      "default": "./dist/production-domain.js"
     }
   },
   "scripts": {

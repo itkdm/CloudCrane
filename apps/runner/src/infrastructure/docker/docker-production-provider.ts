@@ -95,7 +95,7 @@ export class DockerProductionProvider implements ProductionProvider {
       try {
         await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
         let info = await container.inspect();
-        this.assertRuntimeMatches(info, websiteId, productionSlug);
+        this.assertRuntimeMatches(info, websiteId);
         if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
           await container.update({ RestartPolicy: { Name: 'unless-stopped' } });
           info = await container.inspect();
@@ -127,15 +127,7 @@ export class DockerProductionProvider implements ProductionProvider {
     const root = this.root(websiteId);
     await this.ensureLayout(root);
     const slugPath = path.join(root, '.production-slug');
-    if (await this.exists(slugPath)) {
-      if ((await readFile(slugPath, 'utf8')) !== productionSlug)
-        throw new ProductionOperationError(
-          'PRODUCTION_STATE_CONFLICT',
-          'Production slug does not match the existing runtime',
-        );
-    } else {
-      await writeFileSecure(slugPath, productionSlug);
-    }
+    await writeFileSecure(slugPath, `${productionSlug}\n`);
     await this.recoverInterruptedImageUpgrade(websiteId, productionSlug);
     const containerName = this.containerName(websiteId);
     const persistedPort = await this.readProductionPort(root);
@@ -176,7 +168,7 @@ export class DockerProductionProvider implements ProductionProvider {
         throw error;
       }
     } else {
-      this.assertRuntimeMatches(info, websiteId, productionSlug);
+      this.assertRuntimeMatches(info, websiteId);
       if (info.HostConfig?.RestartPolicy?.Name !== 'unless-stopped') {
         await container.update({ RestartPolicy: { Name: 'unless-stopped' } });
         info = await container.inspect();
@@ -201,7 +193,7 @@ export class DockerProductionProvider implements ProductionProvider {
       info.Id ?? container.id,
       info,
       await this.readVerifiedRelease(root),
-      await this.isAuthorizationComplete(websiteId),
+      await this.isAuthorizationComplete(websiteId, productionSlug),
     );
   }
 
@@ -301,7 +293,7 @@ export class DockerProductionProvider implements ProductionProvider {
       throw error;
     }
     if (previousInfo.Name !== `/${previousName}`) return;
-    this.assertRuntimeMatches(previousInfo, websiteId, productionSlug);
+    this.assertRuntimeMatches(previousInfo, websiteId);
     const expectedPort = await this.readProductionPort(this.root(websiteId));
 
     const current = this.docker.getContainer(this.containerName(websiteId));
@@ -315,7 +307,7 @@ export class DockerProductionProvider implements ProductionProvider {
     if (currentInfo) {
       let currentImageIsHealthy = false;
       try {
-        this.assertRuntimeMatches(currentInfo, websiteId, productionSlug);
+        this.assertRuntimeMatches(currentInfo, websiteId);
         currentImageIsHealthy =
           currentInfo.Image === (await this.productionImageId()) &&
           this.runtimePort(currentInfo) === expectedPort &&
@@ -405,7 +397,7 @@ export class DockerProductionProvider implements ProductionProvider {
       );
       await candidate.start();
       const candidateInfo = await candidate.inspect();
-      this.assertRuntimeMatches(candidateInfo, websiteId, productionSlug);
+      this.assertRuntimeMatches(candidateInfo, websiteId);
       if (
         !(await this.hasCmsRuntimeHelper(candidate)) ||
         this.runtimePort(candidateInfo) !== port ||
@@ -566,7 +558,7 @@ export class DockerProductionProvider implements ProductionProvider {
           'PRODUCTION_HEALTHCHECK_FAILED',
           'Production runtime health check failed',
         );
-      const authorized = await this.isAuthorizationComplete(input.websiteId);
+      const authorized = await this.isAuthorizationComplete(input.websiteId, input.productionSlug);
       if (input.firstPublish) await this.completeInitialPersistentState(root, input.releaseId);
       await this.refreshPbootRuntimeState(input.websiteId, root);
       if (!(await this.waitForHealth(runtime.productionPort, input.productionSlug)))
@@ -625,14 +617,14 @@ export class DockerProductionProvider implements ProductionProvider {
     const container = this.docker.getContainer(this.containerName(websiteId));
     try {
       const info = await container.inspect();
-      this.assertRuntimeMatches(info, websiteId, productionSlug);
+      this.assertRuntimeMatches(info, websiteId);
       return this.runtime(
         websiteId,
         productionSlug,
         info.Id ?? container.id,
         info,
         currentReleaseId,
-        await this.isAuthorizationComplete(websiteId),
+        await this.isAuthorizationComplete(websiteId, productionSlug),
       );
     } catch (error) {
       if (this.isNotFound(error))
@@ -666,7 +658,7 @@ export class DockerProductionProvider implements ProductionProvider {
     } catch {
       throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
     }
-    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    this.assertRuntimeMatches(info, websiteId);
     if (!info.State?.Running) throw new Error('PRODUCTION_RUNTIME_UNAVAILABLE');
 
     let output: string;
@@ -674,7 +666,12 @@ export class DockerProductionProvider implements ProductionProvider {
     try {
       const command = await container.exec({
         Cmd: ['cloudcrane-pboot-license'],
-        Env: [`PBOOT_SN=${authorizationCode}`, 'PBOOT_SN_USER=', 'PBOOT_SITE_ROOT=/site/current'],
+        Env: [
+          `PBOOT_SN=${authorizationCode}`,
+          'PBOOT_SN_USER=',
+          'PBOOT_SITE_ROOT=/site/current',
+          `PBOOT_CANONICAL_HOST=${canonicalHost}`,
+        ],
         WorkingDir: '/site/current',
         User: '1000:1000',
         AttachStdout: true,
@@ -775,7 +772,7 @@ export class DockerProductionProvider implements ProductionProvider {
         'Production CMS runtime is unavailable',
       );
     }
-    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    this.assertRuntimeMatches(info, websiteId);
     if (!info.State?.Running)
       throw new ProductionOperationError(
         'CMS_NOT_AVAILABLE',
@@ -1561,7 +1558,7 @@ export class DockerProductionProvider implements ProductionProvider {
   ): Promise<ProductionRuntime> {
     const container = this.docker.getContainer(this.containerName(websiteId));
     const info = await container.inspect();
-    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    this.assertRuntimeMatches(info, websiteId);
     const root = this.root(websiteId);
     const productionPort = this.runtimePort(info);
     if (productionPort) await this.persistProductionPort(root, productionPort);
@@ -1571,7 +1568,7 @@ export class DockerProductionProvider implements ProductionProvider {
       info.Id ?? container.id,
       info,
       await this.readVerifiedRelease(root),
-      await this.isAuthorizationComplete(websiteId),
+      await this.isAuthorizationComplete(websiteId, productionSlug),
     );
   }
 
@@ -1626,18 +1623,13 @@ export class DockerProductionProvider implements ProductionProvider {
     };
   }
 
-  private assertRuntimeMatches(
-    info: Docker.ContainerInspectInfo,
-    websiteId: string,
-    productionSlug: string,
-  ): void {
+  private assertRuntimeMatches(info: Docker.ContainerInspectInfo, websiteId: string): void {
     const labels = info.Config?.Labels ?? {};
     const bindings = info.HostConfig?.PortBindings?.['8080/tcp'] ?? [];
     const binds = info.HostConfig?.Binds ?? [];
     if (
       labels['cloudcrane.service'] !== 'production' ||
       labels['cloudcrane.website_id'] !== websiteId ||
-      labels['cloudcrane.production_slug'] !== productionSlug ||
       info.Config?.Image !== this.config.productionImage ||
       info.Config?.User !== '1000:1000' ||
       info.Config?.WorkingDir !== '/site' ||
@@ -1727,7 +1719,10 @@ export class DockerProductionProvider implements ProductionProvider {
     return `${productionSlug}.${hostSuffix}`;
   }
 
-  private async isAuthorizationComplete(websiteId: string): Promise<boolean> {
+  private async isAuthorizationComplete(
+    websiteId: string,
+    productionSlug: string,
+  ): Promise<boolean> {
     const marker = path.join(
       this.root(websiteId),
       'shared',
@@ -1738,7 +1733,9 @@ export class DockerProductionProvider implements ProductionProvider {
       if (error.code === 'ENOENT') return undefined;
       throw error;
     });
-    return Boolean(info?.isFile() && !info.isSymbolicLink());
+    if (!info?.isFile() || info.isSymbolicLink()) return false;
+    const markerContents = await readFile(marker, 'utf8').catch(() => '');
+    return markerContents.trim() === `authorized:${this.canonicalHost(productionSlug)}`;
   }
 
   private async waitForHealth(port: number | null, productionSlug: string): Promise<boolean> {
@@ -1822,7 +1819,7 @@ export class DockerProductionProvider implements ProductionProvider {
       if (this.isNotFound(error)) return;
       throw error;
     }
-    this.assertRuntimeMatches(info, websiteId, productionSlug);
+    this.assertRuntimeMatches(info, websiteId);
     if (!info.State?.Running) {
       await container.start();
       info = await container.inspect();

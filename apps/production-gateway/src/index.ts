@@ -14,7 +14,7 @@ const platform = createPlatformDb();
 const logger = createLogger('production-gateway');
 const server = buildProductionGatewayServer(
   config,
-  new DrizzleProductionBindingStore(platform),
+  new DrizzleProductionBindingStore(platform, config.hostSuffix, config.publicProtocol),
   logger,
 );
 const observability = startObservability(loadTracingConfig('production-gateway'));

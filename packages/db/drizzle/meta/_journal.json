@@ -162,6 +162,13 @@
       "when": 1790841506817,
       "tag": "0022_loose_squadron_supreme",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791452430154,
+      "tag": "0023_fresh_wallflower",
+      "breakpoints": true
     }
   ]
 }

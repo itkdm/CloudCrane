@@ -2,6 +2,7 @@ import http, { type IncomingHttpHeaders, type Server, type ServerResponse } from
 import { createLogger, type ServiceLogger } from '@cloudcrane/shared';
 import type { ProductionGatewayConfig } from './config.js';
 import type { ProductionBinding, ProductionBindingStore } from './store.js';
+import { isProductionSlug } from '@cloudcrane/shared';
 
 const routableStatuses = new Set(['authorization_required', 'active']);
 const hopByHopHeaders = new Set([
@@ -40,7 +41,7 @@ export function parseProductionSlug(
   const suffix = `.${normalizedSuffix}`;
   if (!hostname.endsWith(suffix)) return null;
   const slug = hostname.slice(0, -suffix.length);
-  if (!/^[a-f0-9]{32}$/.test(slug)) return null;
+  if (!isProductionSlug(slug)) return null;
   return slug;
 }
 
@@ -100,6 +101,12 @@ export function buildProductionGatewayServer(
       } catch {
         res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '5' });
         res.end('Service Unavailable');
+        return { productionSlug };
+      }
+      if (binding?.redirectUrl) {
+        const target = new URL(req.url?.startsWith('/') ? req.url : '/', binding.redirectUrl);
+        res.writeHead(308, { location: target.toString() });
+        res.end();
         return { productionSlug };
       }
       if (!binding || !routableStatuses.has(binding.status)) {

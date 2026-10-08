@@ -47,3 +47,10 @@ export {
   PREVIEW_SLUG_ALPHABET,
   PREVIEW_SLUG_LENGTH,
 } from './preview-slug.js';
+
+export {
+  isProductionSlug,
+  normalizeProductionSlug,
+  suggestProductionSlug,
+  type ProductionSlugValidation,
+} from './production-domain.js';

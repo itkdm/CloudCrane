@@ -963,6 +963,48 @@
   justify-content: flex-end;
   gap: 8px;
 }
+.website-production-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.website-production-actions .primary-button,
+.website-production-actions .secondary-button {
+  min-height: 40px;
+  padding: 0 16px;
+}
+
+.website-production-domain-input {
+  width: min(100%, 32rem);
+  min-height: 2.75rem;
+  border: 1px solid var(--border, #d9dee8);
+  border-radius: 0.625rem;
+  padding: 0.65rem 0.85rem;
+  color: var(--foreground, #172033);
+  background: var(--background, #fff);
+  font: inherit;
+}
+
+.website-production-domain-input:focus-visible {
+  outline: 2px solid var(--primary, #4f7df3);
+  outline-offset: 2px;
+}
+
+.website-production-domain-hint {
+  margin: 0;
+  color: var(--muted-foreground, #718096);
+  font-size: 0.875rem;
+}
+
+.website-production-domain-preview {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground, #52627a);
+}
 .website-settings-share {
   display: grid;
   gap: 16px;
@@ -1120,8 +1162,9 @@
   background: color-mix(in srgb, var(--cc-danger) 10%, transparent);
   color: var(--cc-danger);
 }
-.website-settings-delete.is-confirming {
-  display: block;
+.website-delete-confirmation-backdrop {
+  z-index: 110;
+  background: rgba(10, 14, 20, 0.38);
 }
 .website-delete-confirmation p {
   margin: 0 0 10px;
@@ -1129,10 +1172,10 @@
   font-size: 13px;
   line-height: 1.6;
 }
-.website-delete-confirmation h4 {
+.website-delete-confirmation h2 {
   margin: 0 0 10px;
   color: var(--cc-text);
-  font-size: 14px;
+  font-size: 18px;
 }
 .website-delete-confirmation .website-dialog-actions {
   margin-top: 16px;

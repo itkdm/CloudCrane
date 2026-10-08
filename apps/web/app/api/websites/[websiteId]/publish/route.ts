@@ -15,7 +15,7 @@ import {
   ProductionClientError,
   WorkspaceClient,
 } from '@cloudcrane/workspace-client';
-import { createLogger, getActiveTraceContext } from '@cloudcrane/shared';
+import { createLogger, getActiveTraceContext, normalizeProductionSlug } from '@cloudcrane/shared';
 import { auth, authDb } from '../../../../../lib/server/auth.js';
 import { withWebRequestContext } from '../../../../../lib/server/observability.js';
 import {
@@ -72,6 +72,31 @@ export async function POST(
         { status: 400 },
       );
 
+    let requestBody: { productionSlug?: unknown };
+    try {
+      requestBody = (await request.json()) as { productionSlug?: unknown };
+    } catch {
+      return NextResponse.json(
+        { error: { code: 'PRODUCTION_SLUG_REQUIRED', message: '请先设置正式网址前缀' } },
+        { status: 400 },
+      );
+    }
+    const slugValidation =
+      typeof requestBody.productionSlug === 'string'
+        ? normalizeProductionSlug(requestBody.productionSlug)
+        : null;
+    if (!slugValidation?.valid)
+      return NextResponse.json(
+        {
+          error: {
+            code: 'PRODUCTION_SLUG_INVALID',
+            message: '正式网址前缀格式无效或为平台保留名称',
+          },
+        },
+        { status: 400 },
+      );
+    const productionSlug = slugValidation.slug;
+
     const ownerFilter = access.isAdmin
       ? eq(website.id as never, websiteId)
       : and(
@@ -94,7 +119,7 @@ export async function POST(
       billingAccountId: billing.billingAccountId,
       websiteId,
       idempotencyKey,
-      requestHash: websitePublishRequestHash(websiteId),
+      requestHash: websitePublishRequestHash(websiteId, productionSlug),
       requestId: request.headers.get('x-request-id') ?? undefined,
     }).catch((error: unknown) => {
       if (error instanceof WebsiteOperationIdempotencyError) return error;
@@ -206,6 +231,7 @@ export async function POST(
         websiteId,
         ownerId: access.isAdmin ? null : access.session.user.id,
         operationId: claim.operationId,
+        productionSlug,
         client: new ProductionClient(endpoint, token, context),
         workspaceClient: new WorkspaceClient(endpoint, token, context),
       });
@@ -322,5 +348,6 @@ function statusForPublishError(code: string): number {
   if (code === 'PRODUCTION_NOT_ENTITLED' || code === 'PRODUCTION_QUOTA_EXCEEDED') return 403;
   if (code === 'ENTITLEMENT_UNAVAILABLE') return 503;
   if (code === 'PRODUCTION_INGRESS_NOT_CONFIGURED') return 503;
+  if (code === 'PRODUCTION_SLUG_TAKEN') return 409;
   return 502;
 }

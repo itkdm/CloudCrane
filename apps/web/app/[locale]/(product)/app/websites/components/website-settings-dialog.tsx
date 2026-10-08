@@ -2,6 +2,10 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
+import {
+  normalizeProductionSlug,
+  suggestProductionSlug,
+} from '@cloudcrane/shared/production-domain';
 import { copyTextWithFallback, PBOOT_AUTHORIZATION_URL } from '@/lib/website-authorization';
 import {
   getProductionRefreshOperation,
@@ -63,6 +67,13 @@ export function WebsiteSettingsDialog({
   const [refreshNotice, setRefreshNotice] = useState('');
   const [refreshError, setRefreshError] = useState('');
   const [productionCopied, setProductionCopied] = useState(false);
+  const [productionSlug, setProductionSlug] = useState('');
+  const [productionDomainUrl, setProductionDomainUrl] = useState('');
+  const [productionDomainAvailability, setProductionDomainAvailability] = useState<
+    'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'error'
+  >('idle');
+  const [editingProductionDomain, setEditingProductionDomain] = useState(false);
+  const [savingProductionDomain, setSavingProductionDomain] = useState(false);
   const productionAuthorizationKey = useRef<string | null>(null);
   const productionPublishKey = useRef<string | null>(null);
   const productionRefreshKey = useRef<string | null>(null);
@@ -149,6 +160,7 @@ export function WebsiteSettingsDialog({
       try {
         window.localStorage.removeItem(storageKey);
         window.localStorage.removeItem(`${storageKey}:started-at`);
+        window.localStorage.removeItem(`${storageKey}:slug`);
       } catch {
         // A terminal Production state does not need an old request key to resume.
       }
@@ -179,6 +191,63 @@ export function WebsiteSettingsDialog({
       setProductionNotice('');
     }
   }, [website?.id, t]);
+
+  useEffect(() => {
+    if (!website) return;
+    let savedSlug: string | null = null;
+    try {
+      savedSlug = window.localStorage.getItem(`${publishOperationKeyPrefix}${website.id}:slug`);
+    } catch {
+      // The selected address can still be edited if browser storage is unavailable.
+    }
+    let currentSlug = '';
+    if (website.production?.url) {
+      try {
+        currentSlug = new URL(website.production.url).hostname.split('.')[0] ?? '';
+      } catch {
+        currentSlug = '';
+      }
+    }
+    setProductionSlug(
+      currentSlug || savedSlug || suggestProductionSlug(website.name, website.id.slice(0, 6)),
+    );
+    setEditingProductionDomain(!website.production);
+  }, [website?.id, website?.production?.url, website?.name]);
+
+  useEffect(() => {
+    if (!website || !productionSlug) return;
+    const validation = normalizeProductionSlug(productionSlug);
+    if (!validation.valid) {
+      setProductionDomainAvailability('invalid');
+      setProductionDomainUrl('');
+      return;
+    }
+    let cancelled = false;
+    setProductionDomainAvailability('checking');
+    setProductionDomainUrl('');
+    const timer = window.setTimeout(() => {
+      void fetch(
+        `/api/websites/${website.id}/production/domain?slug=${encodeURIComponent(validation.slug)}`,
+      )
+        .then(async (response) => {
+          const payload = (await response.json()) as {
+            available?: boolean;
+            url?: string;
+          };
+          if (!response.ok) throw new Error('availability unavailable');
+          if (cancelled) return;
+          setProductionDomainAvailability(payload.available ? 'available' : 'taken');
+          setProductionDomainUrl(payload.url ?? '');
+        })
+        .catch(() => {
+          if (!cancelled) setProductionDomainAvailability('error');
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [website?.id, productionSlug]);
 
   useEffect(() => {
     if (!website) return;
@@ -373,18 +442,23 @@ export function WebsiteSettingsDialog({
         productionPublishKey.current = null;
         window.localStorage.removeItem(storageKey);
         window.localStorage.removeItem(`${storageKey}:started-at`);
+        window.localStorage.removeItem(`${storageKey}:slug`);
       }
+      const validatedSlug = normalizeProductionSlug(productionSlug);
+      if (!validatedSlug.valid) throw new Error(t('productionDomainInvalid'));
       let idempotencyKey = productionPublishKey.current;
       if (!idempotencyKey) {
         idempotencyKey = window.localStorage.getItem(storageKey) ?? crypto.randomUUID();
         productionPublishKey.current = idempotencyKey;
         window.localStorage.setItem(storageKey, idempotencyKey);
         window.localStorage.setItem(`${storageKey}:started-at`, String(Date.now()));
+        window.localStorage.setItem(`${storageKey}:slug`, validatedSlug.slug);
       }
       setProductionResumeAvailable(true);
       const response = await fetch(`/api/websites/${currentWebsite.id}/publish`, {
         method: 'POST',
-        headers: { 'idempotency-key': idempotencyKey },
+        headers: { 'idempotency-key': idempotencyKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ productionSlug: validatedSlug.slug }),
       });
       responseReceived = true;
       const payload = (await response.json()) as {
@@ -395,6 +469,7 @@ export function WebsiteSettingsDialog({
         productionPublishKey.current = null;
         window.localStorage.removeItem(storageKey);
         window.localStorage.removeItem(`${storageKey}:started-at`);
+        window.localStorage.removeItem(`${storageKey}:slug`);
         setProductionResumeAvailable(false);
         throw new Error(payload.error?.message || t('productionPublishError'));
       }
@@ -405,6 +480,7 @@ export function WebsiteSettingsDialog({
         productionPublishKey.current = null;
         window.localStorage.removeItem(storageKey);
         window.localStorage.removeItem(`${storageKey}:started-at`);
+        window.localStorage.removeItem(`${storageKey}:slug`);
         setProductionResumeAvailable(false);
         setProductionPending(false);
       }
@@ -420,6 +496,51 @@ export function WebsiteSettingsDialog({
       }
     } finally {
       setPublishing(false);
+    }
+  }
+
+  async function saveProductionDomain() {
+    if (!website) return;
+    const validation = normalizeProductionSlug(productionSlug);
+    if (!validation.valid) {
+      setProductionError(t('productionDomainInvalid'));
+      return;
+    }
+    const isRename = Boolean(website.production?.currentReleaseId);
+    if (
+      isRename &&
+      website.production?.url &&
+      productionSlug.toLowerCase() === slugFromProductionUrl(website.production.url)
+    ) {
+      setEditingProductionDomain(false);
+      return;
+    }
+    if (
+      isRename &&
+      !window.confirm(t('productionDomainChangeConfirm', { url: productionDomainUrl }))
+    )
+      return;
+    setSavingProductionDomain(true);
+    setProductionError('');
+    try {
+      const response = await fetch(`/api/websites/${website.id}/production/domain`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slug: validation.slug }),
+      });
+      const payload = (await response.json()) as {
+        error?: { message?: string };
+        url?: string;
+      };
+      if (!response.ok) throw new Error(payload.error?.message || t('productionDomainSaveError'));
+      setProductionSlug(validation.slug);
+      setEditingProductionDomain(false);
+      if (payload.url) setProductionDomainUrl(payload.url);
+      await onRefresh();
+    } catch (reason) {
+      setProductionError(reason instanceof Error ? reason.message : t('productionDomainSaveError'));
+    } finally {
+      setSavingProductionDomain(false);
     }
   }
   resumePublishOperation.current = () => void publishProduction();
@@ -835,11 +956,43 @@ export function WebsiteSettingsDialog({
             {!currentWebsite.production ? (
               <div className="website-settings-authorization">
                 <p>{t('productionNotPublished')}</p>
+                <label htmlFor="production-domain-slug">{t('productionDomainLabel')}</label>
+                <input
+                  id="production-domain-slug"
+                  className="website-production-domain-input"
+                  value={productionSlug}
+                  onChange={(event) => setProductionSlug(event.target.value)}
+                  disabled={publishing || productionResumeAvailable}
+                  maxLength={63}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="website-production-domain-hint">
+                  {productionDomainAvailability === 'checking'
+                    ? t('productionDomainChecking')
+                    : productionDomainAvailability === 'available'
+                      ? t('productionDomainAvailable')
+                      : productionDomainAvailability === 'taken'
+                        ? t('productionDomainTaken')
+                        : productionDomainAvailability === 'invalid'
+                          ? t('productionDomainInvalid')
+                          : productionDomainAvailability === 'error'
+                            ? t('productionDomainCheckError')
+                            : t('productionDomainRules')}
+                </p>
+                {productionDomainUrl ? (
+                  <code className="website-production-domain-preview">{productionDomainUrl}</code>
+                ) : null}
                 <button
                   className="primary-button"
                   type="button"
                   onClick={() => void publishProduction()}
-                  disabled={publishing || refreshingProduction || currentWebsite.status !== 'ready'}
+                  disabled={
+                    publishing ||
+                    refreshingProduction ||
+                    currentWebsite.status !== 'ready' ||
+                    productionDomainAvailability !== 'available'
+                  }
                 >
                   {publishing
                     ? t('productionPublishing')
@@ -877,6 +1030,76 @@ export function WebsiteSettingsDialog({
                     </div>
                   </div>
                 ) : null}
+                {editingProductionDomain ? (
+                  <div className="website-settings-authorization">
+                    <label htmlFor="production-domain-slug">{t('productionDomainLabel')}</label>
+                    <input
+                      id="production-domain-slug"
+                      className="website-production-domain-input"
+                      value={productionSlug}
+                      onChange={(event) => setProductionSlug(event.target.value)}
+                      disabled={savingProductionDomain}
+                      maxLength={63}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <p className="website-production-domain-hint">
+                      {productionDomainAvailability === 'checking'
+                        ? t('productionDomainChecking')
+                        : productionDomainAvailability === 'available'
+                          ? t('productionDomainAvailable')
+                          : productionDomainAvailability === 'taken'
+                            ? t('productionDomainTaken')
+                            : productionDomainAvailability === 'invalid'
+                              ? t('productionDomainInvalid')
+                              : productionDomainAvailability === 'error'
+                                ? t('productionDomainCheckError')
+                                : t('productionDomainRules')}
+                    </p>
+                    {productionDomainUrl ? (
+                      <code className="website-production-domain-preview">
+                        {productionDomainUrl}
+                      </code>
+                    ) : null}
+                    {currentWebsite.production?.currentReleaseId ? (
+                      <p>{t('productionDomainChangeNotice')}</p>
+                    ) : null}
+                    <div className="website-settings-preview-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => void saveProductionDomain()}
+                        disabled={
+                          savingProductionDomain || productionDomainAvailability !== 'available'
+                        }
+                      >
+                        {savingProductionDomain
+                          ? t('productionDomainSaving')
+                          : t('productionDomainSave')}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setEditingProductionDomain(false);
+                          setProductionError('');
+                        }}
+                        disabled={savingProductionDomain}
+                      >
+                        {common('cancel')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setEditingProductionDomain(true)}
+                    disabled={publishing || refreshingProduction}
+                  >
+                    {t('productionDomainEdit')}
+                  </button>
+                )}
                 {currentWebsite.production.status === 'authorization_required' ? (
                   <form className="website-settings-authorization" onSubmit={authorizeProduction}>
                     <p>{t('productionAuthorizationDescription')}</p>
@@ -908,45 +1131,49 @@ export function WebsiteSettingsDialog({
                   </form>
                 ) : null}
                 {currentWebsite.production.status !== 'authorization_required' ? (
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={() =>
-                      void publishProduction(currentWebsite.production?.status === 'failed')
-                    }
-                    disabled={
-                      publishing ||
-                      refreshingProduction ||
+                  <div className="website-production-actions">
+                    <button
+                      className="primary-button"
+                      type="button"
+                      onClick={() =>
+                        void publishProduction(currentWebsite.production?.status === 'failed')
+                      }
+                      disabled={
+                        publishing ||
+                        refreshingProduction ||
+                        (['provisioning', 'activating'].includes(
+                          currentWebsite.production?.status ?? '',
+                        ) &&
+                          !productionResumeAvailable) ||
+                        currentWebsite.status !== 'ready'
+                      }
+                    >
+                      {publishing ||
                       (['provisioning', 'activating'].includes(
                         currentWebsite.production?.status ?? '',
                       ) &&
-                        !productionResumeAvailable) ||
-                      currentWebsite.status !== 'ready'
-                    }
-                  >
-                    {publishing ||
-                    (['provisioning', 'activating'].includes(
-                      currentWebsite.production?.status ?? '',
-                    ) &&
-                      !productionResumeAvailable)
-                      ? t('productionPublishing')
-                      : productionResumeAvailable &&
-                          ['provisioning', 'activating'].includes(currentWebsite.production.status)
-                        ? t('productionResume')
-                        : t('productionRepublish')}
-                  </button>
-                ) : null}
-                {currentWebsite.production.status === 'active' ? (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    onClick={() => void refreshWorkspaceFromProduction()}
-                    disabled={refreshingProduction || checkingProductionRefresh || publishing}
-                  >
-                    {refreshingProduction || checkingProductionRefresh
-                      ? t('productionRefreshing')
-                      : t('productionRefresh')}
-                  </button>
+                        !productionResumeAvailable)
+                        ? t('productionPublishing')
+                        : productionResumeAvailable &&
+                            ['provisioning', 'activating'].includes(
+                              currentWebsite.production.status,
+                            )
+                          ? t('productionResume')
+                          : t('productionRepublish')}
+                    </button>
+                    {currentWebsite.production.status === 'active' ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void refreshWorkspaceFromProduction()}
+                        disabled={refreshingProduction || checkingProductionRefresh || publishing}
+                      >
+                        {refreshingProduction || checkingProductionRefresh
+                          ? t('productionRefreshing')
+                          : t('productionRefresh')}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             )}
@@ -965,78 +1192,96 @@ export function WebsiteSettingsDialog({
           </section>
         </div>
 
-        <div className={`website-settings-delete${confirmingDelete ? ' is-confirming' : ''}`}>
-          {!confirmingDelete ? (
-            <div
-              className={`website-settings-actions${
-                currentWebsite.status === 'authorization_required' ? ' has-authorization' : ''
-              }`}
-            >
-              {currentWebsite.status === 'authorization_required' ? (
-                <button
-                  className="primary-button"
-                  type="submit"
-                  form="pboot-authorization-form"
-                  disabled={authorizing}
-                >
-                  {authorizing ? t('verifying') : t('saveVerify')}
-                </button>
-              ) : null}
+        <div className="website-settings-delete">
+          <div
+            className={`website-settings-actions${
+              currentWebsite.status === 'authorization_required' ? ' has-authorization' : ''
+            }`}
+          >
+            {currentWebsite.status === 'authorization_required' ? (
               <button
-                className="secondary-button danger-button"
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                disabled={authorizing || retryingTemplate || publishing || productionAuthorizing}
+                className="primary-button"
+                type="submit"
+                form="pboot-authorization-form"
+                disabled={authorizing}
               >
-                {t('deleteWebsite')}
+                {authorizing ? t('verifying') : t('saveVerify')}
               </button>
-            </div>
-          ) : (
-            <div
-              className="website-delete-confirmation"
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="website-delete-confirm-title"
-              aria-describedby="website-delete-confirm-description website-delete-confirm-warning"
+            ) : null}
+            <button
+              className="secondary-button danger-button"
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={authorizing || retryingTemplate || publishing || productionAuthorizing}
             >
-              <h4 id="website-delete-confirm-title">{t('confirmDeleteWebsite')}</h4>
-              <p id="website-delete-confirm-description">
-                {t('deleteWebsiteDescription', { name: currentWebsite.name })}
-              </p>
-              <p id="website-delete-confirm-warning">{t('deleteWebsiteWarning')}</p>
-              {error ? (
-                <p className="website-modal-error" role="alert">
-                  {error}
-                </p>
-              ) : null}
-              <div className="website-dialog-actions">
-                <button
-                  className="secondary-button"
-                  type="button"
-                  autoFocus
-                  onClick={() => {
-                    setConfirmingDelete(false);
-                    setError('');
-                  }}
-                  disabled={deleting}
-                >
-                  {common('cancel')}
-                </button>
-                <button
-                  className="primary-button danger-button"
-                  type="button"
-                  onClick={() => void deleteWebsite()}
-                  disabled={deleting}
-                >
-                  {deleting ? t('deletingWebsite') : t('confirmDeleteWebsite')}
-                </button>
-              </div>
-            </div>
-          )}
+              {t('deleteWebsite')}
+            </button>
+          </div>
         </div>
       </section>
+      {confirmingDelete ? (
+        <div
+          className="website-dialog-backdrop website-delete-confirmation-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deleting) {
+              setConfirmingDelete(false);
+              setError('');
+            }
+          }}
+        >
+          <section
+            className="website-dialog-panel website-delete-confirmation"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="website-delete-confirm-title"
+            aria-describedby="website-delete-confirm-description website-delete-confirm-warning"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <h2 id="website-delete-confirm-title">{t('confirmDeleteWebsite')}</h2>
+            <p id="website-delete-confirm-description">
+              {t('deleteWebsiteDescription', { name: currentWebsite.name })}
+            </p>
+            <p id="website-delete-confirm-warning">{t('deleteWebsiteWarning')}</p>
+            {error ? (
+              <p className="website-modal-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            <div className="website-dialog-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                autoFocus
+                onClick={() => {
+                  setConfirmingDelete(false);
+                  setError('');
+                }}
+                disabled={deleting}
+              >
+                {common('cancel')}
+              </button>
+              <button
+                className="primary-button danger-button"
+                type="button"
+                onClick={() => void deleteWebsite()}
+                disabled={deleting}
+              >
+                {deleting ? t('deletingWebsite') : t('confirmDeleteWebsite')}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function slugFromProductionUrl(value: string): string {
+  try {
+    return new URL(value).hostname.split('.')[0]?.toLowerCase() ?? '';
+  } catch {
+    return '';
+  }
 }
 
 function productionStatusMessage(status: string): string {

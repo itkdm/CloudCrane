@@ -852,12 +852,15 @@ Real-time Dev/Prod DB Sync
 - ADR-053：CloudCrane 平台当前公网 Ingress 使用 Nginx；与 ADR-050 的 Website Production Runtime Gateway 属于不同部署角色。
 - ADR-054：Production Release V1 使用流式 ZIP 与 `manifest.json`；选择依据是仓库已依赖的 `fflate` 支持流式 ZIP，且可在不新增外部压缩运行时的情况下实现 SHA-256 和路径校验。制品格式与 Template Snapshot 相互独立。
 - ADR-055：首次 Publish 可初始化 `data/**`、`static/upload/**` 和 `config/config.php`；后续普通 Release 永不覆盖这三类 Production 状态。
+- ADR-056：Production 子域前缀是用户可选择、可变更的公开路由标识；Production Runtime 的稳定身份仍是 `websiteId`，不能用改域名改变运行时身份。
+- ADR-057：Production 域名使用数据库全局唯一的规范化 DNS label；修改已发布站点域名时永久保留旧 label 并通过 Gateway 308 跳转，域名变更后必须按新 Host 重新完成 PbootCMS 官方授权。
 
-## 当前实现状态（截至 2026-10-04）
+## 当前实现状态（截至 2026-10-08）
 
 本节给出代码与已完成验收的当前摘要。下方按日期记录的实现/排障内容是历史过程证据；其中“尚未实现”“等待线上验收”等文字只代表记录当时状态，若与本节冲突，以本节和[工程生命周期说明](../operations/cloudcrane-development-lifecycle.md)为准。
 
 - **Workspace / Production**：Runner 使用独立 Docker Workspace 与 Production Runtime。Production 有独立 Release、持久化 DB/uploads、健康探针、原子激活与 Gateway/Nginx 入口；正式域名格式为 `{productionSlug}.site.itkdm.com`。发布代码只从 Workspace 向 Production，Production DB/uploads 是生产内容源。
+- **Production 域名前缀**：首次发布时用户可编辑建议前缀；设置中可修改已发布站点前缀。数据库 `production_domain` 对当前域名及历史别名统一唯一，输入检查只是提示，最终由唯一索引处理并发冲突。已发布站点换名后旧域名永久保留并由 Production Gateway 308 跳转；新域名必须重新完成 PbootCMS 官方域名授权。Runtime 容器以稳定 `websiteId` 识别，前缀仅用于公网路由与 Host 授权。
 - **Publish / Refresh**：Production Publish 与单站 `production.ensure` 已实现；Release 操作具备幂等和状态恢复。Production → Workspace Refresh 只回流 SQLite 与 uploads，替换前备份并校验，不覆盖 Workspace 代码。真实测试站完成过发布、刷新/响应丢失恢复与内容保持验证。
 - **CMS 操作**：Agent 可读取栏目/内容/公司信息，更新内容/公司信息，新增草稿、上传当前消息附件图片、在受限列表栏目下创建隐藏子栏目。PbootCMS 3.2.24 和 3.2.26 有 Docker 集成覆盖；缓存刷新、幂等、公开页面/图片等线上证据见生命周期文档。
 - **Workspace 边界**：当前 Runner 主机的 ext4 project quota 和 Metadata host-level deny 已部署并验证；host policy 在服务、Docker 与整机重启场景恢复。当前主机云销售商/控制面未核实，provider-specific token 模式不是此网络隔离结论的前提。
