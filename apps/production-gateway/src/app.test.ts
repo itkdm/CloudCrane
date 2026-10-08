@@ -138,7 +138,7 @@ describe('Production Gateway Host routing', () => {
     expect(invalidHost.statusCode).toBe(404);
     expect(nonRoutableState.statusCode).toBe(503);
     expect(activating.statusCode).toBe(503);
-    expect(store.findBySlug).toHaveBeenCalledTimes(2);
+    expect(store.findBySlug).toHaveBeenCalledTimes(3);
   });
 });
 
