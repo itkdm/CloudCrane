@@ -1,14 +1,18 @@
 import type {
   ProductionOperationName,
+  RunnerRuntimeState,
   RunnerOperation,
   WorkspaceRunnerOperation,
 } from '@cloudcrane/workspace-protocol';
+import { createLogger, serializeError } from '@cloudcrane/shared';
 import { WorkspaceDaemonClient } from '../daemon/workspace-daemon-client.js';
 import { WorkspaceRuntimeService } from '../../application/workspace-runtime-service.js';
 import type { WorkspaceRuntime } from '../../ports/workspace-provider.js';
 import type { ProductionOperationExecutor } from '../../ports/production-operation-executor.js';
 
 export class WorkspaceOperationHandler {
+  private readonly logger = createLogger('runner.workspace-operation');
+
   constructor(
     private readonly runtime: WorkspaceRuntimeService,
     private readonly production?: ProductionOperationExecutor,
@@ -24,6 +28,41 @@ export class WorkspaceOperationHandler {
       return this.production.execute(operation);
     }
     return this.executeWorkspace(operation);
+  }
+
+  async executeWithRuntimeState(
+    operation: RunnerOperation,
+  ): Promise<{ result: unknown; runtimeState?: RunnerRuntimeState }> {
+    const startedAt = Date.now();
+    const result = await this.execute(operation);
+    if (operation.type === 'production.operation') return { result };
+
+    if (operation.operation.startsWith('runtime.')) {
+      return {
+        result,
+        ...(isRuntimeState(result) ? { runtimeState: toRunnerRuntimeState(result) } : {}),
+      };
+    }
+
+    try {
+      const remainingMs = operation.deadlineMs - (Date.now() - startedAt);
+      if (remainingMs <= 0) return { result };
+      const runtime = await withTimeout(this.runtime.status(operation.workspaceId), remainingMs);
+      return { result, runtimeState: toRunnerRuntimeState(runtime) };
+    } catch (error) {
+      // State synchronization is best-effort and must not turn a completed workspace operation
+      // into a failure. The control plane will retain its last known runtime state.
+      this.logger.warn(
+        {
+          event: 'workspace.runtime.state.sync_failed',
+          operation: operation.operation,
+          workspaceId: operation.workspaceId,
+          ...serializeError(error),
+        },
+        'workspace runtime state synchronization failed',
+      );
+      return { result };
+    }
   }
 
   private async executeWorkspace(operation: WorkspaceRunnerOperation): Promise<unknown> {
@@ -92,4 +131,54 @@ export class WorkspaceOperationHandler {
   private remaining(deadlineAt: number) {
     return Math.max(1, deadlineAt - Date.now());
   }
+}
+
+function isRuntimeState(value: unknown): value is {
+  workspaceId: string;
+  status: RunnerRuntimeState['status'];
+  containerRef?: string;
+  workspacePath?: string;
+  previewPort?: number;
+} {
+  if (!value || typeof value !== 'object') return false;
+  const runtime = value as Record<string, unknown>;
+  return (
+    typeof runtime.workspaceId === 'string' &&
+    ['created', 'running', 'stopped', 'missing', 'error'].includes(String(runtime.status))
+  );
+}
+
+function toRunnerRuntimeState(runtime: {
+  workspaceId: string;
+  status: RunnerRuntimeState['status'];
+  containerRef?: string;
+  workspacePath?: string;
+  previewPort?: number;
+}): RunnerRuntimeState {
+  return {
+    workspaceId: runtime.workspaceId,
+    status: runtime.status,
+    ...(runtime.containerRef ? { containerRef: runtime.containerRef } : {}),
+    ...(runtime.workspacePath ? { workspacePath: runtime.workspacePath } : {}),
+    ...(typeof runtime.previewPort === 'number' ? { previewPort: runtime.previewPort } : {}),
+  };
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('runtime state synchronization timed out')),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }

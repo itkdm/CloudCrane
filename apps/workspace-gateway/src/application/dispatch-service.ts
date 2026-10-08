@@ -3,9 +3,10 @@ import {
   isMutationOperation,
   type ClientOperation,
   type RunnerOperation,
+  type RunnerRuntimeState,
 } from '@cloudcrane/workspace-protocol';
 import { GatewayRemoteError, remoteError } from '../errors.js';
-import type { ControlPlaneStore } from '../ports/control-plane-store.js';
+import type { ControlPlaneStore, WorkspaceBinding } from '../ports/control-plane-store.js';
 import { RunnerDispatchError, RunnerRegistry } from '../infrastructure/runner-registry.js';
 import { createLogger, injectTraceparent, serializeError, withSpan } from '@cloudcrane/shared';
 
@@ -64,7 +65,13 @@ export class WorkspaceDispatchService {
         throw new GatewayRemoteError(result.error, result.outcome === 'UNKNOWN' ? 504 : 502);
       if (result.type !== 'runner.completed')
         throw remoteError('PROTOCOL_ERROR', 'runner returned an incomplete result');
-      await this.updateState(operation, result.result, runner.runnerId);
+      await this.updateState(
+        operation,
+        result.result,
+        runner.runnerId,
+        binding,
+        result.runtimeState,
+      );
       operationCompleted = true;
       const auditFinalized = await this.finishAudit(auditId, {
         status: 'SUCCESS',
@@ -155,8 +162,19 @@ export class WorkspaceDispatchService {
     }
   }
 
-  private async updateState(operation: ClientOperation, result: unknown, runnerId: string) {
-    if (!operation.operation.startsWith('runtime.')) return;
+  private async updateState(
+    operation: ClientOperation,
+    result: unknown,
+    runnerId: string,
+    binding: WorkspaceBinding,
+    runtimeState?: RunnerRuntimeState,
+  ) {
+    if (!operation.operation.startsWith('runtime.')) {
+      if (runtimeState) {
+        await this.persistRuntimeState(operation.workspaceId, binding, runtimeState);
+      }
+      return;
+    }
     const runtime =
       typeof result === 'object' && result !== null ? (result as Record<string, unknown>) : {};
     if (operation.operation === 'runtime.create')
@@ -171,18 +189,20 @@ export class WorkspaceDispatchService {
       operation.operation === 'runtime.start' ||
       operation.operation === 'runtime.stop' ||
       operation.operation === 'runtime.status'
-    )
-      await this.store.updateWorkspace(operation.workspaceId, {
-        status: String(runtime.status ?? 'unknown'),
-        ...((operation.operation === 'runtime.start' ||
-          (operation.operation === 'runtime.status' && runtime.status === 'running')) &&
-        typeof runtime.previewPort === 'number'
-          ? { previewPort: runtime.previewPort }
-          : operation.operation === 'runtime.stop' ||
-              (operation.operation === 'runtime.status' && runtime.status !== 'running')
-            ? { previewPort: null }
-            : {}),
+    ) {
+      const status = runtime.status;
+      if (!isRuntimeStatus(status))
+        throw remoteError('PROTOCOL_ERROR', 'runner returned an invalid runtime status');
+      await this.persistRuntimeState(operation.workspaceId, binding, {
+        workspaceId: operation.workspaceId,
+        status,
+        ...(typeof runtime.containerRef === 'string' ? { containerRef: runtime.containerRef } : {}),
+        ...(typeof runtime.workspacePath === 'string'
+          ? { workspacePath: runtime.workspacePath }
+          : {}),
+        ...(typeof runtime.previewPort === 'number' ? { previewPort: runtime.previewPort } : {}),
       });
+    }
     if (operation.operation === 'runtime.destroy')
       await this.store.updateWorkspace(operation.workspaceId, {
         runnerId: null,
@@ -191,6 +211,36 @@ export class WorkspaceDispatchService {
         workspacePath: null,
         previewPort: null,
       });
+  }
+
+  private async persistRuntimeState(
+    workspaceId: string,
+    binding: WorkspaceBinding,
+    runtime: RunnerRuntimeState,
+  ) {
+    if (runtime.workspaceId !== workspaceId) {
+      this.logger.warn(
+        {
+          event: 'workspace.runtime.state.mismatch',
+          workspaceId,
+          reportedWorkspaceId: runtime.workspaceId,
+        },
+        'ignored runtime state for a different workspace',
+      );
+      return;
+    }
+    const patch: Parameters<ControlPlaneStore['updateWorkspace']>[1] = {
+      status: runtime.status,
+      ...(runtime.containerRef !== undefined ? { containerRef: runtime.containerRef } : {}),
+      ...(runtime.workspacePath !== undefined ? { workspacePath: runtime.workspacePath } : {}),
+      previewPort: runtime.status === 'running' ? (runtime.previewPort ?? null) : null,
+    };
+    const changed =
+      binding.status !== patch.status ||
+      (patch.containerRef !== undefined && binding.containerRef !== patch.containerRef) ||
+      (patch.workspacePath !== undefined && binding.workspacePath !== patch.workspacePath) ||
+      binding.previewPort !== patch.previewPort;
+    if (changed) await this.store.updateWorkspace(workspaceId, patch);
   }
 
   private publicResult(operation: ClientOperation, result: unknown): unknown {
@@ -206,4 +256,8 @@ export class WorkspaceDispatchService {
     if (operation.operation === 'runtime.destroy') return null;
     return result;
   }
+}
+
+function isRuntimeStatus(value: unknown): value is RunnerRuntimeState['status'] {
+  return ['created', 'running', 'stopped', 'missing', 'error'].includes(String(value));
 }

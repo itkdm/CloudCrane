@@ -17,6 +17,7 @@ import {
   isRunnerMutationOperation,
   type RemoteError,
   type RunnerOperation,
+  type RunnerRuntimeState,
 } from '@cloudcrane/workspace-protocol';
 import type { RunnerConfig } from '../../config.js';
 import { WorkspaceOperationHandler } from './workspace-operation-handler.js';
@@ -47,11 +48,14 @@ export class RunnerGatewayConnection {
   private attempt = 0;
   private readonly completed = new Map<
     string,
-    { result: unknown; fingerprint: string; at: number }
+    { result: unknown; runtimeState?: RunnerRuntimeState; fingerprint: string; at: number }
   >();
   private readonly inFlight = new Map<
     string,
-    { execution: Promise<unknown>; fingerprint: string }
+    {
+      execution: Promise<{ result: unknown; runtimeState?: RunnerRuntimeState }>;
+      fingerprint: string;
+    }
   >();
 
   constructor(
@@ -134,7 +138,7 @@ export class RunnerGatewayConnection {
     if (cached) {
       if (cached.fingerprint !== fingerprint)
         return this.sendIdempotencyConflict(socket, operation);
-      return this.sendCompleted(socket, operation, cached.result, 0);
+      return this.sendCompleted(socket, operation, cached.result, 0, cached.runtimeState);
     }
     const existing = idempotencyKey ? this.inFlight.get(idempotencyKey) : undefined;
     if (existing && existing.fingerprint !== fingerprint)
@@ -187,7 +191,10 @@ export class RunnerGatewayConnection {
                   'cloudcrane.agent_run_id': operation.agentRunId,
                   'cloudcrane.runner_id': this.config.runnerId,
                 },
-                () => this.handler.execute(operation),
+                () =>
+                  typeof this.handler.executeWithRuntimeState === 'function'
+                    ? this.handler.executeWithRuntimeState(operation)
+                    : this.handler.execute(operation).then((result) => ({ result })),
               ),
             ),
         );
@@ -195,9 +202,9 @@ export class RunnerGatewayConnection {
         if (idempotencyKey) this.inFlight.set(idempotencyKey, pending);
       }
       if (!pending) throw new Error('runner operation execution was not initialized');
-      const result = await pending.execution;
+      const completed = await pending.execution;
       if (idempotencyKey) {
-        this.completed.set(idempotencyKey, { result, fingerprint, at: Date.now() });
+        this.completed.set(idempotencyKey, { ...completed, fingerprint, at: Date.now() });
         for (const [key, value] of this.completed)
           if (Date.now() - value.at > 300_000) this.completed.delete(key);
         while (this.completed.size > 1_000)
@@ -218,7 +225,13 @@ export class RunnerGatewayConnection {
         },
         'runner operation completed',
       );
-      this.sendCompleted(socket, operation, result, Date.now() - started);
+      this.sendCompleted(
+        socket,
+        operation,
+        completed.result,
+        Date.now() - started,
+        completed.runtimeState,
+      );
     } catch (error) {
       const remote = toRemoteError(error);
       logger.warn(
@@ -265,6 +278,7 @@ export class RunnerGatewayConnection {
     operation: RunnerOperation,
     result: unknown,
     durationMs: number,
+    runtimeState?: RunnerRuntimeState,
   ) {
     socket.send(
       JSON.stringify({
@@ -272,6 +286,7 @@ export class RunnerGatewayConnection {
         requestId: operation.requestId,
         traceId: operation.traceId,
         result,
+        ...(runtimeState ? { runtimeState } : {}),
         durationMs,
       }),
     );

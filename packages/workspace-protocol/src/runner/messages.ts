@@ -115,6 +115,15 @@ export const runnerCompletedSchema = z.object({
   requestId: z.string().uuid(),
   traceId: z.string().uuid(),
   result: z.unknown(),
+  runtimeState: z
+    .object({
+      workspaceId: z.string().uuid(),
+      status: z.enum(['created', 'running', 'stopped', 'missing', 'error']),
+      containerRef: z.string().optional(),
+      workspacePath: z.string().optional(),
+      previewPort: z.number().int().positive().optional(),
+    })
+    .optional(),
   durationMs: z.number().int().nonnegative(),
 });
 
@@ -137,6 +146,7 @@ export type RunnerRegister = z.infer<typeof runnerRegisterSchema>;
 export type RunnerRegistered = z.infer<typeof runnerRegisteredSchema>;
 export type RunnerHeartbeat = z.infer<typeof runnerHeartbeatSchema>;
 export type RunnerOperation = z.infer<typeof runnerOperationSchema>;
+export type RunnerRuntimeState = NonNullable<z.infer<typeof runnerCompletedSchema>['runtimeState']>;
 export type WorkspaceRunnerOperation = z.infer<typeof workspaceRunnerOperationSchema>;
 export type RunnerResult = z.infer<typeof runnerResultSchema>;
 
